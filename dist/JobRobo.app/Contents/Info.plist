@@ -63,17 +63,16 @@
 	<array/>
 	<key>PyRuntimeLocations</key>
 	<array>
-		<string>@executable_path/../Frameworks/libpython3.9.dylib</string>
+		<string>@executable_path/../Frameworks/libpython3.10.dylib</string>
 	</array>
 	<key>PythonInfoDict</key>
 	<dict>
 		<key>PythonExecutable</key>
-		<string>/Users/deepakbasavaraju/.pyenv/versions/3.9.18/bin/python</string>
+		<string>/Users/deepakbasavaraju/.pyenv/versions/jobrobo-build-env/bin/python</string>
 		<key>PythonLongVersion</key>
-		<string>3.9.18 (main, May 16 2025, 12:03:37) 
-[Clang 16.0.0 (clang-1600.0.26.6)]</string>
+		<string>3.10.14 (main, Apr 25 2025, 19:11:26) [Clang 16.0.0 (clang-1600.0.26.6)]</string>
 		<key>PythonShortVersion</key>
-		<string>3.9</string>
+		<string>3.1</string>
 		<key>py2app</key>
 		<dict>
 			<key>alias</key>

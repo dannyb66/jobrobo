@@ -12398,3 +12398,90 @@ BS/MS in Computer Science/Engineering or equivalent.
  Location: Menlo Park, CA (onsite 2 days/week)
  Employment Type: Full-Time
  Compensation: $150-170K base (DOE)",5,Needs an AI,David Gutierrez ,https://www.linkedin.com/in/david-gutierrez-b380156,Previous resume,False,Unknown,2025-05-07 16:27:43.825575,https://www.linkedin.com/jobs/view/4221461368,Easy Applied,"{('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'deepakbasavaraju7@gmail.com'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)')}",In Development
+4225867152,Full Stack Engineer,Sawmill,wmill,wmill,"About the job
+About Us:
+Sawmills.ai is leading the charge in transforming observability for today's data-driven world. As a well-funded seed-stage company founded by experienced entrepreneurs with a track record of building successful ventures, we are developing a solution to address some of the most pressing challenges in modern observability.
+Job Description:
+As a Full Stack Engineer at Sawmills.ai, you will be instrumental in building our Telemetry Data Management Platform. This role involves designing and developing both scalable backend systems that integrate seamlessly with open technologies like OpenTelemetry, and intuitive frontend interfaces to visualize and interact with this data, ensuring our platform remains at the cutting edge of observability solutions.
+
+Responsibilities:
+Develop and scale both the backend and frontend of our Telemetry Data Management Platform, emphasizing compatibility with open technologies such as OpenTelemetry.
+Architect systems that process and analyze vast amounts of machine data efficiently and design user-friendly interfaces for data exploration and analysis.
+Actively participate in strategic planning and the development of technical roadmaps for both backend and frontend functionalities.
+Work closely with the team to ensure features meet customer needs and are delivered to a high standard across the full stack.
+Collaborate with the team to enhance integration with widely-used observability tools, ensuring robust and flexible data ingestion, analysis, and visualization capabilities.
+Advocate for and implement best practices in open-source software development, contributing to the open-source community where applicable, and applying modern frontend development principles.
+Monitor, troubleshoot, and optimize system performance and reliability across the entire stack.
+Lead and mentor a team of developers, fostering a culture of technical excellence and innovation in both backend and frontend development.
+Stay abreast of new technologies and techniques in fullstack development and observability platforms.
+Qualifications:
+
+BSc in Computer Science, Engineering, or a related field.
+Over 8 years of experience in full stack development, with a strong background in handling large-scale data systems and building interactive user interfaces.
+Expertise in programming languages like Go, Rust, Java, or Python for the backend and modern JavaScript frameworks (e.g., React, Vue.js) for the frontend. Proven track record in building scalable server architectures and engaging user experiences.
+Experience with open-source technologies and standards, particularly OpenTelemetry, is highly desirable.
+Familiarity with cloud services, microservices architectures, and continuous integration/continuous deployment (CI/CD) pipelines.
+Strong analytical and problem-solving skills across the stack.
+Excellent communication and leadership skills.
+What We Offer:
+
+A competitive salary and equity in a fast-growing startup.
+The chance to be an early member, shaping the company's culture and product direction across both backend and frontend.
+Comprehensive benefits package including health insurance and wellness programs.
+Access to the latest tools and technologies for full stack development.
+Opportunities for professional growth and development in a supportive and collaborative environment.",8,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-16 14:27:44.965026,https://www.linkedin.com/jobs/view/4225867152,Easy Applied,"{('Email [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'deepakbasavaraju7@gmail.com'), ('phone', '628-310-5660', 'text', '628-310-5660'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)')}",In Development
+4229237492,Software Engineer II,Xpans,ans,ans,"About the job
+Job Description
+Summary:
+Software Engineer, II is responsible for designing, developing, and implementing software solutions that meet the needs of our organization. Must have a strong background in software development, a passion for coding, and the ability to work on complex projects independently.
+
+Essential Job Duties and Responsibilities: 
+Design, develop, and maintain high-quality software solutions that align with project requirements.
+Collaborate with cross-functional teams to analyze user needs and system requirements.
+Write clean, efficient, and maintainable code in various programming languages.
+Conduct thorough testing and debugging of software applications to ensure optimal performance.
+Participate in code reviews and provide constructive feedback to peers.
+Research and evaluate new technologies to drive innovation and improve existing systems.
+Document software designs and technical specifications for reference and reporting.
+Provide technical guidance and mentorship to junior team members.
+Comply with all company policies and procedures.
+Maintain regular and punctual attendance.
+
+Other Job Duties and Responsibilities: 
+Performs other related duties as assigned.
+
+Supervisory Responsibilities: 
+This position is an individual contributor with no direct reports but may provide guidance, leadership, or training to others.
+
+Qualifications:
+To perform this job successfully, an individual must be able to perform each essential function satisfactorily. The requirements listed below are representative of the knowledge, skill, and/or ability required.
+5+ years of Cloud Engineering/Infrastructure experience
+Bachelor’s degree in Computer Science, Engineering, or a related field.
+Deep knowledge of AWS services including Lambda, Step functions, DynamoDB, Redshift, RDS/Aurora, S3, SNS, SQS, EC2, IAM, Load balancing, Networking, and WAF
+Strong proficiency with IaC tools such as Terraform
+Experience with monitoring tool, ideally Sumo Logic or similar
+Experience with Postman or similar API testing tool
+Experience with Kubernetes, OpenShift, or other container orchestration platforms preferred
+Salesforce CRM, Sales Cloud, Service Cloud experience desired 
+Proficiency in programming languages such as Java, Python, C++, or others.
+Strong understanding of software development methodologies and best practices.
+Experience with database management systems and web technologies.
+Excellent problem-solving skills and attention to detail.
+Ability to work independently and as part of a team.
+Strong communication and interpersonal skills.
+
+Key Responsibilities:
+Experience developing Spring boot applications.
+Experience writing Java and NodeJS Lambdas, EC.
+Experience in creating API’s to integration with frontend or backend systems
+Actively work to uncover, troubleshoot and resolve API service, CI/CD pipeline issues.
+Basic knowledge on AWS database like Dynamo DB
+Contribute to workflow optimizations, and integrating with AWS services.
+Build and support CI/CD pipelines 
+Perform testing on any code development prior to deployment
+Work to build, test and modify API’s using Postman
+Regularly review cloud solutions with a pragmatic lens, considering reliability, cost, security, and future growth
+
+Education and/or Experience:
+Bachelor’s degree in Computer Science, Software Engineering, or related field.
+Proven experience as a Software Engineer with at least 6-7 of experience.",5,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-16 14:27:53.883509,https://www.linkedin.com/jobs/view/4229237492,Easy Applied,"{('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'deepakbasavaraju7@gmail.com'), ('Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)? [  ""Yes""<Yes>, ""No""<No>, ]', '""No""<No>', 'radio', '""No""<No>'), ('how many years of work experience do you have with amazon web services (aws)?', '6', 'text', '6'), ('Are you legally authorized to work in the United States? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('how many years of work experience do you have with spring boot?', '4', 'text', '4'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('how many years of work experience do you have with java?', '4', 'text', '4')}",In Development

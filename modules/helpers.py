@@ -45,7 +45,9 @@ def make_directories(paths: list[str]) -> None:
             print(f'Error while creating directory "{path}": ', e)
 
 
-def find_default_profile_directory() -> str | None:
+from typing import Optional
+def find_default_profile_directory() -> Optional[str]:
+# def find_default_profile_directory() -> str | None:
     '''
     Function to search for Chrome Profiles within default locations
     '''
@@ -85,7 +87,9 @@ def get_log_path():
 __logs_file_path = get_log_path()
 
 
-def print_lg(*msgs: str | dict, end: str = "\n", pretty: bool = False, flush: bool = False, from_critical: bool = False) -> None:
+from typing import Union
+def print_lg(*msgs: Union[str, dict], end: str = "\n", pretty: bool = False, flush: bool = False, from_critical: bool = False) -> None:
+# def print_lg(*msgs: str | dict, end: str = "\n", pretty: bool = False, flush: bool = False, from_critical: bool = False) -> None:
     '''
     Function to log and print. **Note that, `end` and `flush` parameters are ignored if `pretty = True`**
     '''
@@ -138,8 +142,8 @@ def manual_login_retry(is_logged_in: callable, limit: int = 2) -> None:
         if alert(message, "Login Required", button) and count > limit: return
 
 
-
-def calculate_date_posted(time_string: str) -> datetime | None | ValueError:
+def calculate_date_posted(time_string: str) -> Optional[datetime]:
+# def calculate_date_posted(time_string: str) -> datetime | None | ValueError:
     '''
     Function to calculate date posted from string.
     Returns datetime object | None if unable to calculate | ValueError if time_string is invalid
