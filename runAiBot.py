@@ -1143,7 +1143,7 @@ def main() -> None:
         # except Exception as e: critical_error_log("When quitting...", e)
 
 # write a wrapper function to run the main function that loops until the user closes the browser
-def run_wrapper():
+def run_bot():
     while True:
         try:
             print_lg("Starting the bot...")
@@ -1153,6 +1153,6 @@ def run_wrapper():
         except Exception as e:
             print_lg("An error occurred in the main loop:", e)
 
-if __name__ == "__main__":
-    # main()
-    run_wrapper()
+# if __name__ == "__main__":
+#     main()
+#     run_bot()

@@ -1,0 +1,18 @@
+from setuptools import setup
+
+APP = ['JobRobo.py']
+DATA_FILES = []
+OPTIONS = {
+    'argv_emulation': False,
+    'packages': ['PyQt5', 'selenium', 'openai', 'pyautogui', 'pdfplumber', 'undetected_chromedriver'],
+    'includes': ['PyQt5.sip', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets'],
+    'excludes': ['rubicon', 'typing_extensions', 'pypdfium2_raw', 'IPython', 'jupyter', 'mouseinfo', 'standalone', 'backports', 'backports.tarfile'],
+    'iconfile': 'assets/jobrobo.icns'
+}
+
+setup(
+    app=APP,
+    data_files=DATA_FILES,
+    options={'py2app': OPTIONS},
+    setup_requires=['py2app'],
+)
