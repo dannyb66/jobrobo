@@ -1,25 +1,22 @@
 # main.py
-import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QLabel, QVBoxLayout
+import tkinter as tk
 from runAiBot import run_bot
 
-class LinkedInApp(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("LinkedIn Bot")
-        self.setGeometry(100, 100, 300, 200)
+class LinkedInApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("LinkedIn Bot")
+        self.root.geometry("300x200")
         self.initUI()
 
     def initUI(self):
-        layout = QVBoxLayout()
-        self.label = QLabel("Click to start automation")
-        self.button = QPushButton("Run Bot")
-        self.button.clicked.connect(run_bot)
-        layout.addWidget(self.label)
-        layout.addWidget(self.button)
-        self.setLayout(layout)
+        self.label = tk.Label(self.root, text="Click to start automation")
+        self.label.pack(pady=20)
 
-app = QApplication(sys.argv)
-window = LinkedInApp()
-window.show()
-sys.exit(app.exec_())
+        self.button = tk.Button(self.root, text="Run Bot", command=run_bot)
+        self.button.pack(pady=10)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = LinkedInApp(root)
+    root.mainloop()

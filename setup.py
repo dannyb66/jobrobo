@@ -4,9 +4,9 @@ APP = ['JobRobo.py']
 DATA_FILES = []
 OPTIONS = {
     'argv_emulation': False,
-    'packages': ['PyQt5', 'selenium', 'openai', 'pyautogui', 'pdfplumber', 'undetected_chromedriver'],
-    'includes': ['PyQt5.sip', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets'],
-    'excludes': ['rubicon', 'typing_extensions', 'pypdfium2_raw', 'IPython', 'jupyter', 'mouseinfo', 'standalone', 'backports', 'backports.tarfile', 'notebook'],
+    'packages': ['tkinter', 'selenium', 'openai', 'pyautogui', 'pdfplumber', 'undetected_chromedriver'],
+    'includes': [],
+    'excludes': ['tqdm.tk', 'rubicon', 'typing_extensions', 'pypdfium2_raw', 'IPython', 'jupyter', 'mouseinfo', 'standalone', 'backports', 'backports.tarfile', 'notebook'],
     'iconfile': 'assets/jobrobo.icns'
 }
 
