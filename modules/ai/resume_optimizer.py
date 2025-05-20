@@ -354,7 +354,7 @@ class ResumeOptimizer:
             print(f"❌ Error converting DOCX to PDF: {e}")
 
 # Function to run the resume optimization process given job description and resume path similar to main()
-def run_resume_optimization(job_description: str, resume_path: str, job_id: str, job_title: str, first_name: str, last_name: str):
+def run_resume_optimization(job_description: str, resume_path: str, job_id: str, job_title: str = "job", first_name: str = "first", last_name: str = "last"):
     # Get OpenAI API key
     api_key = llm_api_key
     if not api_key:

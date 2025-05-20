@@ -416,10 +416,10 @@ def upload_resume(modal: WebElement, resume: str) -> tuple[bool, str]:
     except: return False, "Previous resume"
 
 # Function to upload optimized resume using run_resume_optimization function from resume_optimizer.py similar logic to upload_resume function
-def upload_optimized_resume(modal: WebElement, resume_path: str, job_description: str, job_id: str) -> tuple[bool, str]:
+def upload_optimized_resume(modal: WebElement, resume_path: str, job_description: str, job_id: str, job_title: str = "job", first_name: str = "first", last_name: str = "last") -> tuple[bool, str]:
     try:
         # Optimize the resume using the job description
-        optimized_resume_path = run_resume_optimization(job_description=job_description, resume_path=resume_path, job_id=job_id)
+        optimized_resume_path = run_resume_optimization(job_description=job_description, resume_path=resume_path, job_id=job_id, job_title=job_title, first_name=first_name, last_name=last_name)
 
         # Upload the optimized resume
         modal.find_element(By.NAME, "file").send_keys(os.path.abspath(optimized_resume_path))
