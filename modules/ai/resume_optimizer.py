@@ -354,7 +354,7 @@ class ResumeOptimizer:
             print(f"❌ Error converting DOCX to PDF: {e}")
 
 # Function to run the resume optimization process given job description and resume path similar to main()
-def run_resume_optimization(job_description: str, resume_path: str, job_id: str):
+def run_resume_optimization(job_description: str, resume_path: str, job_id: str, job_title: str, first_name: str, last_name: str):
     # Get OpenAI API key
     api_key = llm_api_key
     if not api_key:
@@ -383,7 +383,7 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str)
         if not content or not current_skills:
             return
         optimized_skills = optimizer.optimize_skills(current_skills, keywords, job_description)
-        output_path = Path(resume_path).parent.parent / "temp" / f"danny_basavaraju_{job_id}.pdf"
+        output_path = Path(resume_path).parent.parent / "temp" / f"{first_name.lower()}_{last_name.lower()}_{job_title.lower().replace(' ', '_')}_{job_id}.pdf"
         optimizer.save_optimized_pdf(resume_path, optimized_skills, format_info, str(output_path))
 
     elif ext == ".docx":
@@ -391,8 +391,8 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str)
         if not doc or not current_skills:
             return
         optimized_skills = optimizer.optimize_skills(current_skills, keywords, job_description)
-        output_path_docx = Path(resume_path).parent.parent / "temp" / f"danny_basavaraju_{job_id}.docx"
-        output_path_pdf = Path(resume_path).parent.parent / "temp" / f"danny_basavaraju_{job_id}.pdf"
+        output_path_docx = Path(resume_path).parent.parent / "temp" / f"{first_name.lower()}_{last_name.lower()}_{job_title.lower().replace(' ', '_')}_{job_id}.docx"
+        output_path_pdf = Path(resume_path).parent.parent / "temp" / f"{first_name.lower()}_{last_name.lower()}_{job_title.lower().replace(' ', '_')}_{job_id}.pdf"
         optimizer.save_optimized_docx(doc, optimized_skills, str(output_path_docx))
         optimizer.convert_docx_to_pdf(str(output_path_docx), str(output_path_pdf))
         output_path = output_path_pdf
