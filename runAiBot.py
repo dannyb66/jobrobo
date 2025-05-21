@@ -952,7 +952,7 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                     questions_list = answer_questions(modal, questions_list, work_location, job_description=description)
                                     if use_AI_for_resume:
                                         if modal.find_elements(By.NAME, "file"):
-                                            uploaded, resume = upload_optimized_resume(modal, default_resume_docx_path, description, job_id)
+                                            uploaded, resume = upload_optimized_resume(modal, default_resume_docx_path, description, job_id, title, first_name, last_name)
                                     elif useNewResume and not uploaded:
                                         uploaded, resume = upload_resume(modal, default_resume_path)
                                     try: next_button = modal.find_element(By.XPATH, './/span[normalize-space(.)="Review"]') 
