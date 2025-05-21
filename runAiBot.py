@@ -42,6 +42,7 @@ from modules.validator import validate_config
 from modules.ai.openaiConnections import *
 
 from typing import Literal
+from dotenv import load_dotenv
 from modules.ai.resume_optimizer import run_resume_optimization
 
 
@@ -50,6 +51,9 @@ pyautogui.FAILSAFE = False
 
 
 #< Global Variables and logics
+# Update environment variables
+load_dotenv()  # take environment variables from .env.
+llm_api_key = os.getenv("OPENAI_API_KEY")
 
 if run_in_background == True:
     pause_at_failed_question = False
@@ -1153,6 +1157,6 @@ def run_bot():
         except Exception as e:
             print_lg("An error occurred in the main loop:", e)
 
-# if __name__ == "__main__":
-#     main()
-#     run_bot()
+if __name__ == "__main__":
+    # main()
+    run_bot()

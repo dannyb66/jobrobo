@@ -12485,3 +12485,81 @@ Regularly review cloud solutions with a pragmatic lens, considering reliability,
 Education and/or Experience:
 Bachelor’s degree in Computer Science, Software Engineering, or related field.
 Proven experience as a Software Engineer with at least 6-7 of experience.",5,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-16 14:27:53.883509,https://www.linkedin.com/jobs/view/4229237492,Easy Applied,"{('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'deepakbasavaraju7@gmail.com'), ('Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)? [  ""Yes""<Yes>, ""No""<No>, ]', '""No""<No>', 'radio', '""No""<No>'), ('how many years of work experience do you have with amazon web services (aws)?', '6', 'text', '6'), ('Are you legally authorized to work in the United States? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('how many years of work experience do you have with spring boot?', '4', 'text', '4'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('how many years of work experience do you have with java?', '4', 'text', '4')}",In Development
+4227794587,Android Expert - Smart Glasses,Mentr,ntr,ntr,"About the job
+Android Expert - San Francisco In Person
+
+Job Title: Staff Engineer (or pick your own)
+Job Type: Full-time
+Company: Mentra
+Location: San Francisco, in person
+Pay: $80k - $150k
+Equity: 0.2 - 2%
+
+Mentra is building AugmentOS, the open source operating system for smart glasses. Smart glasses hardware has finally reached consumer-ready quality, but the software ecosystem is missing. AugmentOS fills this gap as the app store and SDK for smart glasses. We’re building the OS to power the next 8 billion personal computers and upgrade human intelligence.
+
+We’ve raised from the founder of Android, founder of YouTube, Paul Graham, YC, and others. Our founding team brings deep expertise in smart glasses technology, with 6+ years of experience, 6 months in Shenzhen manufacturing, and roles at MIT Media Lab, Steve Mann's lab (the inventor of smart glasses + smart watch), Google, Salesforce, Adobe, Tsinghua University...
+
+We’re building the world’s best smart glasses, and devs can build apps for them. That’s possible because of the iOS and Android client that connect the smart glasses to the apps in the cloud. You will be critical to helping us build out and harden the iOS and Android client apps that power AugmentOS.
+
+Day-to-day you’ll be:
+
+Mentra Live is our latest camera glasses. They have a full Android 11 SOC and we have a lot of things we're building: 
+
+low latency, low power RTMP camera streaming for hours
+cloud app control of the speakers, camera, microphones of the devices
+low power optimization
+BLE/Bluetooth Classic communication, HFP, SCO, etc.
+implementation of AugmentOS core on Mentra Live and other camera glasses
+
+We also have the concept of ""edge third party apps"" - these only work on Android (not on AugmentOS on iOS) but they allow developers to write third party apps that run as a native Android app on the edge, and communicate with AugmentOS via broadcast intents. We need help to re-enable this edge system, and deploy it.
+
+And you'll be doing all this with a small, incredibly cracked, and growing team of people building the future of smart glasses.
+
+What We’re Looking For
+
+5+ years of Android experience
+Strong with Java/Kotlin/C++
+Solid experience with BLE on Android
+BONUS: React Native, iOS native, Typescript backend
+Loves smart glasses, building, and having fun
+
+Are you Reading?
+Start your message with the code “YESIREADIT”.
+
+The Current Stack
+Frontend
+React Native (mobile UI layer)
+Java (Android native module)
+Swift / Obj-C (iOS native module)
+React / TypeScript (webviews)
+Backend
+TypeScript (backend and smart glasses apps)
+MongoDB
+Porter.run
+Azure App Services
+Docker + GitHub Actions",6,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-20 18:47:38.889887,https://www.linkedin.com/jobs/view/4227794587,Easy Applied,"{('I have a lot of experience building complex Android apps that use low level system functions, services, sensors, threading, broadcast intent, C++/JNI, Gradle, etc. [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com')}",In Development
+4234004650,Full Stack Engineer,Stream,ream,ream,"About the job
+Role Description
+We’re looking for a Technical Executive to lead Streaml’s technical strategy and execution. In this role, you’ll oversee end-to-end development of agentic AI systems, manage a high-performing engineering team, and help build the technical foundation that powers AI employees capable of closing deals autonomously.
+This is a hybrid role based in the San Francisco Bay Area, with partial remote flexibility.
+Responsibilities
+Design and maintain scalable web scraping pipelines to extract high-value B2B and consumer data from public and permissioned sources
+Develop, optimize, and govern relational databases (PostgreSQL, MySQL), ensuring strong data validation, access control, and compliance
+Build chat-based interfaces and workflows that enable users to interact with AI agents for outreach, negotiation, and task automation
+Collaborate on agentic AI system architecture, powering autonomous agents capable of full-cycle deal execution
+Stay on the frontier of AI, continuously integrating advancements in LLMs, RAG, and adaptive ML systems into our core products
+Work across the stack using modern tools and frameworks like React, Next.js, FastAPI, TypeScript, and Python
+Qualifications
+Proven experience in technical leadership and project management
+Hands-on expertise in AI/ML, data engineering, or intelligent systems
+Strong background in data integration, real-time pipelines, and infrastructure
+Deep analytical and problem-solving abilities
+Excellent cross-functional communication and collaboration skills
+Prior experience in business intelligence, SaaS, or agent-based systems
+Bachelor’s degree in Computer Science, Engineering, or a related field (Master’s or certifications a plus)
+Why Join Streaml?
+Solve deep problems in AI reasoning, autonomy, and system orchestration
+Help build an agent that does the work of an SDR, analyst, and negotiator
+Join a small, elite team of builders and researchers with founder access
+See your work shape the product, company, and market direction
+Work on something ambitious and impactful across industries",0,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-20 18:53:05.617829,https://www.linkedin.com/jobs/view/4234004650,Easy Applied,"{('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Have you completed the following level of education: Bachelor\'s Degree? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660')}",In Development

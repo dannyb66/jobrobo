@@ -18,7 +18,6 @@ from docx import Document
 from docx.shared import Pt
 import docx2pdf
 import pypandoc
-from config.secrets import llm_api_key  # Import the API key from secrets.py
 
 class ResumeOptimizer:
     def __init__(self, api_key: str):
@@ -291,10 +290,11 @@ class ResumeOptimizer:
             print(f"Error reading DOCX resume: {e}")
             return None, []
         
-    def replace_job_titles(doc: Document, new_title: str) -> None:
+        # Replace job titles in the Professional Experience section
+    def replace_job_titles(self, doc: Document, new_title: str, max_line_length: int = 150) -> None:
         """
         Replace all job titles in the 'Professional Experience' section with the given new_title,
-        using the same logic as extract_job_titles.
+        padding it with spaces so the final line reaches up to max_line_length without overflowing.
         """
         try:
             is_in_experience_section = False
@@ -305,7 +305,7 @@ class ResumeOptimizer:
                 if not text:
                     continue
 
-                # Section toggles
+                # Toggle section flags
                 if text.upper() == "PROFESSIONAL EXPERIENCE":
                     is_in_experience_section = True
                     continue
@@ -317,9 +317,18 @@ class ResumeOptimizer:
                     match = job_title_with_dates_pattern.match(text)
                     if match:
                         old_title = match.group(1).strip()
-                        # Replace old title with new title
-                        updated_text = para.text.replace(old_title, new_title, 1)
-                        para.text = updated_text
+                        rest_of_line = text[len(old_title):].strip()
+
+                        # Limit new title to fit within line length
+                        allowed_title_length = max_line_length - len(rest_of_line)
+                        safe_new_title = new_title[:allowed_title_length].rstrip()
+
+                        # Calculate how many spaces to add after title
+                        padding_space = max(1, max_line_length - len(safe_new_title + ' ' + rest_of_line))
+                        padded_title = safe_new_title + ' ' * padding_space
+
+                        # Update paragraph text
+                        para.text = padded_title + rest_of_line
 
         except Exception as e:
             print(f"❌ Error replacing job titles: {e}")
@@ -391,7 +400,7 @@ class ResumeOptimizer:
 # Function to run the resume optimization process given job description and resume path similar to main()
 def run_resume_optimization(job_description: str, resume_path: str, job_id: str, job_title: str = "job", first_name: str = "first", last_name: str = "last"):
     # Get OpenAI API key
-    api_key = llm_api_key
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         print("Please set the OPENAI_API_KEY environment variable")
         return
