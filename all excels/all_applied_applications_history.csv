@@ -12563,3 +12563,88 @@ Help build an agent that does the work of an SDR, analyst, and negotiator
 Join a small, elite team of builders and researchers with founder access
 See your work shape the product, company, and market direction
 Work on something ambitious and impactful across industries",0,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-20 18:53:05.617829,https://www.linkedin.com/jobs/view/4234004650,Easy Applied,"{('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Have you completed the following level of education: Bachelor\'s Degree? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660')}",In Development
+4229491408,Senior Antibot Engineer,SonicJob,nicJob,nicJob,"About the job
+Who We Are
+At SonicJobs we’re building the next generation of autonomous web agents based on computer-use technologies. Our agents operate on job application flows, like candidates do. If you’ve ever dreamed of building AI that actually uses a website, this is your moment.
+We’re a small, tight-knit team with big ambitions, leveraging bleeding-edge tools to build agents that understand and control web environments end-to-end.
+We move fast, avoid unnecessary hierarchy, and aim high. We’re not automating job applications - we’re redefining how job applications work in order to allow candidates find the job opportunity they deserve.
+We are backed by top VC firms and serve more than one hundred corporate clients including several Fortune 500 companies.
+
+About the role
+We’re looking for a senior software engineer with strong experience in antibot technolgies to drive the evolution of our AI agents. As Senior Antibot Engineer, you’ll be responsible for devising the strategy for the interaction patterns of our AI agents within web flows. You’ll be implementing those strategies in robust architectures capable of dynamically adapting to the fast changing pace of the antibot technologies.
+This is a demanding, high-impact role. You’ll be shipping code, performing tests, designing experiments, and setting our antibot strategy all at the same time. You’ll be reporting to the CTO. If you’re excited by the idea of coding, reviewing experiment runs, and designing new evasion techniques - you’ll thrive here. You’ll also be sharing your knowledge with colleagues to bring their antibot skills to a level of excellence.
+
+What you'll do
+Architect large-scale proxy-rotation solutions (residential, datacenter) and smart routing strategies.
+Integrate CAPTCHA-solving services, machine-learning solvers, and dynamic challenge negotiation.
+Produce whitepapers, run internal workshops, and mentor junior engineers on anti-bot best practices.
+Implement real-time behavioral analytics, anomaly detection, and fingerprinting pipelines.
+Lead internal red-team exercises: develop and run sophisticated scrapers that bypass Cloudflare, DataDome, Akamai, etc.
+
+What you'll bring
+7+ years in software engineering with 3+ years focused on anti-bot, WAF/CDN evasion, or web scraping at scale.
+Expert in HTTP internals, WebSocket, TLS/SSL, and browser fingerprinting vectors.
+Proficient with headless-browser frameworks (Selenium, Puppeteer, Playwright) and stealth evasion techniques.
+Deep hands-on experience bypassing Cloudflare, DataDome, Akamai, PerimeterX, etc.
+Strong background in proxy architectures, rotating residential IPs, and rate-limiting strategies.
+Familiarity with CAPTCHA types (reCAPTCHA v2/v3, hCaptcha, FunCaptcha) and solving pipelines.
+Strong knowledge of Java.
+Experience with Kafka, Redis, Elasticsearch for telemetry and analytics ingestion.
+Comfortable containerizing applications (Docker, Kubernetes) and deploying on cloud platforms.
+Strong analytical mindset and investigative curiosity.
+Excellent communication—able to distill technical findings for both engineering and executive audiences.
+Familiarity with ML-based bot detection techniques (behavioral clustering, anomaly detection).
+
+Bonus points for
+Knowledge of Python.
+Comfort working in fast-paced, exciting startup environments.
+Publications or talks at security conferences on scraping or evasion.
+Open-source contributions to scraping libraries or anti-bot detection tools.
+
+What we offer
+$180K–$220K salary + equity.
+Onsite work with a deeply focused, no-BS team.
+Real ownership and the chance to shape a frontier space.
+No corporate nonsense - just smart people building ambitious tech.
+
+Sounds like you?
+Let’s talk. This isn’t just a job - it’s a chance to lead the future of how job platform technology looks like.",7,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-21 11:36:53.395453,https://www.linkedin.com/jobs/view/4229491408,Easy Applied,"{('Are you familiar with solutions for evading Cloudflare and DataDome?  [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Are you comfortable commuting to this job\'s location? [  ""Yes""<Yes>, ""No""<No>, ]', 'Yes', 'radio', None), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660')}",In Development
+4230610687,Software Engineer,LMK Recruiting Solution,K Recruiting Solution,K Recruiting Solution,"About the job
+Location: San Francisco, CA (3 days onsite per week)
+Employment Type: Full-time
+Compensation: $150,000 – $250,000 base + 0.25% – 1.25% equity
+
+About the Opportunity
+
+Join an early-stage, VC-backed AI startup building core software infrastructure to revolutionize how enterprises interact with unstructured data and workflows. Using advanced LLMs, we're creating a frictionless interface between humans and systems—powering the next generation of intelligent enterprise platforms.
+
+As a Founding Software Engineer, you'll play a mission-critical role in shaping the company’s core technology and long-term trajectory. If you thrive in high-autonomy, high-impact environments and want to build transformative AI products from the ground up—this is for you.
+
+What You’ll Do
+Architect and build core components of a production-grade AI platform
+Work directly with the founding team to define and execute on technical strategy
+Ensure system scalability, reliability, and performance across real-world use cases
+Own 0-to-1 product development with fast feedback loops from real customers
+Represent the company in developer communities and technical events
+
+What You Bring
+
+3+ years of experience building production-ready software systems
+Experience working at fast-scaling startups or shipping 0-to-1 products
+Excellent coding skills in languages such as Python, Go, Rust, or TypeScript
+Deep understanding of systems design, APIs, and cloud infrastructure
+Familiarity with AI/ML frameworks (e.g., PyTorch, Hugging Face, etc.)
+Strong product intuition and customer-oriented mindset
+High emotional intelligence and collaborative spirit
+Must be based in (or willing to relocate to) San Francisco and work onsite 3x/week
+
+Nice to Have
+
+Previous experience as a founder or early technical team member
+Background in fintech, developer tools, or vertical SaaS
+Contributions to open-source projects or speaking engagements at tech events
+
+Compensation & Equity
+
+Base Salary: $150K – $250K
+Equity: 0.25% – 1.25%",3,Needs an AI,Alexis Stinnett ,https://www.linkedin.com/in/alexis-stinnett-12404289,Previous resume,False,Unknown,2025-05-21 11:41:41.139254,https://www.linkedin.com/jobs/view/4230610687,Easy Applied,"{('Which programming languages do you use proficiently? (Select all that apply)  [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('how many years of work experience do you have with python (programming language)?', '9', 'text', '9'), ('Do you have hands-on experience with AI/ML frameworks like PyTorch, TensorFlow, or Hugging Face Transformers? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('how many years of work experience do you have with software as a service (saas)?', '1', 'text', '1'), ('how many years of work experience do you have with pytorch?', '6', 'text', '6'), ('Do you have experience building scalable and reliable software systems used in production?  [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Have you worked at a high-growth startup or company with a top-tier product (e.g., Series A+ or post-PMF)? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)? [  ""Yes""<Yes>, ""No""<No>, ]', '""No""<No>', 'radio', '""No""<No>'), ('Have you built or launched a product as a founder or founding engineer?  [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Are you currently based in the San Francisco Bay Area? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Do you have at least 3 years of experience building production-grade software in a mission-critical environment? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option')}",In Development

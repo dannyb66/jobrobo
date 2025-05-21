@@ -290,7 +290,7 @@ class ResumeOptimizer:
             print(f"Error reading DOCX resume: {e}")
             return None, []
         
-        # Replace job titles in the Professional Experience section
+    # Replace job titles in the Professional Experience section
     def replace_job_titles(self, doc: Document, new_title: str, max_line_length: int = 150) -> None:
         """
         Replace all job titles in the 'Professional Experience' section with the given new_title,
@@ -327,8 +327,10 @@ class ResumeOptimizer:
                         padding_space = max(1, max_line_length - len(safe_new_title + ' ' + rest_of_line))
                         padded_title = safe_new_title + ' ' * padding_space
 
-                        # Update paragraph text
+                        # Update paragraph text and apply italic style
                         para.text = padded_title + rest_of_line
+                        run = para.runs[0]
+                        run.italic = True
 
         except Exception as e:
             print(f"❌ Error replacing job titles: {e}")
