@@ -290,8 +290,41 @@ class ResumeOptimizer:
         except Exception as e:
             print(f"Error reading DOCX resume: {e}")
             return None, []
+        
+    def replace_job_titles(doc: Document, new_title: str) -> None:
+        """
+        Replace all job titles in the 'Professional Experience' section with the given new_title,
+        using the same logic as extract_job_titles.
+        """
+        try:
+            is_in_experience_section = False
+            job_title_with_dates_pattern = re.compile(r'^(.*?)(\s{2,}|\t+)?\(?[A-Za-z]+\s+\d{4}.*\)?$')
 
-    def save_optimized_docx(self, doc: Document, optimized_skills: List[str], output_path: str):
+            for para in doc.paragraphs:
+                text = para.text.strip()
+                if not text:
+                    continue
+
+                # Section toggles
+                if text.upper() == "PROFESSIONAL EXPERIENCE":
+                    is_in_experience_section = True
+                    continue
+                elif text.upper() in ["EDUCATION", "ENTREPRENEURIAL VENTURES", "ACADEMIC PROJECTS", "CERTIFICATIONS", "SKILLS"]:
+                    is_in_experience_section = False
+                    continue
+
+                if is_in_experience_section:
+                    match = job_title_with_dates_pattern.match(text)
+                    if match:
+                        old_title = match.group(1).strip()
+                        # Replace old title with new title
+                        updated_text = para.text.replace(old_title, new_title, 1)
+                        para.text = updated_text
+
+        except Exception as e:
+            print(f"❌ Error replacing job titles: {e}")
+
+    def save_optimized_docx(self, doc: Document,  optimized_skills: List[str], output_path: str, job_title: str = "job"):
         """Update the skills section in the DOCX and save it."""
         try:
             skills_started = False
@@ -332,6 +365,8 @@ class ResumeOptimizer:
                 insert_after.addnext(new_para._element)
                 insert_after = new_para._element
 
+            # Replace job titles in the Professional Experience section
+            self.replace_job_titles(doc, job_title)
             doc.save(output_path)
             print(f"✅ Successfully saved updated DOCX resume to: {output_path}")
 
@@ -393,7 +428,7 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
         optimized_skills = optimizer.optimize_skills(current_skills, keywords, job_description)
         output_path_docx = Path(resume_path).parent.parent / "temp" / f"{first_name.lower()}_{last_name.lower()}_{job_title.lower().replace(' ', '_')}_{job_id}.docx"
         output_path_pdf = Path(resume_path).parent.parent / "temp" / f"{first_name.lower()}_{last_name.lower()}_{job_title.lower().replace(' ', '_')}_{job_id}.pdf"
-        optimizer.save_optimized_docx(doc, optimized_skills, str(output_path_docx))
+        optimizer.save_optimized_docx(doc, optimized_skills, str(output_path_docx), job_title)
         optimizer.convert_docx_to_pdf(str(output_path_docx), str(output_path_pdf))
         output_path = output_path_pdf
 
