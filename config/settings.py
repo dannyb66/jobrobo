@@ -89,6 +89,10 @@ showAiErrorAlerts = True            # True or False, Note: True or False are cas
 # Use ChatGPT for resume building (Experimental Feature can break the application. Recommended to leave it as False) 
 # use_resume_generator = False       # True or False, Note: True or False are case-sensitive ,   This feature may only work with 'stealth_mode = True'. As ChatGPT website is hosted by CloudFlare which is protected by Anti-bot protections!
 
+# >>>>>>>>>>> Resume Editing Settings <<<<<<<<<<<
+
+# Replace job title in resume to match job description
+replace_job_title = True               # True or False, Note: True or False are case-sensitive. OPENAI API KEY is required for this feature.
 
 
 

@@ -16,8 +16,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate
 from reportlab.lib.styles import getSampleStyleSheet
 from docx import Document
 from docx.shared import Pt
-import docx2pdf
-import pypandoc
+from config.settings import replace_job_title
 
 class ResumeOptimizer:
     def __init__(self, api_key: str):
@@ -376,8 +375,9 @@ class ResumeOptimizer:
                 insert_after.addnext(new_para._element)
                 insert_after = new_para._element
 
-            # Replace job titles in the Professional Experience section
-            self.replace_job_titles(doc, job_title)
+            if replace_job_title:
+                # Replace job titles in the Professional Experience section
+                self.replace_job_titles(doc, job_title)
             doc.save(output_path)
             print(f"✅ Successfully saved updated DOCX resume to: {output_path}")
 
