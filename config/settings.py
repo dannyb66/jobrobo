@@ -94,7 +94,8 @@ showAiErrorAlerts = True            # True or False, Note: True or False are cas
 # Replace job title in resume to match job description
 replace_job_title = True               # True or False, Note: True or False are case-sensitive. OPENAI API KEY is required for this feature.
 
-
+# Rewrite experience bullets to match job description
+rewrite_bullets = True                  # True or False, Note: True or False are case-sensitive. OPENAI API KEY is required for this feature.
 
 
 

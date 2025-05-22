@@ -16,7 +16,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate
 from reportlab.lib.styles import getSampleStyleSheet
 from docx import Document
 from docx.shared import Pt
-from config.settings import replace_job_title
+from config.settings import replace_job_title, rewrite_bullets
 
 class ResumeOptimizer:
     def __init__(self, api_key: str):
@@ -324,17 +324,119 @@ class ResumeOptimizer:
 
                         # Calculate how many spaces to add after title
                         padding_space = max(1, max_line_length - len(safe_new_title + ' ' + rest_of_line))
-                        padded_title = safe_new_title + ' ' * padding_space
+                        padded_title = safe_new_title + ' ' * padding_space                        
 
-                        # Update paragraph text and apply italic style
-                        para.text = padded_title + rest_of_line
+                        # Update paragraph text with a tab between the title and rest of the line, and apply italic style
+                        # para.text = padded_title + rest_of_line
+                        para.text = safe_new_title + "\t" + rest_of_line.lstrip()
                         run = para.runs[0]
                         run.italic = True
+                        run.font.size = Pt(9)
 
         except Exception as e:
             print(f"❌ Error replacing job titles: {e}")
 
-    def save_optimized_docx(self, doc: Document,  optimized_skills: List[str], output_path: str, job_title: str = "job"):
+    # Rewrite experience bullets to match job description
+    def rewrite_experience_bullets(self, doc: Document, job_title: str, job_description: str, optimized_skills: List[str]) -> None:
+        """Rewrite experience bullets to match job description using OpenAI API."""
+        try:
+            is_in_experience_section = False
+            experience_bullets = []
+
+            for para in doc.paragraphs:
+                text = para.text.strip()
+                if not text:
+                    continue
+
+                # Toggle section flags
+                if text.upper() == "PROFESSIONAL EXPERIENCE":
+                    is_in_experience_section = True
+                    continue
+                elif text.upper() in ["EDUCATION", "ENTREPRENEURIAL VENTURES", "ACADEMIC PROJECTS", "CERTIFICATIONS", "SKILLS"]:
+                    is_in_experience_section = False
+                    continue
+
+                if is_in_experience_section and text and "\t" not in text:
+                    experience_bullets.append(text)
+
+            # print(f"Extracted experience bullets: {experience_bullets}")
+            if not experience_bullets:
+                raise ValueError("No experience bullets found in the resume.")
+
+            # Call OpenAI API to rewrite bullets
+                            # "Feel free to replace it with a more job description-specific and job title-specific bullet."
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an ATS resume optimization expert and professional career writer. "
+                            "Given a list of experience bullets, your task is to rewrite each one to better match a specific job description, "
+                            "while keeping the work related to the original bullet while staying within the original length of each bullet. "
+                            "Make the language more aligned with the target role by incorporating relevant terminology, technologies, and metrics. "
+                            "\n\n"
+                            "Follow these bullet rewriting guidelines:\n"
+                            "1. Use the Action + Project + Result format:\n"
+                            "   - [A] Start with a strong action verb.\n"
+                            "   - [P] Clearly describe the project or task.\n"
+                            "   - [R] State the results or impact, using quantifiable metrics where possible.\n"
+                            "   Example: 'Optimized backend APIs for a fintech product, reducing latency by 30% and improving customer satisfaction scores.'\n\n"
+                            "2. Alternatively, use the Accomplished [X] as measured by [Y] by doing [Z] format:\n"
+                            "   - [X] Start with the impact or accomplishment.\n"
+                            "   - [Y] Quantify the improvement (%, time saved, dollars, etc.).\n"
+                            "   - [Z] Describe the specific contribution or action.\n"
+                            "   Example: 'Increased automation coverage by 40% by designing and deploying scalable AI workflows.'\n\n"
+                            "3. DO NOT exceed the character length of the original bullet.\n"
+                            "4. Maximise the character length of the new bullet to be as close to the character length of the original bullet.\n"
+                            "Ensure alignment with keywords and skills mentioned in the job description (e.g., quantitative analysis, portfolio risk, Python, SaaS, financial modeling).\n"
+                            "Each bullet should reflect **individual contributions**, not team achievements.\n"
+                            "All bullets should have a similar character length to help the resume looks neatly with no gaps.\n"
+                            "Use concise, powerful phrasing optimized for ATS scanning.\n\n"
+                            "Return the output as a JSON object in this format:\n"
+                            "{ \"rewritten_bullets\": [\"bullet1\", \"bullet2\", ..., \"bulletN\"] }"
+                        )
+                      },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Here is the job title: {job_title}\n\n"
+                            f"Here is the job description:\n{job_description}\n\n"
+                            f"Here are the experience bullets to rewrite:\n{experience_bullets}"
+                        )
+                    }
+                ]
+            )
+
+            content = response.choices[0].message.content.strip()
+            # print(f"\n🔍 Raw GPT response:\n{content}\n")
+
+            # Remove JSON code block markers if present
+            if content.startswith("```json") and content.endswith("```"):
+                content = content[7:-3].strip()
+
+            # Try parsing directly
+            try:
+                result = json.loads(content)
+                rewritten_bullets = result.get('rewritten_bullets', experience_bullets)
+                if rewritten_bullets and isinstance(rewritten_bullets, list):
+                    for i, para in enumerate(doc.paragraphs):
+                        if para.text.strip() in experience_bullets:
+                            para.text = rewritten_bullets[experience_bullets.index(para.text.strip())]
+                            for run in para.runs:
+                                run.font.size = Pt(9.5)  # Set the font size to match the previous text
+            except json.JSONDecodeError:
+                raise ValueError("No valid JSON found in response.")
+            # print(f"✅ Rewritten bullets: {rewritten_bullets}")
+        except Exception as e:
+            print(f"❌ Error rewriting experience bullets: {e}")
+            return
+        # If the API call fails, keep the original bullets
+        # for i, para in enumerate(doc.paragraphs):
+        #     if para.text.strip() in experience_bullets:
+        #         para.text = experience_bullets[experience_bullets.index(para.text.strip())]
+
+    def save_optimized_docx(self, doc: Document,  optimized_skills: List[str], output_path: str, job_title: str = "job", job_description: str = "") -> None:
         """Update the skills section in the DOCX and save it."""
         try:
             skills_started = False
@@ -375,9 +477,14 @@ class ResumeOptimizer:
                 insert_after.addnext(new_para._element)
                 insert_after = new_para._element
 
+            if rewrite_bullets:
+                # Rewrite experience bullets to match job description
+                self.rewrite_experience_bullets(doc, job_title, job_description, optimized_skills)
+
             if replace_job_title:
                 # Replace job titles in the Professional Experience section
                 self.replace_job_titles(doc, job_title)
+
             doc.save(output_path)
             print(f"✅ Successfully saved updated DOCX resume to: {output_path}")
 
@@ -424,12 +531,17 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
 
     # Process resume based on file type
     print("\nProcessing resume...")
+    # Sanitize variables to ensure they don't contain invalid path characters
+    sanitized_job_title = re.sub(r'[\/:*?"<>|]', '_', job_title.lower().replace(' ', '_'))
+    sanitized_first_name = re.sub(r'[\/:*?"<>|]', '_', first_name.lower())
+    sanitized_last_name = re.sub(r'[\/:*?"<>|]', '_', last_name.lower())
+
     if ext == ".pdf":
         content, current_skills, format_info = optimizer.read_pdf_resume(resume_path)
         if not content or not current_skills:
             return
         optimized_skills = optimizer.optimize_skills(current_skills, keywords, job_description)
-        output_path = Path(resume_path).parent.parent / "temp" / f"{first_name.lower()}_{last_name.lower()}_{job_title.lower().replace(' ', '_')}_{job_id}.pdf"
+        output_path = Path(resume_path).parent.parent / "temp" / f"{sanitized_first_name}_{sanitized_last_name}_{sanitized_job_title}_{job_id}.pdf"
         optimizer.save_optimized_pdf(resume_path, optimized_skills, format_info, str(output_path))
 
     elif ext == ".docx":
@@ -437,9 +549,9 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
         if not doc or not current_skills:
             return
         optimized_skills = optimizer.optimize_skills(current_skills, keywords, job_description)
-        output_path_docx = Path(resume_path).parent.parent / "temp" / f"{first_name.lower()}_{last_name.lower()}_{job_title.lower().replace(' ', '_')}_{job_id}.docx"
-        output_path_pdf = Path(resume_path).parent.parent / "temp" / f"{first_name.lower()}_{last_name.lower()}_{job_title.lower().replace(' ', '_')}_{job_id}.pdf"
-        optimizer.save_optimized_docx(doc, optimized_skills, str(output_path_docx), job_title)
+        output_path_docx = Path(resume_path).parent.parent / "temp" / f"{sanitized_first_name}_{sanitized_last_name}_{sanitized_job_title}_{job_id}.docx"
+        output_path_pdf = Path(resume_path).parent.parent / "temp" / f"{sanitized_first_name}_{sanitized_last_name}_{sanitized_job_title}_{job_id}.pdf"
+        optimizer.save_optimized_docx(doc, optimized_skills, str(output_path_docx), job_title, job_description)
         optimizer.convert_docx_to_pdf(str(output_path_docx), str(output_path_pdf))
         output_path = output_path_pdf
 

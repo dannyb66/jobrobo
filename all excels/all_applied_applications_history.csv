@@ -12648,3 +12648,145 @@ Compensation & Equity
 
 Base Salary: $150K – $250K
 Equity: 0.25% – 1.25%",3,Needs an AI,Alexis Stinnett ,https://www.linkedin.com/in/alexis-stinnett-12404289,Previous resume,False,Unknown,2025-05-21 11:41:41.139254,https://www.linkedin.com/jobs/view/4230610687,Easy Applied,"{('Which programming languages do you use proficiently? (Select all that apply)  [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('how many years of work experience do you have with python (programming language)?', '9', 'text', '9'), ('Do you have hands-on experience with AI/ML frameworks like PyTorch, TensorFlow, or Hugging Face Transformers? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('how many years of work experience do you have with software as a service (saas)?', '1', 'text', '1'), ('how many years of work experience do you have with pytorch?', '6', 'text', '6'), ('Do you have experience building scalable and reliable software systems used in production?  [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Have you worked at a high-growth startup or company with a top-tier product (e.g., Series A+ or post-PMF)? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)? [  ""Yes""<Yes>, ""No""<No>, ]', '""No""<No>', 'radio', '""No""<No>'), ('Have you built or launched a product as a founder or founding engineer?  [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Are you currently based in the San Francisco Bay Area? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Do you have at least 3 years of experience building production-grade software in a mission-critical environment? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option')}",In Development
+4233652323,Principal Engineer,Kize,ze,ze,"About the job
+About Us
+At Kizen, we’re engineering a more humane future where AI drives universal healthcare, more impactful work, world-class education, exceptional customer experiences, and — overall — a more fulfilling human experience.
+Kizen is on a mission to give every team member an AI Assistant - turning every company into an AI-company, every worker into an AI-Enhanced Worker, and every Process into an AI-optimized, continuously improving process. Kizen is the first GenAI enterprise application builder. Businesses of any size, within any industry can build AI assistants for complex jobs across healthcare, finance, and HR and modern enterprise applications - like CRMs, Workflow Automation, Real Time Dashboards, and Secure Portals in minutes and perfect them in an afternoon. Kizen helps teams systematically improve processes and business outcomes with data-driven insights and powerful automation with access to all the latest AI models.
+
+About the Role
+Shape the Future of AI at Kizen
+Are you ready to push the boundaries of what's possible with AI and backend systems? At Kizen, we're engineering intelligent systems that combine cutting-edge AI with robust backend architecture to revolutionize healthcare, redefine work-life balance, transform education, and elevate customer experiences. Our mission is to create technology that doesn't just work – it transforms how businesses operate.
+
+As we rapidly expand, we're seeking exceptional engineers who excel in both AI development and backend systems. This is your opportunity to be part of something transformative – to architect and build systems that set new benchmarks for what technology can achieve across industries.
+At Kizen, you'll join a brilliant, fun team tackling challenges that matter. We offer:
+The opportunity to work on groundbreaking AI technologies with real-world impact
+A startup culture that values innovation, ownership, and rapid iteration
+Regular opportunities to present your technical solutions to company leadership
+A supportive environment for professional growth and learning
+
+We're looking for a Principal AI Engineer to provide strategic feedback and direction for our engineering team as we bring our next-generation platform to the world. In this position, you'll architect, plan, and build sophisticated AI systems with collaborators seamlessly integrating with our backend infrastructure, focusing on generative AI, retrieval-augmented generation (RAG), and multi-agent architectures.
+Key Responsibilities
+Lead the design and implementation of production-ready RAG systems that integrate seamlessly with our backend infrastructure using Django, Kafka, PostgreSQL, and Clickhouse
+Architect multi-agent AI systems that operate effectively within our platform's constraints and understand business value implications.
+Drive product strategy by providing accurate work estimations and technical roadmaps with minimal supervision.
+Design and implement sophisticated vector search solutions, including graph-based RAG systems
+Architect and build highly scalable LLM-powered systems that can handle enterprise-level workloads
+Lead LLM fine-tuning initiatives to customize models for specific business domains and use cases
+Design and implement user feedback systems to collect, analyze, and incorporate insights for continuous improvement
+Optimize LLM performance, cost, and reliability in production environments
+Establish MLOps best practices using platforms like Langfuse or LiteLLM to ensure robust model monitoring and evaluation
+Mentor and develop junior engineers in AI/ML best practices
+Collaborate with cross-functional teams to translate business requirements into technical solutions
+Lead system architecture decisions and technical direction for AI initiatives
+Evaluate emerging AI technologies for potential adoption
+
+Experience
+Required Qualifications
+Education and Experience
+Bachelor's or Master's degree in Computer Science, Software Engineering, or a related field
+8+ years of backend engineering experience with Django, Kafka, and PostgreSQL
+4+ years of hands-on experience building and deploying machine learning systems
+Proven track record of implementing production RAG systems at scale
+Strong experience in product management, including work estimation and roadmap planning
+Experience building solutions at scale with large enterprise data in healthcare, finance, or banking sectors.
+Technical Expertise
+Expert-level Python development skills with Django experience
+Deep understanding of distributed systems and message queuing using message broker systems (e.g., Kafka)
+Advanced PostgreSQL knowledge, including optimization for AI workloads
+Experience building and optimizing retrieval-augmented generation (RAG) systems
+Experience architecting and implementing multi-agent AI systems
+Knowledge of deep learning frameworks (PyTorch or TensorFlow) and NLP, particularly transformer architectures
+Experience with cloud platforms (AWS preferred) and containerization (Docker, Kubernetes)
+Experience building solutions using pre-trained LLMs (OpenAI, Claude, Llama, etc.)
+Strong background in MLOps practices and tools, including platforms like Langfuse or LiteLLM
+Proficiency in writing clean, well-documented code and troubleshooting complex issues
+Experience in testing and validating products and communicating results with stakeholders
+ML/AI Experience
+Experience applying graph algorithms to machine learning problems
+Strong experience with modern NLP techniques and transformer architectures
+Knowledge of evaluation metrics for NLP system performance
+Solid foundation in probability theory and statistical inference
+Experience with statistical modeling and hypothesis testing
+Understanding of sampling methods and experimental design
+LLM Systems Expertise
+Proven experience designing and implementing scalable LLM-powered systems in production environments
+Deep understanding of LLM orchestration and optimization techniques for high-throughput applications
+Experience with prompt engineering, fine-tuning, and context window management for optimal LLM performance
+Demonstrated expertise in LLM fine-tuning methodologies, including RLHF, PEFT, and LoRA techniques
+Experience building data collection pipelines for LLM training and fine-tuning
+Knowledge of efficient usage strategies, cost optimization for LLM API consumption, and performance optimization of large-scale deployments.
+Experience implementing LLM caching mechanisms and vector store optimizations
+Expertise in designing fault-tolerant LLM architectures with appropriate fallback mechanisms
+Understanding of techniques to reduce latency in LLM-powered applications
+Knowledge of strategies for handling data privacy and security in LLM applications
+User Feedback and System Improvement
+Knowledge of model monitoring and evaluation techniques
+Experience designing and implementing robust user feedback collection systems for AI applications
+Knowledge of feedback aggregation and analysis techniques to identify patterns and improvement areas
+Experience building systems that leverage user feedback for continuous LLM improvement
+Understanding of human-in-the-loop approaches for refining AI system outputs
+Experience with A/B testing frameworks to evaluate AI system changes
+Ability to translate user feedback into actionable model improvements
+Experience implementing evaluation frameworks to measure AI system quality and performance
+Professional Skills
+Demonstrated ability to lead technical initiatives and architectural decisions
+Experience managing technical product roadmaps and providing accurate work estimations
+Strong problem-solving skills and ability to work independently on complex projects
+Strategic thinking ability to balance immediate solutions with long-term scalability
+Excellent collaboration skills when working with cross-functional teams
+Excellent written and verbal communication skills in English
+Driven, self-motivated, adaptable, empathetic, energetic, and detail-oriented
+Preferred Qualifications
+Experience with graph-based RAG systems
+Contributions to open-source projects in backend or AI domains
+Experience with streaming data processing at scale
+Deep interest in emerging AI technologies and their practical applications
+Strong mentoring capabilities to guide and develop team members
+Ability to work in our Los Angeles or Austin office
+Why Kizen
+We’re a fast-growing company that values innovation, growth, and continuous improvement. By joining Kizen, you’ll play a pivotal role in shaping the future of the company while enjoying a supportive, dynamic, and collaborative workplace. You’ll have opportunities for professional development, impact, and career advancement.
+What We Offer
+Hybrid Work Model
+Career Growth Opportunities
+Engaging Work Culture
+Top-Tier Compensation
+Equity Package
+Healthcare Coverage
+Professional Development Stipends
+PTO
+Kizen is proud to be an equal-opportunity employer. We are committed to building a diverse and inclusive culture that celebrates authenticity to win as one. We do not discriminate on the basis of race, religion, color, national origin, gender, gender identity, sexual orientation, age, marital status, disability, protected veteran status, citizenship or immigration status, or any other legally protected characteristics. At Kizen, we fully comply with the Americans with Disabilities Act (ADA). We are dedicated to embracing challenges and creating an accessible, inclusive workplace for all individuals.
+The base salary range for this position is $200,000-$250,000. However, base pay offered may vary depending on job-related knowledge, skills, and experience. In addition to base salary, we also offer generous equity and benefits packages.
+If you’re excited about creating impact experiences and contributing to a fast-paced, people-focused team, we’d love to meet you!
+OTE - $250-$300K",8,Needs an AI,"Mark ""Tony"" Boyle ",https://www.linkedin.com/in/mark-boyle-recruiter,Previous resume,False,Unknown,Pending,https://www.linkedin.com/jobs/view/4233652323,Easy Applied,set(),In Development
+4230612118,"Founding Engineer, Platform & Infrastructure",Greybea,eybea,eybea,"About the job
+Company Description
+Greybeam is a multi-engine query platform that routes queries between Snowflake and DuckDB to save up to 85% on compute costs. Our vision is to build a platform where every SQL query can run on its optimal engine.
+
+Location: in-person San Francisco Bay Area
+
+Role Description
+Greybeam is looking for employee #1 and #2 and to help us design, build, and maintain the Greybeam cloud platform. This is a 0 to 1 role where you'll be a part of the team that architects and builds all cloud infrastructure and systems at Greybeam.
+
+You may be working on
+Service meshes like Istio and Envoy, with a strong grasp of traffic management and observability
+Implement applications in private/public cloud infrastructure and container technologies like Kubernetes and Docker
+Run our infrastructure with (Chef, Ansible, Terraform, Kubernetes, etc.)
+Manage, configure and troubleshoot operating system issues, storage (block, object, etc.), networking (VPCs, proxies, CDNs, etc.), and administer high-availability (DuckDB, PostgreSQL, Redis, etc.) clusters
+Build and support CI/CD platforms, automate repeatable infrastructure needs, environment buildout, software build and releases, create automated solutions, install and configure application software, and upkeep systems through patching, upgrades, monitoring, and maintenance support
+Design and build CI/CD pipeline with tools such as (Terraform, CloudFormation, Ansible, Kubernetes toolsets, etc.)
+Scaling infrastructure on distributed systems.
+
+You should have
+Strong platform and infrastructure with a sprinkle of devops experience
+6+ years of related experience
+Experience programming in Python, Rust, C++
+Experience deploying and managing Kubernetes
+Experience in cloud infrastructure and networking
+
+Bonus points if you have experience with
+Iceberg, Hudi, or Delta Lake
+Experience with cloud data warehouses and data engineering
+
+Compensation
+$160,000 to $200,000 base salary
+0.5% to 3% equity",6,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-21 19:43:33.088876,https://www.linkedin.com/jobs/view/4230612118,Easy Applied,"{('Are you comfortable working in an onsite setting? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)? [  ""Yes""<Yes>, ""No""<No>, ]', '""No""<No>', 'radio', '""No""<No>'), ('how many years of experience do you have deploying and managing kubernetes?', '6', 'text', ''), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Are you comfortable commuting to this job\'s location? [  ""Yes""<Yes>, ""No""<No>, ]', 'Yes', 'radio', None)}",In Development
