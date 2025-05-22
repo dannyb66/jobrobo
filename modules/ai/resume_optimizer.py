@@ -322,6 +322,9 @@ class ResumeOptimizer:
                         allowed_title_length = max_line_length - len(rest_of_line)
                         safe_new_title = new_title[:allowed_title_length].rstrip()
 
+                        # Clean up the title, no extra spaces, no special characters or numbers
+                        safe_new_title = re.sub(r'[^A-Za-z\s]', '', safe_new_title).strip()
+
                         # Calculate how many spaces to add after title
                         padding_space = max(1, max_line_length - len(safe_new_title + ' ' + rest_of_line))
                         padded_title = safe_new_title + ' ' * padding_space                        
@@ -364,7 +367,7 @@ class ResumeOptimizer:
                 raise ValueError("No experience bullets found in the resume.")
 
             # Call OpenAI API to rewrite bullets
-                            # "Feel free to replace it with a more job description-specific and job title-specific bullet."
+
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
@@ -373,8 +376,9 @@ class ResumeOptimizer:
                         "content": (
                             "You are an ATS resume optimization expert and professional career writer. "
                             "Given a list of experience bullets, your task is to rewrite each one to better match a specific job description, "
-                            "while keeping the work related to the original bullet while staying within the original length of each bullet. "
+                            "while staying within the original length of each bullet and making it a great fit for the job description. "
                             "Make the language more aligned with the target role by incorporating relevant terminology, technologies, and metrics. "
+                            "Feel free to write it with a more job description-specific and job title-specific bullet while it is related to the company's work the bullet reference to."                            
                             "\n\n"
                             "Follow these bullet rewriting guidelines:\n"
                             "1. Use the Action + Project + Result format:\n"
@@ -388,10 +392,9 @@ class ResumeOptimizer:
                             "   - [Z] Describe the specific contribution or action.\n"
                             "   Example: 'Increased automation coverage by 40% by designing and deploying scalable AI workflows.'\n\n"
                             "3. DO NOT exceed the character length of the original bullet.\n"
-                            "4. Maximise the character length of the new bullet to be as close to the character length of the original bullet.\n"
+                            "4. Minimum of 120 characters should be used.\n"
                             "Ensure alignment with keywords and skills mentioned in the job description (e.g., quantitative analysis, portfolio risk, Python, SaaS, financial modeling).\n"
                             "Each bullet should reflect **individual contributions**, not team achievements.\n"
-                            "All bullets should have a similar character length to help the resume looks neatly with no gaps.\n"
                             "Use concise, powerful phrasing optimized for ATS scanning.\n\n"
                             "Return the output as a JSON object in this format:\n"
                             "{ \"rewritten_bullets\": [\"bullet1\", \"bullet2\", ..., \"bulletN\"] }"
