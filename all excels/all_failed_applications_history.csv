@@ -5362,3 +5362,39 @@ Found ""Clearance"" or ""Polygraph"". Skipping this job!
 4223694080,https://www.linkedin.com/jobs/view/4223694080,Pending,Unknown,2025-05-22 17:54:36.324831,Found Blacklisted words in About Company,Failed to find an element with given classes,Skipped,Not Available
 4235516923,https://www.linkedin.com/jobs/view/4235516923,Pending,Unknown,2025-05-22 17:54:46.581163,Found Blacklisted words in About Company,Failed to find an element with given classes,Skipped,Not Available
 4233406323,https://www.linkedin.com/jobs/view/4233406323,Pending,Unknown,2025-05-22 17:55:51.983267,Problem in Easy Applying,cannot access local variable 'modal' where it is not associated with a value,Easy Applied,Not Available
+4233419040,https://www.linkedin.com/jobs/view/4233419040,Pending,Unknown,2025-05-22 18:48:25.822492,Asking for Security clearance,"
+About the job
+Lead mission-critical software development for cutting-edge defense programs at our advanced technology labs.
+
+📍 Locations:
+Linthicum/Annapolis Junction, MD
+Northridge, CA
+Tucson, AZ
+
+💻 Core Responsibilities:
+✔ Develop real-time embedded software for defense systems (C/OOP)
+✔ Design and integrate complex multi-threaded applications with RTOS
+✔ Collaborate with systems engineering to decompose requirements
+✔ Author technical documents including algorithm and functional designs
+✔ Support full software lifecycle from requirements to testing
+
+🔧 Must-Have Qualifications:
+• STEM degree + 5 yrs (or MS + 3 yrs / PhD + 1 yr) embedded experience
+• Active/current DoD Secret clearance (or ability to obtain)
+• Expert in C programming and object-oriented design
+• Experience with ARM architectures and RTOS implementations
+• Agile development using Jira/Bitbucket/Git
+
+🌟 Preferred Skills:
+• Missile defense system experience
+• FPGA knowledge (VHDL/Verilog)
+• PowerPC architecture familiarity
+• Hardware/software integration testing
+
+⚡ Contract-to-Hire Opportunity
+
+Work on classified programs advancing national security!
+#EmbeddedSoftware #DefenseTech #RTOS #CProgramming #NowHiring
+
+Found ""Clearance"" or ""Polygraph"". Skipping this job!
+",Skipped,Not Available

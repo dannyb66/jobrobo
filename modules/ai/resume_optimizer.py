@@ -432,30 +432,28 @@ class ResumeOptimizer:
                         "role": "system",
                         "content": (
                             "You are an ATS resume optimization expert and professional career writer. "
-                            "Given a list of experience entries, each containing a job title, company name, and associated bullets, "
-                            "your task is to rewrite each bullet to better match a specific job description, "
-                            "while staying within the original length of each bullet and making it a great fit for the job description. "
-                            "Make the language more aligned with the target role by incorporating relevant terminology, technologies, and metrics. "
-                            "Feel free to write it with a more job description-specific and job title-specific bullet while it is related to the company's work the bullet references."                            
-                            "\n\n"
-                            "Follow these bullet rewriting guidelines:\n"
-                            "1. Use the Action + Project + Result format:\n"
-                            "   - [A] Start with a strong action verb.\n"
-                            "   - [P] Clearly describe the project or task.\n"
-                            "   - [R] State the results or impact, using quantifiable metrics where possible.\n"
-                            "   Example: 'Optimized backend APIs for a fintech product, reducing latency by 30% and improving customer satisfaction scores.'\n\n"
-                            "2. Alternatively, use the Accomplished [X] as measured by [Y] by doing [Z] format:\n"
-                            "   - [X] Start with the impact or accomplishment.\n"
-                            "   - [Y] Quantify the improvement (%, time saved, dollars, etc.).\n"
-                            "   - [Z] Describe the specific contribution or action.\n"
-                            "   Example: 'Increased automation coverage by 40% by designing and deploying scalable AI workflows.'\n\n"
-                            "3. DO NOT exceed the character length of the original bullet.\n"
-                            "4. Minimum of 120 characters should be used.\n"
-                            "Ensure alignment with keywords and skills mentioned in the job description (e.g., quantitative analysis, portfolio risk, Python, SaaS, financial modeling).\n"
-                            "Each bullet should reflect **individual contributions**, not team achievements.\n"
-                            "Use concise, powerful phrasing optimized for ATS scanning.\n\n"
-                            "Return the output as a JSON object in this format:\n"
-                            "{ \"rewritten_experience\": [ { \"job_title\": \"title1\", \"company\": \"company1\", \"bullets\": [\"bullet1\", \"bullet2\"] }, ... ] }"
+                            "You are given a list of professional experience entries, where each entry contains:\n"
+                            "- the job title\n"
+                            "- the company name\n"
+                            "- a list of bullet points describing the work.\n\n"
+                            "Your task is to rewrite each bullet point **specifically for a target job title and description**, "
+                            "while making sure the rewritten content still logically fits the role and domain of the original company and job title.\n\n"
+                            "Use keywords, technologies, and phrasing relevant to the target job description wherever appropriate, "
+                            "without introducing false or irrelevant information. If a bullet is about a different domain, find the closest possible conceptual match "
+                            "to bridge relevance. Optimize each bullet to align better with the responsibilities and qualifications expected in the target job.\n\n"
+                            "Bullet Rewriting Guidelines:\n"
+                            "1. **Use either of these styles:**\n"
+                            "   - [A] Action + Project + Result\n"
+                            "     → Example: 'Optimized backend APIs for a fintech product, reducing latency by 30% and improving customer satisfaction scores.'\n"
+                            "   - [B] Accomplished [X] as measured by [Y] by doing [Z]\n"
+                            "     → Example: 'Increased automation coverage by 40% by designing and deploying scalable AI workflows.'\n\n"
+                            "2. **Do NOT exceed the original bullet's character count**.\n"
+                            "3. **Use a minimum of 120 characters per bullet.**\n"
+                            "4. Ensure each bullet reflects **individual contributions**, not team achievements.\n"
+                            "5. Use **concise, powerful, and ATS-friendly phrasing**.\n"
+                            "6. Strongly align with the **job title and job description**.\n\n"
+                            "Return only a valid JSON object in this format:\n"
+                            "{ \"rewritten_experience\": [ { \"job_title\": \"...\", \"company\": \"...\", \"bullets\": [\"...\", \"...\"] }, ... ] }"
                         )
                     },
                     {
@@ -482,7 +480,7 @@ class ResumeOptimizer:
         except Exception as e:
             print(f"❌ Error calling OpenAI API to rewrite bullets: {e}")
             return experience_bullets
-
+        
     def _update_document_with_rewritten_bullets(self, doc: Document, original_bullets: List[dict], rewritten_bullets: List[dict]) -> None:
         """Update the document with rewritten bullets."""
         bullet_lookup = {
