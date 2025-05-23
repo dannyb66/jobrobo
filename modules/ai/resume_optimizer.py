@@ -343,31 +343,88 @@ class ResumeOptimizer:
     def rewrite_experience_bullets(self, doc: Document, job_title: str, job_description: str, optimized_skills: List[str]) -> None:
         """Rewrite experience bullets to match job description using OpenAI API."""
         try:
-            is_in_experience_section = False
-            experience_bullets = []
-
-            for para in doc.paragraphs:
-                text = para.text.strip()
-                if not text:
-                    continue
-
-                # Toggle section flags
-                if text.upper() == "PROFESSIONAL EXPERIENCE":
-                    is_in_experience_section = True
-                    continue
-                elif text.upper() in ["EDUCATION", "ENTREPRENEURIAL VENTURES", "ACADEMIC PROJECTS", "CERTIFICATIONS", "SKILLS"]:
-                    is_in_experience_section = False
-                    continue
-
-                if is_in_experience_section and text and "\t" not in text:
-                    experience_bullets.append(text)
-
-            # print(f"Extracted experience bullets: {experience_bullets}")
+            experience_bullets = self._extract_experience_bullets(doc)
+            # print(f"🔍 Extracted experience bullets: {experience_bullets}")
             if not experience_bullets:
                 raise ValueError("No experience bullets found in the resume.")
 
-            # Call OpenAI API to rewrite bullets
+            rewritten_experience = self._call_openai_to_rewrite_bullets(
+                experience_bullets, job_title, job_description
+            )
+            print(f"🔍 Rewritten experience bullets: {rewritten_experience}")
 
+            if rewritten_experience:
+                self._update_document_with_rewritten_bullets(doc, experience_bullets, rewritten_experience)
+
+        except Exception as e:
+            print(f"❌ Error rewriting experience bullets: {e}")
+
+    def _extract_experience_bullets(self, doc: Document) -> List[dict]:
+        """Extract experience bullets from the document."""
+        is_in_experience_section = False
+        experience_bullets = []
+        current_company = None
+        current_job_title = None
+        current_bullets = []
+        expect_job_title_next = False
+
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if not text:
+                continue
+
+            # Toggle section flags
+            if text.upper() == "PROFESSIONAL EXPERIENCE":
+                is_in_experience_section = True
+                continue
+            elif text.upper() in ["EDUCATION", "ENTREPRENEURIAL VENTURES", "ACADEMIC PROJECTS", "CERTIFICATIONS", "SKILLS"]:
+                is_in_experience_section = False
+                if current_company and current_job_title and current_bullets:
+                    experience_bullets.append({
+                        "company": current_company,
+                        "job_title": current_job_title,
+                        "bullets": current_bullets
+                    })
+                current_company = None
+                current_job_title = None
+                current_bullets = []
+                continue
+
+            if is_in_experience_section:
+                if "\t" in text or re.search(r"\s{2,}", text):  # Likely a header line
+                    if current_company and current_job_title and current_bullets:
+                        experience_bullets.append({
+                            "company": current_company,
+                            "job_title": current_job_title,
+                            "bullets": current_bullets
+                        })
+                    if not expect_job_title_next:
+                        # Line is a company name
+                        current_company = text.split("\t")[0].strip()
+                        current_job_title = None
+                        current_bullets = []
+                        expect_job_title_next = True
+                    else:
+                        # Line is a job title
+                        current_job_title = text.split("\t")[0].strip()
+                        current_bullets = []
+                        expect_job_title_next = False
+                else:  # Bullet point
+                    current_bullets.append(text)
+
+        # Add the last company and its bullets if any
+        if current_company and current_job_title and current_bullets:
+            experience_bullets.append({
+                "company": current_company,
+                "job_title": current_job_title,
+                "bullets": current_bullets
+            })
+
+        return experience_bullets
+
+    def _call_openai_to_rewrite_bullets(self, experience_bullets: List[dict], job_title: str, job_description: str) -> List[dict]:
+        """Call OpenAI API to rewrite experience bullets."""
+        try:
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
@@ -375,10 +432,11 @@ class ResumeOptimizer:
                         "role": "system",
                         "content": (
                             "You are an ATS resume optimization expert and professional career writer. "
-                            "Given a list of experience bullets, your task is to rewrite each one to better match a specific job description, "
+                            "Given a list of experience entries, each containing a job title, company name, and associated bullets, "
+                            "your task is to rewrite each bullet to better match a specific job description, "
                             "while staying within the original length of each bullet and making it a great fit for the job description. "
                             "Make the language more aligned with the target role by incorporating relevant terminology, technologies, and metrics. "
-                            "Feel free to write it with a more job description-specific and job title-specific bullet while it is related to the company's work the bullet reference to."                            
+                            "Feel free to write it with a more job description-specific and job title-specific bullet while it is related to the company's work the bullet references."                            
                             "\n\n"
                             "Follow these bullet rewriting guidelines:\n"
                             "1. Use the Action + Project + Result format:\n"
@@ -397,47 +455,100 @@ class ResumeOptimizer:
                             "Each bullet should reflect **individual contributions**, not team achievements.\n"
                             "Use concise, powerful phrasing optimized for ATS scanning.\n\n"
                             "Return the output as a JSON object in this format:\n"
-                            "{ \"rewritten_bullets\": [\"bullet1\", \"bullet2\", ..., \"bulletN\"] }"
+                            "{ \"rewritten_experience\": [ { \"job_title\": \"title1\", \"company\": \"company1\", \"bullets\": [\"bullet1\", \"bullet2\"] }, ... ] }"
                         )
-                      },
+                    },
                     {
                         "role": "user",
                         "content": (
                             f"Here is the job title: {job_title}\n\n"
                             f"Here is the job description:\n{job_description}\n\n"
-                            f"Here are the experience bullets to rewrite:\n{experience_bullets}"
+                            f"Here are the experience entries to rewrite:\n{json.dumps(experience_bullets, indent=2)}"
                         )
                     }
                 ]
             )
 
             content = response.choices[0].message.content.strip()
-            # print(f"\n🔍 Raw GPT response:\n{content}\n")
 
             # Remove JSON code block markers if present
             if content.startswith("```json") and content.endswith("```"):
                 content = content[7:-3].strip()
 
-            # Try parsing directly
-            try:
-                result = json.loads(content)
-                rewritten_bullets = result.get('rewritten_bullets', experience_bullets)
-                if rewritten_bullets and isinstance(rewritten_bullets, list):
-                    for i, para in enumerate(doc.paragraphs):
-                        if para.text.strip() in experience_bullets:
-                            para.text = rewritten_bullets[experience_bullets.index(para.text.strip())]
-                            for run in para.runs:
-                                run.font.size = Pt(9.5)  # Set the font size to match the previous text
-            except json.JSONDecodeError:
-                raise ValueError("No valid JSON found in response.")
-            # print(f"✅ Rewritten bullets: {rewritten_bullets}")
+            # Parse the response
+            result = json.loads(content)
+            return result.get('rewritten_experience', experience_bullets)
+
         except Exception as e:
-            print(f"❌ Error rewriting experience bullets: {e}")
-            return
-        # If the API call fails, keep the original bullets
-        # for i, para in enumerate(doc.paragraphs):
-        #     if para.text.strip() in experience_bullets:
-        #         para.text = experience_bullets[experience_bullets.index(para.text.strip())]
+            print(f"❌ Error calling OpenAI API to rewrite bullets: {e}")
+            return experience_bullets
+
+    def _update_document_with_rewritten_bullets(self, doc: Document, original_bullets: List[dict], rewritten_bullets: List[dict]) -> None:
+        """Update the document with rewritten bullets."""
+        bullet_lookup = {
+            (entry['company'], entry['job_title']): entry['bullets']
+            for entry in original_bullets
+        }
+        rewritten_lookup = {
+            (entry['company'], entry['job_title']): entry['bullets']
+            for entry in rewritten_bullets
+        }
+
+        current_company = None
+        current_job_title = None
+        is_in_target_entry = False
+        bullet_index = 0
+
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if not text:
+                continue
+
+            # print(f"Processing paragraph: '{text}'")  # Debug print
+
+            # Detect company line: ALL CAPS and contains tab or multiple spaces
+            if current_company is None and re.fullmatch(r"[A-Z0-9\s&/'’*()\-]+", text.split("\t")[0]) and ("\t" in text or re.search(r"\s{2,}", text)):
+                current_company = text.split("\t")[0].strip()
+                # print(f"Detected company: '{current_company}'")  # Debug print
+
+            # Detect job title line: after detecting company
+            elif current_company and current_job_title is None and ("\t" in text or re.search(r"\s{2,}", text)):
+                current_job_title = text.split("\t")[0].strip()
+                bullet_key = (current_company, current_job_title)
+                is_in_target_entry = bullet_key in bullet_lookup and bullet_key in rewritten_lookup
+                bullet_index = 0
+                # print(f"Detected job title: '{current_job_title}', Target entry: {is_in_target_entry}")  # Debug print
+
+            elif is_in_target_entry:
+                # This is a bullet point line
+                old_bullets = bullet_lookup[(current_company, current_job_title)]
+                new_bullets = rewritten_lookup[(current_company, current_job_title)]
+
+                # print(f"Old bullets: {old_bullets}")  # Debug print
+                # print(f"New bullets: {new_bullets}")  # Debug print
+
+                if bullet_index < len(old_bullets) and bullet_index < len(new_bullets):
+                    # print(f"Updating bullet {bullet_index}: '{para.text}' -> '{new_bullets[bullet_index]}'")  # Debug print
+                    para.text = new_bullets[bullet_index]
+                    for run in para.runs:
+                        run.font.size = Pt(9.5)
+                # else:
+                    # print(f"Skipping bullet {bullet_index} as it exceeds available bullets.")  # Debug print
+                bullet_index += 1
+
+                # If we've updated all bullets, reset state
+                if bullet_index >= len(new_bullets):
+                    current_company = None
+                    current_job_title = None
+                    is_in_target_entry = False
+                    bullet_index = 0
+
+            # Reset state if the entry is not in target and we’re past bullets
+            elif current_company and current_job_title and not is_in_target_entry:
+                current_company = None
+                current_job_title = None
+                is_in_target_entry = False
+                bullet_index = 0
 
     def save_optimized_docx(self, doc: Document,  optimized_skills: List[str], output_path: str, job_title: str = "job", job_description: str = "") -> None:
         """Update the skills section in the DOCX and save it."""
@@ -470,7 +581,7 @@ class ResumeOptimizer:
 
             # Replace the content of the skills paragraph with the first line
             skills_text_wrapped = textwrap.wrap(", ".join(optimized_skills), width=120)
-            doc.paragraphs[skills_index].text = "Skills: " + skills_text_wrapped[0]
+            doc.paragraphs[skills_index].text = skills_text_wrapped[0]
 
             # Add the rest of the lines after the current paragraph
             insert_after = doc.paragraphs[skills_index]._element
