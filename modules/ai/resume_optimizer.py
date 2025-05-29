@@ -365,16 +365,25 @@ class ResumeOptimizer:
         experience_bullets = []
         current_entry = self._initialize_experience_entry()
         is_in_experience_section = False
+        header_line_stage = 0  # 0 = expecting company, 1 = expecting title, 2 = collecting bullets
+
+        print("\n📄 Starting experience bullet extraction...")
 
         for para in doc.paragraphs:
             text = para.text.strip()
             if not text:
                 continue
 
+            print(f"\n🔎 Analyzing line: '{text}'")
+
             if self._is_section_header(text, "PROFESSIONAL EXPERIENCE"):
+                print("📌 Entered PROFESSIONAL EXPERIENCE section.")
                 is_in_experience_section = True
+                header_line_stage = 0
                 continue
             elif self._is_section_header(text, ["EDUCATION", "ENTREPRENEURIAL VENTURES", "ACADEMIC PROJECTS", "CERTIFICATIONS", "SKILLS"]):
+                if is_in_experience_section:
+                    print("📤 Exiting PROFESSIONAL EXPERIENCE section.")
                 is_in_experience_section = False
                 self._finalize_experience_entry(current_entry, experience_bullets)
                 current_entry = self._initialize_experience_entry()
@@ -382,12 +391,36 @@ class ResumeOptimizer:
 
             if is_in_experience_section:
                 if self._is_header_line(text):
-                    self._finalize_experience_entry(current_entry, experience_bullets)
-                    current_entry = self._process_header_line(text, current_entry)
+                    print(f"🧾 Detected header line: '{text}'")
+                    if header_line_stage == 0:
+                        self._finalize_experience_entry(current_entry, experience_bullets)
+                        current_entry = self._initialize_experience_entry()
+                        current_entry["company"] = text.split("\t")[0].strip()
+                        header_line_stage = 1
+                    elif header_line_stage == 1:
+                        current_entry["job_title"] = text.split("\t")[0].strip()
+                        header_line_stage = 2
+                    elif header_line_stage == 2:
+                        # New workex block started – reset everything
+                        print("🔁 Starting new work experience entry.")
+                        self._finalize_experience_entry(current_entry, experience_bullets)
+                        current_entry = self._initialize_experience_entry()
+                        current_entry["company"] = text.split("\t")[0].strip()
+                        header_line_stage = 1  # Expect job title next
                 else:
-                    self._add_bullet_to_entry(text, current_entry)
+                    if header_line_stage == 2:
+                        print(f"➕ Adding bullet: '{text}'")
+                        self._add_bullet_to_entry(text, current_entry)
+                    else:
+                        print(f"⚠️ Skipping unexpected line: '{text}'")
 
+        print("\n🧹 Finalizing last experience entry if any.")
         self._finalize_experience_entry(current_entry, experience_bullets)
+
+        print(f"\n✅ Extracted {len(experience_bullets)} experience entries.")
+        for idx, entry in enumerate(experience_bullets):
+            print(f"  {idx+1}. Company: {entry['company']}, Title: {entry['job_title']}, Bullets: {len(entry['bullets'])}")
+
         return experience_bullets
 
     def _initialize_experience_entry(self) -> dict:
