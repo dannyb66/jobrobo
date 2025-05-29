@@ -16,7 +16,8 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate
 from reportlab.lib.styles import getSampleStyleSheet
 from docx import Document
 from docx.shared import Pt
-from config.settings import replace_job_title, rewrite_bullets
+from dotenv import load_dotenv
+# from config.settings import replace_job_title, rewrite_bullets
 
 class ResumeOptimizer:
     def __init__(self, api_key: str):
@@ -344,7 +345,7 @@ class ResumeOptimizer:
         """Rewrite experience bullets to match job description using OpenAI API."""
         try:
             experience_bullets = self._extract_experience_bullets(doc)
-            # print(f"🔍 Extracted experience bullets: {experience_bullets}")
+            print(f"🔍 Extracted experience bullets: {experience_bullets}")
             if not experience_bullets:
                 raise ValueError("No experience bullets found in the resume.")
 
@@ -711,3 +712,62 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
 
     print(f"\n🎯 Optimized resume saved to: {output_path}")
     return output_path
+
+# Function to load configuration variables
+def load_config() -> dict:
+    """Load configuration variables from a JSON file."""
+    config_path = Path(__file__).parent.parent.parent / "config" / "resume_optimize_defaults.json"
+    try:
+        with open(config_path, "r") as config_file:
+            config = json.load(config_file)
+            return {
+                "replace_job_title": config.get("replace_job_title", False),
+                "rewrite_bullets": config.get("rewrite_bullets", False),
+                "resume_path": config.get("resume_path", ""),
+                "job_id": config.get("job_id", ""),
+                "first_name": config.get("first_name", "first"),
+                "last_name": config.get("last_name", "last"),
+                "job_title": config.get("job_title", "job"),
+                "job_description": config.get("job_description", ""),
+            }
+    except FileNotFoundError:
+        print(f"❌ Config file not found at {config_path}. Using default values.")
+        return {
+            "replace_job_title": False,
+            "rewrite_bullets": False,
+            "resume_path": "",
+            "job_id": "",
+            "first_name": "first",
+            "last_name": "last",
+            "job_title": "job",
+            "job_description": "",
+        }
+    except json.JSONDecodeError:
+        print(f"❌ Error decoding JSON config file at {config_path}. Using default values.")
+        return {
+            "replace_job_title": False,
+            "rewrite_bullets": False,
+            "resume_path": "",
+            "job_id": "",
+            "first_name": "first",
+            "last_name": "last",
+            "job_title": "job",
+            "job_description": "",
+        }
+
+# Load configuration variables
+load_dotenv()  # Load environment variables from .env file
+config = load_config()
+replace_job_title = config["replace_job_title"]
+rewrite_bullets = config["rewrite_bullets"]
+job_description = config["job_description"]
+resume_path = config["resume_path"]
+job_id = config["job_id"]
+job_title = config["job_title"]
+first_name = config["first_name"]
+last_name = config["last_name"]
+
+# Main function to run the resume optimization process
+if __name__ == "__main__":
+    # Run the resume optimization process
+    run_resume_optimization(job_description, resume_path, job_id, job_title, first_name, last_name)
