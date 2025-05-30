@@ -615,6 +615,12 @@ class ResumeOptimizer:
         """Reset the state variables."""
         return None, None, False, 0
 
+    """Calculate page count for a given document."""
+    def _calculate_page_count(self, doc: Document, output_path: str) -> int:
+        temp_path = str(Path(output_path).parent / "temp.docx")
+        doc.save(temp_path)
+        return len(Document(temp_path).paragraphs)
+
     def save_optimized_docx(self, doc: Document, optimized_skills: List[str], output_path: str, job_title: str = "job", job_description: str = "") -> None:
         """Update the skills section in the DOCX and save it."""
         try:
@@ -622,10 +628,17 @@ class ResumeOptimizer:
             if skills_index is None:
                 raise ValueError("Skills section not found in DOCX resume")
 
-            self._update_skills_section(doc, skills_index, end_index, optimized_skills)
-            
+            self._update_skills_section(doc, skills_index, end_index, optimized_skills)            
+
             if rewrite_bullets:
-                self.rewrite_experience_bullets(doc, job_title, job_description, optimized_skills)
+                original_page_count = self._calculate_page_count(doc, output_path)
+                while True:
+                    self.rewrite_experience_bullets(doc, job_title, job_description, optimized_skills)
+                    temp_path = str(Path(output_path).parent / "temp.docx")
+                    doc.save(temp_path)
+                    updated_page_count = self._calculate_page_count(Document(temp_path), output_path)
+                    if updated_page_count <= original_page_count:
+                        break
 
             if replace_job_title:
                 self.replace_job_titles(doc, job_title)

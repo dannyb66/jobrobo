@@ -13038,3 +13038,394 @@ Agile software development experience (e.g., Atlassian tools)
 Public Safety Environment
 
 Candidate MUST be authorized to work in the US for any employer.",5,Needs an AI,Jim Moore,https://www.linkedin.com/in/jim-moore-9559aa13,Previous resume,False,Unknown,2025-05-29 17:16:03.139623,https://www.linkedin.com/jobs/view/3744954543,Easy Applied,"{('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Have you completed the following level of education: Bachelor\'s Degree? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('how many years of work experience do you have with microsoft azure?', '6', 'text', '6'), ('Are you legally authorized to work in the United States? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Knowledge of iOS development environment including LTE and WiFi communications, IP protocols, and graphical user interfaces (GUI). [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('how many years of work experience do you have with ios development?', '6', 'text', '6'), ('how many years of work experience do you have with mobile software development?', '6', 'text', ''), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)')}",In Development
+4240359335,"Founding Machine Learning Engineer, Robot Learning",Deft Robotic,ft Robotic,ft Robotic,"About the job
+About Us
+Our mission is to build the world’s first labor agency that deploys dexterous robots as its primary workforce. 
+We start by tackling one of the most dull tasks in warehousing and logistics: packaging e-commerce orders.
+You’ll be joining a team of extremely hardcore and self-motivated engineers, scientists, and operators who focus on winning 24/7.
+As a founding member of the technical staff, you will develop and own entire systems from design to deployment, playing a foundational role in deploying 5000+ robots by 2031.
+
+What you'll do
+Design and develop robot autonomy software stack and algorithms to enable capabilities including grasping and more dexterous behaviors in unstructured environments
+Improve reliability and inference speed for robot autonomy software stack
+Research and implement state-of-the-art robot learning policies, including reinforcement learning and imitation learning based techniques
+Design and maintain robust data collection and curation pipelines for production robot fleets
+Optimize robot policies for distributed training at scale and real-time edge deployment
+Ship production quality, safety-critical software
+
+Required Qualifications
+Master's degree in Computer Science, Machine Learning, Robotics, or equivalent technical discipline
+Deep expertise in machine learning fundamentals, reinforcement learning, and associated frameworks (PyTorch, TensorFlow, Ray, etc.)
+Proven track record developing and deploying ML systems from research through production implementation
+Hands-on experience with model lifecycle management including training, deployment, and maintenance in production settings
+
+Preferred Qualifications
+Authored or co-authored peer-reviewed publications in robotics or related fields
+Experience in deep imitation learning or reinforcement learning
+Background in real-time ML inference systems, simulation-to-reality transfer, or advanced reinforcement learning implementations
+
+Benefits
+Medical, dental & vision plans
+Daily meals stipend
+
+Expected Compensation
+$125,000 - $200,000/annual salary + cash and stock awards + benefits
+
+Hiring process
+phone screen + 3-4 technical interviews + onsite",0,Needs an AI,Jungwon(Jason) Shin ,https://www.linkedin.com/in/jungwon-jason-shin-86861311b,Previous resume,False,Unknown,2025-05-29 17:28:21.422876,https://www.linkedin.com/jobs/view/4240359335,Easy Applied,"{('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Are you comfortable commuting to this job\'s location? [  ""Yes""<Yes>, ""No""<No>, ]', 'Yes', 'radio', None), ('Have you completed the following level of education: Master\'s Degree? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Are you legally authorized to work in the United States? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>')}",In Development
+4230267070,Senior Software Engineer,Fortune 500 payment processing compan,rtune 500 payment processing compan,rtune 500 payment processing compan,"About the job
+Job description:
+
+The Company -
+We are seeking seasoned Staff Engineers for multiple positions for a direct hire permanent role with a major global payment processing company that has been revolutionizing commerce for over 25 years. This company provides secure, innovative experiences to move money, sell, and shop, empowering consumers and businesses across approximately 200 markets to thrive in the global economy.
+Operating a vast two-sided network, this company connects hundreds of millions of merchants and consumers worldwide, facilitating seamless payments for both online and in-person transactions. Their end-to-end payment solutions help merchants with authorization, settlement, customer engagement, risk management, and cross-border transactions, all while keeping customer convenience and security at the forefront.
+
+Job Description Summary:
+Meet your team -
+Join a dynamic engineering team driving the transformation of global commerce. As part of this team, you’ll collaborate with talented peers, working on high-impact projects in an agile environment. With a focus on code quality, customer satisfaction, and rapid iteration, the team collaborates closely with design, product, and QA departments to deliver world-class solutions that redefine global commerce. We have a few positions open in New York as well!
+
+Your Way to Impact -
+As a Backend Engineer, you’ll be integral in shaping the company’s global payment platform, powering millions of transactions daily. Your expertise will drive the system architecture, ensuring high performance, scalability, and resilience, directly impacting the experience of millions of users.
+
+Your Day-to-Day -
+In this role, you will define and lead the technical roadmap, driving backend architecture and strategic innovation. Collaborate with engineering and product leadership to deliver high-impact, scalable solutions. Advocate for code craftsmanship, enforce coding standards, and utilize tools to improve code quality.
+Develop processes and execute backend technology strategy with a focus on cloud-native solutions, microservices, and serverless architectures. Collaborate with cross-functional teams to deliver impactful business outcomes.
+
+We have multiple positions open for Python Engineers. 
+
+What You Need to Bring:
+
+Bachelor's degree in Computer Science or a related field.
+5+ years of backend development experience, with proficiency in Python.
+Expertise in developing large-scale backend systems, with extensive experience in Django/Flask.
+Proven experience designing, building, and maintaining complex RESTful APIs and microservices.
+Strong leadership in guiding engineering teams through complex challenges and technical decisions.
+Deep understanding of distributed systems, cloud-native applications, and containerization technologies like Docker and Kubernetes.
+Experience with large-scale data processing, caching strategies, and performance optimization.
+Strong track record with microservices and distributed systems architecture.
+Proven ability to lead and mentor teams.
+
+Preferred Qualifications:
+
+Experience with Agile methodology and high-performance systems.
+Knowledge of the payment processing industry and related regulations.
+Experience with cloud platforms (AWS, GCP, Azure).
+Contributions to open-source projects.
+
+Compensation & Benefits - 
+This opportunity offers a competitive total compensation package above market standards, which includes a base salary, annual performance bonus, equity, and a comprehensive suite of benefits, including medical, dental, and vision. H1B/ T1 sponsorship will also be provided if needed(for people with 'at least 2 years' left on their current visa).
+
+Pay Range: The U.S. national annual pay range for this role is $130,500 to $195,000.",5,Needs an AI,Sihar K. ,https://www.linkedin.com/in/siharkunnoth,Previous resume,False,Unknown,2025-05-29 17:29:35.147782,https://www.linkedin.com/jobs/view/4230267070,Easy Applied,"{('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Are you comfortable commuting to this job\'s location? [  ""Yes""<Yes>, ""No""<No>, ]', 'Yes', 'radio', None), ('how many years of work experience do you have with python (programming language)?', '9', 'text', '9'), ('Are you comfortable working in a hybrid setting? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('how many years of work experience do you have with microservices?', '4', 'text', '4'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)? [  ""Yes""<Yes>, ""No""<No>, ]', '""No""<No>', 'radio', '""No""<No>'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660')}",In Development
+4236562298,Senior Staff Software Engineer,Fortune 500 payment processing compan,rtune 500 payment processing compan,rtune 500 payment processing compan,"About the job
+The Company -
+We are seeking seasoned Sr. Staff Engineers for multiple positions for a direct hire permanent role with a major global payment processing company that has been revolutionizing commerce for over 25 years. This company provides secure, innovative experiences to move money, sell, and shop, empowering consumers and businesses across approximately 200 markets to thrive in the global economy.
+Operating a vast two-sided network, this company connects hundreds of millions of merchants and consumers worldwide, facilitating seamless payments for both online and in-person transactions. Their end-to-end payment solutions help merchants with authorization, settlement, customer engagement, risk management, and cross-border transactions, all while keeping customer convenience and security at the forefront. 
+
+Job Summary:
+What you need to know about the role:
+The client is transforming global commerce. Our Engineering team is the heart of this transformation. We’re building innovative solutions that delight customers and drive business growth. 
+
+Meet our team: 
+Join our dynamic engineering team, where you’ll have the opportunity to collaborate with talented peers and work on high-impact projects in an agile environment. We're not just building systems; we're creating scalable, high-performance solutions that make a real difference in global commerce. We prioritize code quality, customer focus, and rapid iteration. Our engineers work closely with design, product, and QA teams to deliver world-class experiences.
+
+Job Description:
+Your way to impact:
+At our company, Mobile Software Engineers are the architects of our company's advanced applications for iOS platforms. You'll design, develop, and optimize core systems powering millions of transactions daily, delivering innovative solutions that delight customers and drive business success.
+
+Your day-to-day:
+As an iOS Software Engineer, you will:
+Drive architectural vision and innovation as a technical leader.
+Mentor and develop top-tier engineering talent.
+Spearhead mobile platform transformation initiatives.
+Define and execute the long-term mobile architecture.
+Mentor and develop senior engineering talent.
+Drive mobile platform transformation initiatives.
+
+What you need to bring:
+Bachelor's degree in Computer Science or a related field.
+10+ years of hands-on mobile development experience in iOS.
+Extensive experience architecting and building large-scale mobile applications.
+Proven leadership and ability to influence at all levels of the organization.
+
+Preferred Qualifications:
+Experience with mobile payment technologies and integrations.
+Proficiency in Swift, Objective-C, and React Native.
+Knowledge of mobile performance optimization techniques.
+Experience with mobile payments and financial services.
+Deep understanding of mobile industry trends and competitive landscape.
+Strong ability to build and maintain relationships with external partners.
+
+Compensation & Benefits - 
+This opportunity offers a competitive total compensation package above market standards, which includes a base salary, annual performance bonus, equity, and a comprehensive suite of benefits, including medical, dental, and vision. H1B/ T1 sponsorship will also be provided if needed(for people with 'at least 2 years' left on their current visa).
+
+Pay Range: The U.S. national annual Base pay range for this role is between $107,300 to $291,500.",10,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-29 17:30:20.803205,https://www.linkedin.com/jobs/view/4236562298,Easy Applied,"{('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('how many years of work experience do you have with react native?', '4', 'text', '4'), ('how many years of work experience do you have with objective-c?', '6', 'text', ''), ('how many years of work experience do you have with swift (programming language)?', '6', 'text', ''), ('Are you comfortable commuting to this job\'s location? [  ""Yes""<Yes>, ""No""<No>, ]', 'Yes', 'radio', None), ('how many years of experience do you have in hands-on mobile development in ios?', '6', 'text', ''), ('how many years of experience do you have with mobile payment technologies and integrations?', '6', 'text', ''), ('Are you comfortable working in a hybrid setting? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)? [  ""Yes""<Yes>, ""No""<No>, ]', '""No""<No>', 'radio', '""No""<No>'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660')}",In Development
+4226495030,Software Engineer,Mino,no,no,"About the job
+Join us at Minoa as a senior full-stack engineer 🧑‍💻 and build the software that turns enterprise sales into a multiplayer experience.
+
+We bet that we'll be the most passionate, ambitious, and kind team you have ever met. Most of us have started companies before, we're all builders at heart and work hard to deliver the best experience for our users. Ship today > tomorrow, Linear > Jira, async > meetings, impact > story points.
+
+Our team works in-person in San Francisco - we believe that the best companies are built by small teams that move quickly. We have an amazing office (the BBQ is a team favorite) and invest in our health, performance, and personal growth ... you'll see us exercise regularly, prioritize sleep, and maximize time for deep work.
+We're backed by world-class investors and unicorn founders, work closely with an incredible set of customers in the US and Europe, and already impact $$$ millions of revenue for sales teams.
+
+Join us for a unique opportunity to impact our product, tech, and company - our journey is just getting started and we would love for you to be part of it!
+
+What You’ll Be Doing:
+Work with users to validate ideas, test prototypes, and ship code quickly
+Take ownership of projects and new product ideas - from start to finish
+Research, test and implement AI functionality that SHOCKS our users
+Establish engineering best practices
+Define our product vision and strategy with our founders
+Mentor and lead future hires
+… and much more!
+
+Requirements:
+Experience building B2B products with React and Typescript
+Ability to go from 0-1
+Previous startup experience
+Based in SF or willing to relocate (we’ll support your move)
+You're curious and hacky - you find ways to make things work
+
+Nice to have:
+Experience with Firebase/GCP and multi-tenant systems
+
+Salary & Benefits
+💰 Generous compensation ($160k-$220k) + equity
+🏢 Cool office with Italian espresso, parking, and amazing team lunch/dinners
+📚 Learning budget (attend your favorite conference) & all the tech equipment you need
+🏝️ Unlimited PTO
+✈️ Multiple team offsites per year
+🧑‍⚕️ Health, dental, and vision insurance
+🌱 401k plan",0,Needs an AI,Victor Neumann ,https://www.linkedin.com/in/victorneumann,Previous resume,False,Unknown,2025-05-29 17:31:19.559702,https://www.linkedin.com/jobs/view/4226495030,Easy Applied,"{('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)')}",In Development
+4231480419,Senior Backend Engineer,Pace A,ce A,ce A,"About the job
+Who We Are
+We founded Pace AI to help 2.3 billion people across the world unlock economic opportunities through English language acquisition and workforce training. 
+
+We’re building Pace AI to accelerate multilingual and lower-literacy working adult learners onto career pathways, postsecondary education, and jobs that sustain their families. While “mainstream AI” tools focus on K-12 standards or assume college-level facility with English, our adult learners are some of the most resilient and talented, yet chronically underserved and overlooked learners anywhere. They are parents, caregivers, multilingual community members, aspiring GED and college graduates, internationally trained professionals, and everyone in between who doesn’t fit the mold of a “traditional learner.”
+
+With AI that truly meets multilingual and lower-literacy adult learners where they are — at their English level and in 250+ languages (including lower-resource languages like Haitian Creole that aren’t well-supported by mainstream models) — we help learners build confidence and feel seen, sometimes for the very first time in their educational journeys.
+
+We’re a team of product leaders, TEFL-certified English teachers, and AI/ML research scientists and engineers — with experience from top research labs across the country like Microsoft Research, Stanford, Cornell, MIT, and the Paul Allen Institute for AI Research.
+
+You’ll tackle problems that are not only intellectually challenging—working with advances in AI/LLMs and building products from 0 to 1—but also make a significant impact on advancing ESL and lower-literacy learners everywhere. We’re lucky to be backed by leading investors in AI and ed-tech—E14, GSV, Antigravity, Allen Institute for AI Research, Transcend Network Fund, among other strategic angels like the co-founder of Chegg. 
+
+🏗️ What You’ll Work On
+As a Senior Backend Engineer, you’ll be a foundational member of our engineering team, working closely with leadership to architect and scale high-impact systems across our entire product stack. You’ll build backend infrastructure that powers AI-first experiences for learners around the world.
+This is a highly autonomous role. We’re looking for engineers who can take ownership of complex projects end-to-end—from design to deployment—without needing hand-holding.
+What You’ll Do
+Architect and implement scalable backend systems that power our AI and recommendation engines.
+Build and maintain data pipelines, APIs, and services used by educators and enterprise partners.
+Optimize infrastructure to support low-latency AI interactions.
+Collaborate closely with ML Engineers and Product to build personalized learning experiences at scale.
+Help shape our engineering practices, architecture, and culture as an early team member.
+We use the following technologies, but prioritize strong problem-solving skills, product intuition, and alignment with our values over specific experience with any one tool:
+Frontend: React, TypeScript, Material UI
+Backend: Python (FastAPI), PostgreSQL
+Infrastructure: AWS (S3, Lambda, RDS, CloudWatch), Pulumi, Redis, Milvus/Zilliz
+🔍 Who We’re Looking For
+You might be a good fit if you have:
+
+5+ years of backend experience, ideally building and scaling a successful consumer product reaching millions of users.
+Industry experience building high-traffic, low-latency (e.g. streaming, multi-threading/multi-processing, polling) APIs using public cloud providers.
+Strong competencies in data structures, algorithms, relational databases, schema design, and software design.
+A self-directed, proactive working style with excellent judgment and prioritization skills.
+Fluency with Python, with the ability to pick up other languages as necessary.
+[BONUS] Solid understanding of, and experience with, AI/LLMs models (e.g., GPT, LLAMA, BERT), RAG, as well as basic exposure to classic ML models (e.g. CNNs, MLP classifiers).
+🧭 Our Values
+At Pace AI, we’re an elite sports team. We earn the right to be starting players on the pitch, just as we earn the right to be each others’ teammates, day in and day out. 
+
+We’re looking for a world-class teammate: someone who embodies our ABCs of culture, is hungry to learn and build with us, and is as excited as we are about making a tremendous impact in an underserved market! 
+
+Start-up life is not for everyone. We move fast and work incredibly hard. 
+
+The ABCs of who we are and how we work:
+Alignment in our purpose
+Bias for action
+Customer is #1
+
+📍 Your location
+You must be physically based in the San Francisco Bay Area. We are hybrid out of Palo Alto co-working spaces.
+
+⚡ Benefits
+Healthcare benefits for vision, dental, and health.
+Competitive salary and equity.
+Flexible PTO.",5,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-29 17:32:44.283660,https://www.linkedin.com/jobs/view/4231480419,Easy Applied,"{('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Are you comfortable commuting to this job\'s location? [  ""Yes""<Yes>, ""No""<No>, ]', 'Yes', 'radio', None)}",In Development
+4232600092,Senior Java Backend Software Engineer,enter.healt,ter.healt,ter.healt,"About the job
+Please Apply Here: https://jobs.lever.co/enter-rcm-llc/f319ff91-35b4-46b3-a453-52dc38dcde72/apply
+
+About Us: ENTER is a profitable, fast-growing AI healthcare fintech company on a mission to revolutionize Revenue Cycle Management (RCM). In the U.S., healthcare makes up nearly 20% of GDP, and providers spend 5–10% of their revenue just trying to collect money from insurance companies and patients. It’s an outdated, painful, administrative mess.
+
+We’re here to change that.
+
+Our mission is bold: automate 1% of GDP by eliminating the manual, inefficient workflows that plague financial operations in healthcare. We’re building modern systems to replace the legacy software and armies of billing staff that have been the norm for decades.
+
+At ENTER, we believe better financial infrastructure means better healthcare. By using cutting-edge AI and automation, we empower healthcare providers to focus on what matters most: delivering exceptional care, not chasing payments.
+
+We’re a fully remote, US-based team of engineers, designers, and healthcare experts. We’re curious, mission-driven, and product-obsessed. If you're excited about building transformative technology in one of the biggest and most broken industries, we’d love to meet you.
+
+Job Description: We are seeking a highly skilled Senior Java Backend Software Engineer to join our dynamic team. The ideal candidate will have extensive experience in Java and a solid understanding of backend development. You will work closely with our team to develop and maintain scalable backend solutions that power our healthcare management systems.
+
+Responsibilities
+Design, develop, and maintain backend systems.
+Collaborate with cross-functional teams to define and implement new features.
+Optimize applications for maximum speed and scalability.
+Ensure the technical feasibility of backend designs.
+Write clean, maintainable, and efficient code.
+Troubleshoot and debug applications.
+Stay up-to-date with emerging technologies and industry trends.
+
+Required Skills
+5+ years of experience in backend development with Java.
+Strong understanding of object-oriented programming and design patterns.
+Knowledge of relational databases and SQL.
+Proficient in version control systems like Git.
+
+Preferred Skills 
+Experience in the healthcare industry.
+Knowledge of healthcare protocols such as X12, HL7, etc.
+Experience with other backend technologies such as Node.js, Python, and Go.
+Familiarity with AWS cloud services and infrastructure.
+Strong problem-solving skills and ability to work independently.
+Excellent communication and teamwork skills.
+
+What We Offer 
+Competitive salary and benefits.
+Fully remote work environment.
+Opportunity to work with a small, dedicated, and passionate team.
+A profitable and stable company with growth opportunities.
+Professional development and continuous learning opportunities.
+
+Salary Range: $150-180k/year",5,Needs an AI,Unknown,Unknown,danny_basavaraju_senior_java_backend_software_engineer_4232600092.pdf,False,Unknown,2025-05-29 17:33:33.160504,https://www.linkedin.com/jobs/view/4232600092,Easy Applied,"{('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Email [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('phone', '628-310-5660', 'text', '628-310-5660')}",In Development
+4237672045,Senior Software Engineer,eHuman Digital Anatom,uman Digital Anatom,uman Digital Anatom,"About the job
+Senior Software Engineer
+eHuman, Inc. is developing the next-generation of medical and dental education software. Our award winning, innovative products use advanced technologies (like virtual reality, AI, and interactive visualization) to dramatically improve the way we teach, leading to better understanding and retention.
+We are looking for enthusiastic, smart, innovative, hard-working people that are passionate about making a positive impact on the world. Our current opening is for a Senior Software Engineer that will help us develop our next great product on the Unity gaming platform and help manage our back-end worldwide data infrastructure to enable medical and dental schools worldwide to easily deploy our technologies. Thus, you will get to apply all the technologies above (VR, AI, vis) in mobile, desktop, and web-based platforms. This position is for someone who is passionate about making a direct impact on the next generation of medical and dental students.
+
+Customer focus with teamwork and a positive attitude are very important. In addition, independence, multi-tasking, detail orientation, and problem solving are highly valued and expected abilities. 
+
+Qualifications
+This is a great job that gives broad experience in the most cutting edge of technologies, thus we require talented, passionate people with a strong work ethic and the following qualifications:
+
+Required: 
+• Enthusiastic, independent, team-oriented, positive, and motivated 
+• 5+ years of professional software development experience
+• 2+ years Unity programming experience (especially UI system)
+• Strong C# or related programming language and debugging skills
+• Web services (PHP, Python, Javscript) in an AWS environment
+• Cloud computing experience (AWS, CloudFront/EC2/S3/EBS worldwide deployments)
+• Experience with SQL database,s particularly MySQL
+• Experience with version control systems such as Git
+
+Desired:
+• OpenGL/graphics (3D modeling and animation) and/or UI/UX experience
+• Security experience- authentication (OpenAuth/ID) and/or encryption (AES, https)
+· Systems administration experience, including AWS and other Cloud computing
+• Mobile app development and delivery (Android and/or iOS)
+• Ability to communicate well and present and manage projects
+
+Fremont/San Jose Area LOCAL Principals only. Recruiters and firms will not be considered.
+Please do not contact job poster about other services, products or commercial interests.",5,Needs an AI,Roz B. ,https://www.linkedin.com/in/rozmbrown,Previous resume,False,Unknown,2025-05-29 17:34:27.966424,https://www.linkedin.com/jobs/view/4237672045,Easy Applied,"{('Are you comfortable working in an onsite setting? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Are you comfortable commuting to this job\'s location? [  ""Yes""<Yes>, ""No""<No>, ]', 'Yes', 'radio', None), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660')}",In Development
+4236266844,"Senior Software Engineer, Full Stack",Cairns Healt,irns Healt,irns Healt,"About the job
+Senior Software Engineer, Full Stack
+We’re seeking a dynamic software engineer to join our incredible engineering team at Cairns Health. The role sits at the crossroads of conversational AI, radar technology, hardware integration, and LLMs. You’ll play a pivotal role in the success of our product, starting with front-end and back-end development for our web and mobile apps using React and React Native, while exploring opportunities across our tech stack. Our ideal candidate is a proactive problem solver with a hands-on approach to coding and a positive, can-do attitude.
+
+About Cairns Health
+Cairns Health (https://www.cairns.ai/) is creating a fundamentally better healthcare experience for people with chronic health conditions and those who care for them. We make healthcare more accessible by simplifying complex care plans, connecting care teams and meeting patients where they live. Through our conversational AI, patients use their voice to interact with our digital care companion, who proactively gives medication reminders, symptom checks, behavioral nudges and even engages in friendly conversation to ease loneliness. Cairns uses a device that includes radar to put the patient in context and passively monitors their activities, including: heart rate, breathing rate and sleep stages, all without a wearable. The result is informed and timely intervention that drives improved clinical outcomes, reduced care delivery costs and a more satisfactory healthcare experience for all.
+
+Duties & Responsibilities
+Code daily to tackle challenges and drive our product to market.
+Develop a backend architecture to support our LLM-powered health and wellness AI
+Design and develop LLM applications that serve our users
+Optimize our LLM applications for latency, concurrency, uptime, etc.
+Take a leading role in creating interactive, data-driven mobile and web apps using a modern tech stack.
+Enhance our backend to power front-end and device features.
+Collaborate with a team of accomplished, high-performing engineers.
+Beyond app development, gain hands-on experience with embedded devices, front-end, back-end, AWS, and Kubernetes.
+
+Qualifications
+Bachelor’s degree in Computer Science, Engineering, or a related field or equivalent practical experience, coupled with 3-5 years of professional experience as a Full Stack Software Engineer or in a similar role.
+Experience in LLM architectures (e.g. RAG)
+Familiarity with commonly used LLM APIs (OpenAI, Gemini, etc.)
+Proficient in React and React Native for building responsive and mobile-first user interfaces, with strong experience in Redux for effective state management.
+Proficient in Java 11+ for developing robust server-side applications and experienced in designing and implementing RESTful APIs to facilitate seamless integration between front-end and back-end systems.
+Hands-on experience with PostgreSQL or other relational databases, ensuring efficient data storage, retrieval, and management for scalable applications.
+Proficient in containerization using Docker and orchestration with Kubernetes, with a proven track record of deploying and managing applications on AWS EKS (Elastic Kubernetes Service) and ECS (Elastic Container Service).
+Familiarity with messaging systems like Kafka and MQTT for real-time data processing and communication, along with proficiency in using GitHub for version control and collaborative development.
+Experience implementing and managing CI/CD pipelines using GitHub Actions or similar tools, familiarity with Agile/Scrum methodologies for iterative and collaborative software development, and strong problem-solving and analytical abilities to tackle complex technical challenges.
+Positive, team player with strong people skills and excellent communication.
+
+Benefits
+We offer competitive compensation, equity & benefits - including medical, dental, vision and paid vacation/sick days and 401(k) plans.
+
+Location
+Strong preference for candidates located near Sunnyvale, CA.
+
+To Apply
+Please apply via LinkedIn and then send your resume and cover letter to: nicky@cairns.ai and answer the following questions:
+
+Will you work in-office at least 4 days per week from Sunnyvale, CA?
+What are your salary expectations?
+What makes you feel you are a fit for this role at Cairns Health?",3,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-29 17:35:26.910917,https://www.linkedin.com/jobs/view/4236266844,Easy Applied,"{('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Are you deeply proficient in Java 11+? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Do you have a Bachelor\'s Degree in Computer Science or Engineering? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Do you have significant professional experience designing and developing LLM applications that serve users, while also optimizing LLM applications for latency, concurrency, & uptime? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Are you willing to work in-office from Sunnyvale, CA?  [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Are you deeply proficient in React and React Native? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option')}",In Development
+4239739781,Senior Software Engineer,Staffings.a,affings.a,affings.a,"About the job
+About Cortex
+We’re recruiting for our client, Cortex – apply to join their team. Cortex is the enterprise Internal Developer Portal built to accelerate the path to engineering excellence. Customers like Blackstone, Xero, and Fanatics use Cortex to abstract away complexity for developers with a single interface for all their engineering tools, templates, and tasks. By providing a clear view into the health and state of every software component, Cortex helps engineering teams drive progress to goals, optimize productivity, reduce technical debt, and build efficient software and teams.
+
+Location
+We’re fully remote and welcome candidates from anywhere in the US! We have all-company offsites a few times a year where we fly the whole team out to meet in person, build stronger relationships, kick off important projects, and have fun!
+
+The Team
+We are a mighty group of ~100 passionate individuals excited about building a product that developers love. We recently raised $60M in Series C Funding led by Scale Ventures (with participation from Sequoia, IVP, and others) to build the future of developer experience.
+
+Job Summary
+We are seeking a Senior Software Engineer to join our team and help us build a new category of developer tooling. As a Senior Software Engineer, you will be solving deeply technical problems and diving into scalability issues. You will play a critical role in designing, implementing, and maintaining the core backend systems that power Cortex while working closely with the product and support engineering teams.
+
+Responsibilities
+Design, develop, and maintain scalable, and efficient backend systems and services that meet enterprise requirements
+Work alongside other engineers to build new features and enhance existing ones
+Optimize and improve the performance, reliability, and scalability of existing backend systems
+Conduct code reviews and provide constructive feedback to team members
+Write clean, maintainable, and testable code that adheres to best practices
+Partner closely with engineering, product, leadership, sales, and our customers to better understand design requests and user experiences
+Continually improve existing planning, development, deployment processes
+
+Qualifications 
+Bachelor's degree in Computer Science or related field, or equivalent work experience
+5+ years of experience building backend applications using any modern programming language
+Experience with distributed systems, microservices, and cloud computing platforms
+Experience with modern data storage solutions, such as MySQL, Postgres, MongoDB etc.
+Knowledge of current standard methodologies and to try, learn and adapt to new technologies and programming languages
+Solid fundamental skills in data structures, algorithms, and web development best practices
+Excellent problem-solving and analytical skills
+Strong communication and collaboration skills
+Ability to mentor and coach junior engineers
+
+Perks & Benefits
+Competitive salary and equity
+National medical, dental & vision insurance (we cover 100%!)
+Fully covered life insurance
+$400 monthly perks stipend 
+$1000 yearly Learning & Development stipend
+401k plan
+Pet Insurance
+Unlimited PTO
+Remote & flexible working hours
+Gender-neutral parental leave 
+All-Company Retreats 
+
+Noteworthy
+Our job titles may span more than one career level. The base pay for this role starts between $170,000 and $225,000. The actual base pay is dependent upon many factors, such as: training, transferable skills, work experience, business needs and market demands. The base pay range is subject to change and may be modified in the future. This role is eligible for equity and benefits.",5,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-29 17:36:32.150445,https://www.linkedin.com/jobs/view/4239739781,Easy Applied,"{('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('how many years of experience do you have working with distributed systems or microservices?', '6', 'text', ''), ('how many years of experience do you have using cloud platforms (e.g., aws, gcp, or azure) in a production environment?', '6', 'text', ''), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('how many years of professional experience do you have building backend applications?', '6', 'text', ''), ('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Are you legally authorized to work in the United States? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>')}",In Development
+4233677785,Senior WiFi Software Engineer,Mission Pea,ssion Pea,ssion Pea,"About the job
+Company Description
+Mission Peak is an engineering services firm known for its premier technical expertise in the technology industry. With decades of experience in Silicon Valley, Mission Peak staff excel in solving complex problems, from embedded hardware design to embedded software integration and testing. Our capabilities include RF subsystem design, wireless system performance testing, and comprehensive product lifecycle management, including design, manufacturing, and certification stages. Based in the heart of innovation, our team is equipped to handle technical rework, field deployment, and information technology services with precision.
+
+Role Description
+This is a full-time on-site role for a Senior WiFi Software Engineer, located in Sunnyvale, CA. The Senior WiFi Software Engineer will be responsible for developing and maintaining WiFi software systems. Day-to-day tasks include designing, programming, testing, and troubleshooting WiFi software and network devices. The role involves collaboration with cross-functional teams to ensure optimal system performance, adherence to regulatory standards, and effective integration with hardware components. Applicants should be prepared to manage projects from conception through deployment and field testing.
+
+Qualifications
+Strong background in Computer Science and Software Development
+Experience in Linux or Android kernel layer
+Experience with WiFi Supplicant highly desired
+Proven track record in WiFi network systems development
+Excellent analytical and problem-solving skills
+Bachelor's or Master's degree in relevant fields such as Computer Science, Electrical Engineering, or equivalent
+Ability to work collaboratively in an on-site team environment
+Knowledge of embedded systems and RF technologies is a plus",0,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-29 17:37:34.240811,https://www.linkedin.com/jobs/view/4233677785,Easy Applied,"{('Are you comfortable working in an onsite setting? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Do you have development experience with WiFi Supplicant? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Have you completed the following level of education: Bachelor\'s Degree? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)? [  ""Yes""<Yes>, ""No""<No>, ]', '""No""<No>', 'radio', '""No""<No>'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660')}",In Development
