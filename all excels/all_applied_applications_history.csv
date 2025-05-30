@@ -12966,3 +12966,75 @@ Competitive salary and benefits package
 Opportunity to work in a dynamic and innovative environment
 Support for professional development and continuous learning
 Collaborative and inclusive company culture",5,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-22 18:18:22.084569,https://www.linkedin.com/jobs/view/4231001407,Easy Applied,"{('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Have you completed the following level of education: Master\'s Degree? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660')}",In Development
+4222365849,Fullstack Senior Engineer,RAINBO,INBO,INBO,"About the job
+About Rainbow
+Rainbow is a fully digital insurance company focused on small businesses. Founded in early 2022, we have experienced massive growth over the last year—over 3x revenue growth, expanded offerings, and a successful Series A from leading investors in the space.
+We develop our own unique insurance products from the ground up, combining innovative solutions with software that automates the process of getting covered and filing claims. In addition, we empower business owners with tools to help them operate with reduced risk.
+Our founding team has a proven track record in Insurtech and product development, having built a startup that scaled to 50 employees, served some of the largest insurance companies in the world, and raised over $40M in venture capital.
+At Rainbow, we are committed to building a world-class product and engineering culture in the Bay Area. While we trust our team to excel independently, we encourage in-person collaboration a few days per week to foster team building and a strong culture.
+
+What You’ll Do
+As a Senior Fullstack Engineer, you will:
+Lead Frontend Architecture: Take ownership of the UI layer, shaping our React and TypeScript architecture to be scalable, maintainable, and performant—especially for features that impact core insurance workflows like rate calculations and quoting.
+Contribute Across the Stack: While your primary strength is in frontend development, you’ll also work across the backend when needed to ensure seamless end-to-end functionality.
+Refine System Integrations: Collaborate closely with engineering and product teams to define and refine system integrations and communication protocols.
+Ship Code Frequently: Embrace an agile approach by shipping code frequently, iterating rapidly, learning from feedback, and refining features to better serve our customers.
+Maintain Code Quality: Continuously refactor and improve the codebase to keep it well-structured, simple, and easy to work with.
+Improve Test Quality: Write well-tested code, and maintain a strong culture of testing by contributing robust unit and regression test coverage.
+Solve Business Challenges: Translate high-level business problems into effective technical solutions, often leveraging direct customer feedback or insights from other teams.
+
+About You
+Frontend-Focused Builder: You have a strong track record of crafting elegant, high-performance user interfaces using React and TypeScript. You care deeply about UX details, component architecture, and responsive design.
+Iterative & Collaborative: You embrace feedback, quickly prototype, and refine solutions in close collaboration with designers, engineers, and PMs.
+Effective Communicator & Architect: You can design and articulate technical solutions clearly, securing buy-in from teammates both within and outside of engineering.
+Quality-Minded: You believe testing is a critical part of the development process, and you have experience writing automated unit and regression tests to ensure stability and reliability at scale.
+Proven Experience: You bring 4+ years of experience delivering reliable, production-grade applications, with a portfolio that demonstrates meaningful UI contributions in complex systems.
+FAQ
+Team Size: 25+ total employees, including 8+ engineers.
+Tech Stack:Frontend: React/TypeScript
+Backend: Golang
+Database: Postgres
+Office Location: Financial District, San Francisco.
+Work Schedule: In office twice a week.",4,Needs an AI,Mindy Pile ,https://www.linkedin.com/in/mpile13,Previous resume,False,Unknown,2025-05-29 17:01:25.345638,https://www.linkedin.com/jobs/view/4222365849,Easy Applied,"{('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Are you comfortable working in a hybrid setting? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Can you commute to San Francisco, California? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)? [  ""Yes""<Yes>, ""No""<No>, ]', '""No""<No>', 'radio', '""No""<No>'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)')}",In Development
+3744954543,"Senior Software Engineer, iOS Mobile Application Developer","RadioMobile, Inc","dioMobile, Inc","dioMobile, Inc","About the job
+Are you ready to make a real impact? Join our dynamic team at RadioMobile, where we develop cutting-edge, mission-critical public safety systems that save lives and keep our heroes safe. Our innovative solutions span on-prem and cloud-based services, Windows and iOS applications, and integrate with various wireless communications, including 4G/5G, 2-way satellite, and LMR.
+
+As an iOS Software Engineer at RadioMobile, you'll be at the forefront of technology, creating, enhancing, maintaining, and testing mobile software applications for 911 dispatch, mobile devices, and other critical applications used by public safety departments and fleet management organizations. You'll not only enhance our current product suite but also collaborate with management and team members to innovate and develop new programs and systems. 
+ Responsibilities
+Lead the Charge: Be the lead iOS developer responsible for the entire lifecycle of a field app used by first responders.
+Innovate and Create: Design, build, and maintain the app using Swift and UIKit, leveraging ArcGIS for mapping and Alamofire for networking.
+Deploy with Confidence: Manage deployments through App Store Connect and TestFlight, including provisioning profiles and certificates.
+Ensure Stability: Handle bug tracking, crash monitoring, and ongoing maintenance to ensure stability in high-pressure field environments.
+Collaborate and Integrate: Work closely with a backend engineer to define API integrations and implement new features.
+Shape the Future: Take an active role in shaping product direction, helping prioritize and design features from both technical and user perspectives.
+Support Real-World Workflows: Apply practical knowledge of GIS, spatial data, and navigation to support real-world emergency response workflows.
+Version Control Mastery: Use Git for version control and source management.
+Develop and Test: Design and develop iPad and iPhone software applications using standard development tools.
+Database Integration: Design and develop database-driven client-server applications.
+Quality Assurance: Assist the team with quality assurance testing, problem resolution, and documentation.
+Team Coordination: Coordinate with other staff designers and developers to ensure total end-to-end system functionality.
+Global Collaboration: Work with an offshore team to coordinate development and testing.
+Hands-On Development: Work onsite at least 60% of the time to develop and test with related hardware and communications equipment.
+
+Qualifications
+Bachelor or Master’s degree in computer science or computer engineering.
+5+ years of directly related experience in Software Development technologies.
+Knowledge of iOS development environment including LTE and WiFi communications, IP protocols, and graphical user interfaces (GUI).
+Strong design, coding & code review skills as well as testing experience.
+Expertise in Swift and UIKit and other tools such as iPadOS, macOS, Xcode, GitHub, App Store Connect.
+Familiarity with cloud computing and deployment; Microsoft Azure preferred.
+Some knowledge of Windows Development systems including Databases and Communications.
+Self-motivated, good time management, and comfort working individually and in a group environment.
+Excellent written and verbal communication skills.
+
+Other Desired Skills
+Familiarity with:
+GIS/Mapping and SDKs (for example, Apple Maps and ESRI)
+Relational database management system (SQLite, Microsoft SQL Server)
+TCP/IP, UDP, socket communications & networking technologies (WebAPI, REST, etc.)
+Cloud and virtualization technology
+Security mindset (HTTPS, VPN, TLS, X.509 certificates)
+Agile software development experience (e.g., Atlassian tools)
+Public Safety Environment
+
+Candidate MUST be authorized to work in the US for any employer.",5,Needs an AI,Jim Moore,https://www.linkedin.com/in/jim-moore-9559aa13,Previous resume,False,Unknown,2025-05-29 17:16:03.139623,https://www.linkedin.com/jobs/view/3744954543,Easy Applied,"{('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Have you completed the following level of education: Bachelor\'s Degree? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('how many years of work experience do you have with microsoft azure?', '6', 'text', '6'), ('Are you legally authorized to work in the United States? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Knowledge of iOS development environment including LTE and WiFi communications, IP protocols, and graphical user interfaces (GUI). [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('how many years of work experience do you have with ios development?', '6', 'text', '6'), ('how many years of work experience do you have with mobile software development?', '6', 'text', ''), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)')}",In Development
