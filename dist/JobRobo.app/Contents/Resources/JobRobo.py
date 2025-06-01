@@ -5,8 +5,10 @@ from dotenv import load_dotenv
 from runAiBot import run_bot
 from modules.ai.resume_optimizer import run_resume_optimization
 from modules.config_loader import save_runtime_config, load_runtime_config
+from modules.ai.openai_key_loader import load_openai_key
 
-load_dotenv()  # Load environment variables from .env
+# load_dotenv()  # Load environment variables from .env
+load_openai_key()  # Load OpenAI key from environment or config
 
 class LinkedInApp:
     def __init__(self, root):

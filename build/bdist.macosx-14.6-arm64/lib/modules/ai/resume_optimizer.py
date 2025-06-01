@@ -18,6 +18,7 @@ from docx import Document
 from docx.shared import Pt
 from dotenv import load_dotenv
 from modules.config_loader import load_runtime_config, save_runtime_config
+from modules.ai.openai_key_loader import load_openai_key
 # from config.settings import replace_job_title, rewrite_bullets
 
 class ResumeOptimizer:
@@ -804,7 +805,8 @@ def load_config() -> dict:
         }
 
 # Load configuration variables
-load_dotenv()  # Load environment variables from .env file
+# load_dotenv()  # Load environment variables from .env file
+load_openai_key()  # Load OpenAI API key from cloud or .env file
 # config = load_config()
 config = load_runtime_config()
 replace_job_title = config["replace_job_title"]

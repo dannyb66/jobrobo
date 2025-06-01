@@ -2,10 +2,12 @@ from setuptools import setup, find_packages
 from dotenv import load_dotenv
 import os
 import sys
+from modules.ai.openai_key_loader import load_openai_key
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "modules"))
 
-load_dotenv()  # take environment variables from .env
+# load_dotenv()  # take environment variables from .env
+load_openai_key()  # Load OpenAI key from environment or config
 
 APP = ['JobRobo.py']
 

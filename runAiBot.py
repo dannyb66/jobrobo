@@ -44,6 +44,7 @@ from modules.ai.openaiConnections import *
 from typing import Literal
 from dotenv import load_dotenv
 from modules.ai.resume_optimizer import run_resume_optimization
+from modules.ai.openai_key_loader import load_openai_key
 
 
 pyautogui.FAILSAFE = False
@@ -52,7 +53,8 @@ pyautogui.FAILSAFE = False
 
 #< Global Variables and logics
 # Update environment variables
-load_dotenv()  # take environment variables from .env.
+# load_dotenv()  # take environment variables from .env.
+load_openai_key()  # Load OpenAI key from environment or config
 llm_api_key = os.getenv("OPENAI_API_KEY")
 
 if run_in_background == True:
