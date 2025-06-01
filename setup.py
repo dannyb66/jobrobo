@@ -4,12 +4,11 @@ import os
 import sys
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "modules"))
-# print("PYTHONPATH:", sys.path)
 
 load_dotenv()  # take environment variables from .env
 
 APP = ['JobRobo.py']
-DATA_FILES = ['.env']  # Add any files you read from
+
 OPTIONS = {
     'argv_emulation': False,
     'packages': [
@@ -17,15 +16,18 @@ OPTIONS = {
         'dotenv', 'modules'
     ],
     'includes': [
-        'runAiBot', 'modules.open_chrome'  # <-- explicitly include anything py2app might miss
+        'runAiBot', 'modules.open_chrome', 'modules.config_loader'
     ],
     'excludes': [
         'tqdm.tk', 'rubicon', 'typing_extensions', 'pypdfium2_raw',
         'IPython', 'jupyter', 'mouseinfo', 'standalone', 'backports',
-        'backports.tarfile', 'notebook'
+        'backports.tarfile', 'notebook', '.env'
     ],
     'iconfile': 'assets/jobrobo.icns',
-    'resources': ['.env', 'assets']  # optional: include other needed resources
+    'resources': [
+        'assets',
+        ('config', ['config/resume_optimizer_defaults.json'])  # ✅ Explicitly include only this file
+    ]
 }
 
 setup(

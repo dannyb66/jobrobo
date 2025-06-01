@@ -68,7 +68,7 @@
 	<key>PythonInfoDict</key>
 	<dict>
 		<key>PythonExecutable</key>
-		<string>/Users/deepakbasavaraju/.pyenv/versions/jobrobo-build-env/bin/python</string>
+		<string>/Users/deepakbasavaraju/.pyenv/versions/jobrobo-build-env/bin/python3</string>
 		<key>PythonLongVersion</key>
 		<string>3.10.14 (main, Apr 25 2025, 19:11:26) [Clang 16.0.0 (clang-1600.0.26.6)]</string>
 		<key>PythonShortVersion</key>

@@ -1,1 +1,3 @@
-1. Independently run resume_optimizer given a job description
+1. Add resume path in the UI
+2. Add config variables in the UI
+3. Push updates to the installed dmg app via sparkle
