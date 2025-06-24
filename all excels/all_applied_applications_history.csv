@@ -13429,3 +13429,51 @@ Excellent analytical and problem-solving skills
 Bachelor's or Master's degree in relevant fields such as Computer Science, Electrical Engineering, or equivalent
 Ability to work collaboratively in an on-site team environment
 Knowledge of embedded systems and RF technologies is a plus",0,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-05-29 17:37:34.240811,https://www.linkedin.com/jobs/view/4233677785,Easy Applied,"{('Are you comfortable working in an onsite setting? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)'), ('Do you have development experience with WiFi Supplicant? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Have you completed the following level of education: Bachelor\'s Degree? [  ""Yes""<Yes>, ""No""<No>, ]', '""Yes""<Yes>', 'radio', '""Yes""<Yes>'), ('Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)? [  ""Yes""<Yes>, ""No""<No>, ]', '""No""<No>', 'radio', '""No""<No>'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660')}",In Development
+4244644966,Senior Staff AI Engineer,SonicJob,nicJob,nicJob,"About the job
+Who we are
+At SonicJobs we’re building the next generation of autonomous web agents based on computer-use technologies. Our agents operate on job application flows, like candidates do. If you’ve ever dreamed of building AI that actually uses a website, this is your moment.
+We’re a small, tight-knit team with big ambitions, leveraging bleeding-edge tools to build agents that understand and control web environments end-to-end.
+We move fast, avoid unnecessary hierarchy, and aim high. We’re not automating job applications - we’re redefining how job applications work in order to allow candidates find the job opportunity they deserve.
+We are backed by top VC firms and serve more than one hundred corporate clients including several Fortune 500 companies.
+
+
+About the role
+We’re looking for an AI master to own the architecture, training, and evolution of our AI agent stack. As Senior Staff AI Engineer, you’ll be responsible for fine-tuning LLMs that will support web-native agents capable of learning, adapting, and thriving in complex job application flows.
+This is a demanding, high-impact role. You’ll be shipping code, training models, designing experiments, and setting our strategy at the same time. You’ll be reporting to the CTO. If you’re excited by the idea of coding, reviewing training runs, and designing new RL environments - you’ll thrive here. You’ll also be mentoring and growing colleagues to bring their agentic skills to a level of excellence.
+
+
+What you'll do
+Build, train, and deploy LLM-driven agents that control the web via real browser interfaces.
+Fine-tune foundation models for computer-use using techniques like LoRA, PEFT, DPO, RLHF and similar depending on your judgment.
+Design and run reinforcement learning systems to improve agent reasoning and performance.
+Own the full agent stack: from policy models to interface planning & simulation frameworks.
+Prototype quickly, test aggressively, and constantly push the limits of what agents can do.
+Collaborate directly with the founding team on product direction and research priorities.
+Help grow a team of scrappy, mission-driven engineers and researchers.
+Create multi-agent flows with clear trajectories, role assignment, and long/short memory.
+
+
+What you'll bring
+Strong ML background - PhD or equivalent experience in AI, ML, Computer Science or a strong industry experience.
+Real experience fine-tuning LLMs.
+Deep understanding of Reinforcement Learning (especially applied, not just theoretical).
+Experience building agents in real-world environments (bonus for browser-based or robotic agents).
+You’re hands-on: you like writing code, running experiments, and seeing real results.
+You’re driven by ownership, not job titles. You’re here to build, not manage for the sake of it.
+Experience in managing and growing teams.
+
+
+Bonus points fo
+Track record of high-impact research published on meaningful or open-source contributions.
+Comfort working in fast-paced, exciting startup environments.
+
+
+What we off
+Salary depends on experience.
+Onsite work with a deeply focused, no-BS te
+Real ownership and the chance to shape a frontier space.
+No corporate nonsense - just smart people building ambitious tech.
+
+
+Sounds like you?
+Let’s talk. This isn’t just a job - it’s a chance to lead the future of how job platform technology looks like.",0,Needs an AI,Unknown,Unknown,Previous resume,False,Unknown,2025-06-24 09:45:38.215692,https://www.linkedin.com/jobs/view/4244644966,Easy Applied,"{('Email address [  ""Select an option"", ""deepakbasavaraju7@gmail.com"", ""danny.basavaraju@gmail.com"", ""deepakbasavaraju16@gmail.com"", ]', 'Yes', 'select', 'danny.basavaraju@gmail.com'), ('Are you comfortable commuting to this job\'s location? [  ""Yes""<Yes>, ""No""<No>, ]', 'Yes', 'radio', None), ('Did you deploy a production level solution based on the computer-use paradigm?  [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('Do you have experience in RLFT? [  ""Select an option"", ""Yes"", ""No"", ]', 'Yes', 'select', 'Select an option'), ('mobile phone number', '628-310-5660', 'text', '628-310-5660'), ('Phone country code [ ""List of phone country codes"" ]', 'Yes', 'select', 'United States (+1)')}",In Development
