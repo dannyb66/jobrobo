@@ -53,6 +53,25 @@ Click on above image to watch the demo or use this link https://youtu.be/gMbB1fW
 7. Run `runAiBot.py` and see the magic happen.
 8. If you have questions or need help setting it up or to talk in general, join the github server: https://discord.gg/fFp7uUzWCY
 
+### Resume ATS optimizer
+
+The optimizer keeps the existing job-description keyword extraction flow and uses
+`config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md` as a vocabulary guide.
+Configure the mode in `config/resume_optimizer_defaults.json`:
+
+```json
+"optimization_mode": "full"
+```
+
+Valid modes are `skills` (Skills section only), `bullets` (Skills plus experience
+bullets), and `full` (Skills, bullets, and job-title alignment). Generated resumes
+must pass the post-conversion verifier: exactly two pages, extractable text,
+preserved section order, similar margins/font sizing, and no horizontal overflow.
+Use the DOCX source for `bullets` or `full`; PDF input is limited to Skills-section
+optimization by the existing PDF writer.
+The optimizer writes a `.match_report.json` beside each generated PDF. A failed
+verification blocks upload and attempts one Skills-only layout-safe fallback.
+
 [back to index](#-content)
 
 <br>

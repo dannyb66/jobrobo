@@ -1,6 +1,12 @@
 {
     "replace_job_title": true,
     "rewrite_bullets": true,
+    "optimization_mode": "full",
+    "skill_bank_path": "config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md",
+    "role_profile": "auto",
+    "allow_unverified_bank_terms": true,
+    "max_skills": 50,
+    "expected_page_count": 2,
     "resume_path": "all resumes/default/resume.docx",
     "job_id": "12345",
     "first_name": "Danny",

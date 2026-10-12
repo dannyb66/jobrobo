@@ -1,7 +1,9 @@
 import os
 import json
 import re
-from typing import List, Tuple
+import shutil
+import tempfile
+from typing import Dict, List, Optional, Tuple
 from openai import OpenAI
 from pathlib import Path
 import pdfplumber
@@ -20,6 +22,180 @@ from dotenv import load_dotenv
 from modules.config_loader import load_runtime_config, save_runtime_config
 from modules.ai.openai_key_loader import load_openai_key
 # from config.settings import replace_job_title, rewrite_bullets
+
+
+VALID_OPTIMIZATION_MODES = {"skills", "bullets", "full"}
+DEFAULT_SKILL_BANK_PATH = Path(__file__).resolve().parents[2] / "config" / "skills" / "Skills_Keyword_Bank_Staff_Principal_2026-10.md"
+DEFAULT_EXPECTED_PAGE_COUNT = 2
+
+
+def normalize_keyword(value: str) -> str:
+    """Normalize a keyword for matching while retaining the original display text."""
+    value = re.sub(r"\([^)]*\)", " ", value)
+    value = value.lower().replace("&", " and ")
+    return re.sub(r"[^a-z0-9+#]+", " ", value).strip()
+
+
+def keyword_variants(value: str) -> List[str]:
+    """Return the full phrase plus acronym/parenthetical forms for ATS matching."""
+    variants = {normalize_keyword(value)}
+    variants.update(normalize_keyword(part) for part in re.findall(r"\(([^)]*)\)", value))
+    return [variant for variant in variants if variant]
+
+
+def _parse_bank_table_row(line: str) -> Optional[Tuple[str, str, str]]:
+    cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+    if len(cells) < 3 or cells[0].lower() in {"keyword", "tier"} or set(cells[0]) <= {"-", ":"}:
+        return None
+    return cells[0], cells[1], cells[2]
+
+
+def load_skill_bank(path: Optional[str] = None) -> Dict[str, object]:
+    """Load the Markdown bank as guidance data; the job description remains authoritative."""
+    bank_path = Path(path).expanduser() if path else DEFAULT_SKILL_BANK_PATH
+    result: Dict[str, object] = {
+        "path": str(bank_path),
+        "keywords": [],
+        "profiles": {},
+        "avoid": [],
+        "format_rules": [],
+    }
+    if not bank_path.exists():
+        return result
+
+    current_section = ""
+    current_category = ""
+    keywords = []
+    profiles = {}
+    avoid = []
+    format_rules = []
+    for raw_line in bank_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line.startswith("## "):
+            current_section = line[3:].strip()
+            current_category = ""
+            continue
+        if line.startswith("### "):
+            current_category = line[4:].strip()
+            continue
+
+        if current_section.startswith("2.") and line.startswith("|"):
+            row = _parse_bank_table_row(line)
+            if row:
+                keyword, tier, status = row
+                keywords.append({
+                    "keyword": keyword,
+                    "tier": tier,
+                    "status": status,
+                    "category": current_category,
+                    "normalized": normalize_keyword(keyword),
+                })
+        elif current_section.startswith("4.") and line.startswith("|"):
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) >= 3 and cells[0].lower() not in {"target", "---"} and not set(cells[0]) <= {"-", ":"}:
+                profile_name = re.sub(r"\*", "", cells[0]).strip()
+                profile_name = re.sub(r"\s*\([^)]*\)$", "", profile_name).strip()
+                profiles[profile_name] = {
+                    "lead_rows": cells[1],
+                    "must_have": [item.strip() for item in cells[2].split(",") if item.strip()],
+                }
+        elif current_section.startswith("3.") and line.startswith("-"):
+            avoid.extend(re.findall(r"\*\*([^*]+)\*\*", line) or [line.lstrip("- ")])
+        elif current_section.startswith("5.") and re.match(r"^\d+\.", line):
+            format_rules.append(re.sub(r"^\d+\.\s*", "", line))
+
+    result["keywords"] = keywords
+    result["profiles"] = profiles
+    result["avoid"] = avoid
+    result["format_rules"] = format_rules
+    return result
+
+
+def infer_role_profile(job_title: str, job_description: str, profiles: Dict[str, object], override: str = "") -> str:
+    """Infer a bank profile from the JD, allowing an explicit profile override."""
+    if override and override.lower() not in {"auto", "infer", "none"}:
+        return override
+    text = f"{job_title} {job_description}".lower()
+    candidates = {
+        "Staff / Principal AI Platform": ["platform", "infrastructure", "mcp", "eval", "observability", "kubernetes"],
+        "Senior / Staff Agents Engineer": ["agent", "agentic", "langgraph", "tool use", "rag", "llm"],
+        "Healthcare AI": ["healthcare", "hipaa", "fhir", "medical", "payer", "claims", "edi"],
+        "Senior / Staff Backend / Full-Stack": ["backend", "full stack", "full-stack", "api", "react", "java", "microservices"],
+    }
+    scored = [(sum(text.count(term) for term in terms), name) for name, terms in candidates.items() if name in profiles or not profiles]
+    return max(scored, key=lambda item: item[0])[1] if scored else "Staff / Principal AI Platform"
+
+
+def build_guided_keywords(job_description: str, extracted_keywords: List[str], job_title: str,
+                          current_skills: List[str], bank: Dict[str, object], profile_name: str,
+                          allow_unverified: bool = True) -> List[str]:
+    """Combine existing JD extraction with bank vocabulary found in the JD or selected profile."""
+    existing = []
+    seen = set()
+
+    def add(value: str):
+        value = re.sub(r"\s+", " ", value).strip(" ,.;:")
+        key = normalize_keyword(value)
+        if value and key and key not in seen:
+            seen.add(key)
+            existing.append(value)
+
+    for keyword in extracted_keywords:
+        add(keyword)
+
+    profile = bank.get("profiles", {}).get(profile_name, {}) if isinstance(bank.get("profiles"), dict) else {}
+    preferred = profile.get("must_have", []) if isinstance(profile, dict) else []
+    jd_normalized = normalize_keyword(job_description)
+    bank_rows = bank.get("keywords", []) if isinstance(bank.get("keywords"), list) else []
+    ranked = []
+    for row in bank_rows:
+        if not isinstance(row, dict):
+            continue
+        keyword = row.get("keyword", "")
+        normalized = row.get("normalized", normalize_keyword(keyword))
+        if not normalized or not any(variant in jd_normalized for variant in keyword_variants(keyword)):
+            continue
+        if not allow_unverified and "†" in row.get("status", ""):
+            continue
+        rank = 0
+        if keyword in preferred:
+            rank += 3
+        if "Core" in row.get("tier", ""):
+            rank += 2
+        if any(variant in normalize_keyword(job_title) for variant in keyword_variants(keyword)):
+            rank += 2
+        ranked.append((rank, keyword))
+    for _, keyword in sorted(ranked, key=lambda item: (-item[0], item[1].lower())):
+        add(keyword)
+
+    # Keep existing resume terms available when the JD uses a close variant.
+    for skill in current_skills:
+        if any(variant in jd_normalized for variant in keyword_variants(skill)):
+            add(skill)
+    return existing
+
+
+def calculate_keyword_score(text: str, keywords: List[str], bank: Optional[Dict[str, object]] = None) -> Dict[str, object]:
+    """Return a reproducible coverage score; this is a diagnostic, not an ATS vendor score."""
+    bank_rows = {row.get("normalized"): row for row in (bank or {}).get("keywords", []) if isinstance(row, dict)}
+    matched, missing = [], []
+    total_weight = 0
+    matched_weight = 0
+    normalized_text = normalize_keyword(text)
+    for keyword in keywords:
+        key = normalize_keyword(keyword)
+        if not key:
+            continue
+        row = bank_rows.get(key, {})
+        weight = 2 if "Core" in row.get("tier", "") else 1
+        total_weight += weight
+        if any(variant in normalized_text for variant in keyword_variants(keyword)):
+            matched.append(keyword)
+            matched_weight += weight
+        else:
+            missing.append(keyword)
+    score = round((matched_weight / total_weight) * 100, 1) if total_weight else 0.0
+    return {"score": score, "matched": matched, "missing": missing, "total": len(matched) + len(missing)}
 
 class ResumeOptimizer:
     def __init__(self, api_key: str):
@@ -136,28 +312,31 @@ class ResumeOptimizer:
             print(f"Error reading PDF resume: {e}")
             return "", [], {}
         
-    def optimize_skills(self, current_skills: List[str], new_keywords: List[str], job_description: str) -> List[str]:
-        """Optimize skills list by incorporating new keywords while maintaining the same length."""
-        current_set = set(current_skills)
-        new_set = set(new_keywords)
-        # print(f"Current skills: {current_set}")
-        # print(f"New keywords: {new_set}")
-        
-        # Keywords to add (that aren't already present)
-        to_add = new_set - current_set
-        # print(f"New keywords to add: {to_add}")
-        
-        if not to_add:
-            return current_skills
-            
-        # Calculate how many skills we need to remove
-        num_to_remove = len(to_add)
-        
-        # Remove least relevant skills (those not in new_keywords)
-        skills_to_keep = list(current_set - to_add)[:len(current_skills) - num_to_remove]
-        
-        # Combine kept skills with new keywords
-        optimized_skills = skills_to_keep + list(to_add)
+    def optimize_skills(self, current_skills: List[str], new_keywords: List[str], job_description: str,
+                        max_count: Optional[int] = 50) -> List[str]:
+        """Replace the least relevant skills while preserving order and document density."""
+        target = {normalize_keyword(keyword) for keyword in new_keywords}
+        current_by_key = {normalize_keyword(skill): skill for skill in current_skills}
+        keep = []
+        additions = []
+
+        for skill in current_skills:
+            key = normalize_keyword(skill)
+            if key in target:
+                keep.append(skill)
+
+        for keyword in new_keywords:
+            key = normalize_keyword(keyword)
+            if key and key not in current_by_key and key not in {normalize_keyword(item) for item in additions}:
+                additions.append(keyword)
+
+        # Preserve the original number of entries so keyword improvements do not expand the layout.
+        slots = max(0, len(current_skills) - len(keep))
+        optimized_skills = keep + additions[:slots]
+        if len(optimized_skills) < len(current_skills):
+            optimized_skills.extend(skill for skill in current_skills if skill not in optimized_skills)
+        if max_count and max_count > 0:
+            optimized_skills = optimized_skills[:max_count]
 
         # Order the optimized skills with the best order for ATS systems optimized for the job description using OpenAI API
         # try:
@@ -617,32 +796,133 @@ class ResumeOptimizer:
         """Reset the state variables."""
         return None, None, False, 0
 
-    """Calculate page count for a given document."""
-    def _calculate_page_count(self, doc: Document, output_path: str) -> int:
-        temp_path = str(Path(output_path).parent / "temp.docx")
-        doc.save(temp_path)
-        return len(Document(temp_path).paragraphs)
+    def _document_format_signature(self, path: str) -> Dict[str, object]:
+        """Capture stable layout characteristics from a DOCX for source comparison."""
+        doc = Document(path)
+        sections = []
+        for section in doc.sections:
+            sections.append({
+                "top": round(section.top_margin.inches, 2),
+                "bottom": round(section.bottom_margin.inches, 2),
+                "left": round(section.left_margin.inches, 2),
+                "right": round(section.right_margin.inches, 2),
+            })
+        headings = [
+            para.text.strip().upper()
+            for para in doc.paragraphs
+            if para.text.strip() and (para.style.name.startswith("Heading") or re.fullmatch(r"[A-Z][A-Z\s&/&-]{4,}", para.text.strip()))
+        ]
+        sizes = [
+            run.font.size.pt for para in doc.paragraphs for run in para.runs
+            if run.font.size and run.font.size.pt
+        ]
+        body_sizes = [size for size in sizes if 8 <= size <= 14]
+        return {
+            "sections": sections,
+            "headings": headings,
+            "body_font_min": min(body_sizes) if body_sizes else None,
+            "body_font_max": max(body_sizes) if body_sizes else None,
+            "paragraph_count": len(doc.paragraphs),
+            "bullet_count": sum(1 for para in doc.paragraphs if para.style.name == "List Paragraph"),
+        }
 
-    def save_optimized_docx(self, doc: Document, optimized_skills: List[str], output_path: str, job_title: str = "job", job_description: str = "") -> None:
+    def verify_format(self, source_docx: str, optimized_docx: str, source_pdf: str,
+                      optimized_pdf: str, expected_pages: int = DEFAULT_EXPECTED_PAGE_COUNT) -> Dict[str, object]:
+        """Verify rendered output before it is eligible for LinkedIn upload."""
+        checks: Dict[str, object] = {}
+        warnings = []
+        try:
+            optimized_reader = PdfReader(optimized_pdf)
+            source_reader = PdfReader(source_pdf) if source_pdf and Path(source_pdf).exists() else None
+            page_count = len(optimized_reader.pages)
+            checks["page_count"] = page_count == expected_pages
+            checks["page_count_value"] = page_count
+            checks["expected_page_count"] = expected_pages
+
+            extracted_pages = []
+            max_word_right = 0.0
+            page_width = 0.0
+            with pdfplumber.open(optimized_pdf) as pdf:
+                for page in pdf.pages:
+                    page_width = max(page_width, float(page.width))
+                    page_text = (page.extract_text() or "").strip()
+                    extracted_pages.append(bool(page_text))
+                    for word in page.extract_words() or []:
+                        max_word_right = max(max_word_right, float(word.get("x1", 0)))
+            checks["all_pages_have_text"] = bool(extracted_pages) and all(extracted_pages)
+            if max_word_right:
+                checks["no_horizontal_clipping"] = max_word_right <= page_width - 3
+            else:
+                checks["no_horizontal_clipping"] = False
+            checks["bullets_fit_page"] = checks["no_horizontal_clipping"]
+
+            source_signature = self._document_format_signature(source_docx) if source_docx and Path(source_docx).exists() else {}
+            optimized_signature = self._document_format_signature(optimized_docx) if optimized_docx and Path(optimized_docx).exists() else {}
+            source_headings = source_signature.get("headings", [])
+            optimized_headings = optimized_signature.get("headings", [])
+            expected_sections = ["EDUCATION", "CERTIFICATIONS", "SKILLS", "PROFESSIONAL EXPERIENCE"]
+            source_sections_order = [heading for heading in source_headings if heading in expected_sections]
+            optimized_sections_order = [heading for heading in optimized_headings if heading in expected_sections]
+            checks["section_order_preserved"] = (
+                all(section in optimized_sections_order for section in source_sections_order)
+                and optimized_sections_order == sorted(optimized_sections_order, key=expected_sections.index)
+            ) if source_signature else True
+            checks["section_count_stable"] = abs(
+                len(source_headings) - len(optimized_headings)
+            ) <= 2 if source_headings else True
+            checks["bullet_count_stable"] = abs(
+                source_signature.get("bullet_count", 0) - optimized_signature.get("bullet_count", 0)
+            ) <= 2 if source_signature else True
+
+            source_sections = source_signature.get("sections", [])
+            optimized_sections = optimized_signature.get("sections", [])
+            margin_ok = True
+            if source_sections and optimized_sections:
+                for source_section, optimized_section in zip(source_sections, optimized_sections):
+                    margin_ok = margin_ok and all(
+                        abs(source_section[key] - optimized_section[key]) <= 0.1
+                        for key in ("top", "bottom", "left", "right")
+                    )
+            checks["margins_similar"] = margin_ok
+
+            source_min = source_signature.get("body_font_min")
+            optimized_min = optimized_signature.get("body_font_min")
+            checks["font_sizes_similar"] = (
+                not source_signature or source_min is None or optimized_min is None or abs(source_min - optimized_min) <= 1.5
+            )
+            checks["no_empty_rendered_pages"] = not any(not page for page in extracted_pages)
+            checks["source_page_count"] = len(source_reader.pages) if source_reader else None
+            if source_reader and len(source_reader.pages) != expected_pages:
+                warnings.append(f"Source resume has {len(source_reader.pages)} pages; expected {expected_pages}.")
+        except Exception as exc:
+            checks["verifier_error"] = str(exc)
+            warnings.append(str(exc))
+
+        required_checks = [
+            "page_count", "all_pages_have_text", "no_horizontal_clipping",
+            "bullets_fit_page", "section_order_preserved", "section_count_stable", "bullet_count_stable",
+            "margins_similar", "font_sizes_similar",
+            "no_empty_rendered_pages",
+        ]
+        checks["passed"] = not warnings and all(checks.get(name, False) for name in required_checks)
+        return {"passed": checks["passed"], "checks": checks, "warnings": warnings}
+
+    def save_optimized_docx(self, doc: Document, optimized_skills: List[str], output_path: str,
+                            job_title: str = "job", job_description: str = "",
+                            optimization_mode: str = "full") -> None:
         """Update the skills section in the DOCX and save it."""
         try:
+            optimization_mode = optimization_mode if optimization_mode in VALID_OPTIMIZATION_MODES else "full"
             skills_index, end_index = self._find_skills_section(doc)
             if skills_index is None:
                 raise ValueError("Skills section not found in DOCX resume")
 
             self._update_skills_section(doc, skills_index, end_index, optimized_skills)            
 
-            if rewrite_bullets:
-                original_page_count = self._calculate_page_count(doc, output_path)
-                while True:
-                    self.rewrite_experience_bullets(doc, job_title, job_description, optimized_skills)
-                    temp_path = str(Path(output_path).parent / "temp.docx")
-                    doc.save(temp_path)
-                    updated_page_count = self._calculate_page_count(Document(temp_path), output_path)
-                    if updated_page_count <= original_page_count:
-                        break
+            if optimization_mode in {"bullets", "full"}:
+                self.rewrite_experience_bullets(doc, job_title, job_description, optimized_skills)
 
-            if replace_job_title:
+            if optimization_mode == "full":
                 self.replace_job_titles(doc, job_title)
 
             doc.save(output_path)
@@ -692,42 +972,82 @@ class ResumeOptimizer:
             insert_after = new_para._element
 
     # Convert docx to pdf
-    def convert_docx_to_pdf(self, docx_path: str, pdf_path: str):
+    def convert_docx_to_pdf(self, docx_path: str, pdf_path: str) -> bool:
+        profile_path = Path(tempfile.mkdtemp(prefix="jobrobo-libreoffice-"))
         try:
             # pypandoc.convert_file(docx_path, 'pdf', outputfile=pdf_path)
             # docx2pdf.convert(docx_path, pdf_path)
             # Use LibreOffice to convert DOCX to PDF
             import subprocess
             libreoffice_path = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
-            subprocess.run([libreoffice_path, '--headless', '--convert-to', 'pdf', docx_path, '--outdir', str(Path(pdf_path).parent)], check=True)
+            subprocess.run([
+                libreoffice_path,
+                '--headless',
+                f'-env:UserInstallation={profile_path.as_uri()}',
+                '--convert-to', 'pdf',
+                docx_path,
+                '--outdir', str(Path(pdf_path).parent),
+            ], check=True)
             print(f"✅ Successfully converted DOCX to PDF: {pdf_path}")
+            return Path(pdf_path).exists()
         except ImportError:
             print("❌ pypandoc module not found. Please install it using 'pip install pypandoc'.")
+            return False
         except Exception as e:
             print(f"❌ Error converting DOCX to PDF: {e}")
+            return False
+        finally:
+            shutil.rmtree(profile_path, ignore_errors=True)
 
 # Function to run the resume optimization process given job description and resume path similar to main()
-def run_resume_optimization(job_description: str, resume_path: str, job_id: str, job_title: str = "job", first_name: str = "first", last_name: str = "last"):
+def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
+                            job_title: str = "job", first_name: str = "first", last_name: str = "last",
+                            optimization_mode: Optional[str] = None) -> Optional[str]:
     # Get OpenAI API key
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         print("Please set the OPENAI_API_KEY environment variable")
         return
 
-    optimizer = ResumeOptimizer(api_key)
-
-    # Extract keywords from job description
-    print("\nExtracting keywords from job description...")
-    keywords = optimizer.extract_keywords(job_description)
-    print(f"Top keywords identified: {', '.join(keywords)}")
-
     # Check if resume file exists
     if not Path(resume_path).exists():
         print("Resume file not found!")
         return
 
+    runtime_config = load_runtime_config()
+    configured_mode = runtime_config.get("optimization_mode")
+    if not configured_mode:
+        configured_mode = (
+            "full" if runtime_config.get("replace_job_title") and runtime_config.get("rewrite_bullets")
+            else "bullets" if runtime_config.get("rewrite_bullets")
+            else "skills"
+        )
+    mode = optimization_mode or configured_mode
+    if mode not in VALID_OPTIMIZATION_MODES:
+        print(f"⚠️ Unknown optimization mode '{mode}'. Using full mode.")
+        mode = "full"
+    bank = load_skill_bank(runtime_config.get("skill_bank_path") or None)
+    max_skills = int(runtime_config.get("max_skills", 50) or 50)
+    profile_name = infer_role_profile(
+        job_title,
+        job_description,
+        bank.get("profiles", {}) if isinstance(bank.get("profiles"), dict) else {},
+        runtime_config.get("role_profile", "auto"),
+    )
+    allow_unverified = bool(runtime_config.get("allow_unverified_bank_terms", True))
+    optimizer = ResumeOptimizer(api_key)
+
+    # Existing JD extraction remains primary; the bank adds relevant ATS vocabulary.
+    print("\nExtracting keywords from job description...")
+    extracted_keywords = optimizer.extract_keywords(job_description)
+    print(f"Top keywords identified: {', '.join(extracted_keywords)}")
+
     ext = Path(resume_path).suffix.lower()
     output_path = None
+    output_path_docx = None
+    effective_mode = mode
+    source_docx = str(Path(resume_path)) if ext == ".docx" else ""
+    source_pdf = str(Path(resume_path).with_suffix(".pdf")) if ext == ".docx" else str(Path(resume_path))
 
     # Process resume based on file type
     print("\nProcessing resume...")
@@ -737,10 +1057,14 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
     sanitized_last_name = re.sub(r'[\/:*?"<>|]', '_', last_name.lower())
 
     if ext == ".pdf":
+        if mode != "skills":
+            print("⚠️ PDF input supports Skills-only rewriting; recording the effective mode.")
+            effective_mode = "skills-pdf"
         content, current_skills, format_info = optimizer.read_pdf_resume(resume_path)
         if not content or not current_skills:
             return
-        optimized_skills = optimizer.optimize_skills(current_skills, keywords, job_description)
+        keywords = build_guided_keywords(job_description, extracted_keywords, job_title, current_skills, bank, profile_name, allow_unverified)
+        optimized_skills = optimizer.optimize_skills(current_skills, keywords, job_description, max_skills)
         output_path = Path(resume_path).parent.parent / "temp" / f"{sanitized_first_name}_{sanitized_last_name}_{sanitized_job_title}_{job_id}.pdf"
         optimizer.save_optimized_pdf(resume_path, optimized_skills, format_info, str(output_path))
 
@@ -748,19 +1072,91 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
         doc, current_skills = optimizer.read_docx_resume(resume_path)
         if not doc or not current_skills:
             return
-        optimized_skills = optimizer.optimize_skills(current_skills, keywords, job_description)
+        keywords = build_guided_keywords(job_description, extracted_keywords, job_title, current_skills, bank, profile_name, allow_unverified)
+        optimized_skills = optimizer.optimize_skills(current_skills, keywords, job_description, max_skills)
         output_path_docx = Path(resume_path).parent.parent / "temp" / f"{sanitized_first_name}_{sanitized_last_name}_{sanitized_job_title}_{job_id}.docx"
         output_path_pdf = Path(resume_path).parent.parent / "temp" / f"{sanitized_first_name}_{sanitized_last_name}_{sanitized_job_title}_{job_id}.pdf"
-        optimizer.save_optimized_docx(doc, optimized_skills, str(output_path_docx), job_title, job_description)
-        optimizer.convert_docx_to_pdf(str(output_path_docx), str(output_path_pdf))
+        output_path_docx.parent.mkdir(parents=True, exist_ok=True)
+        optimizer.save_optimized_docx(doc, optimized_skills, str(output_path_docx), job_title, job_description, mode)
+        if not output_path_docx.exists() or not optimizer.convert_docx_to_pdf(str(output_path_docx), str(output_path_pdf)):
+            print("❌ Optimized resume could not be converted to PDF.")
+            return
         output_path = output_path_pdf
 
     else:
         print("❌ Unsupported file format. Please use PDF or DOCX.")
         return
 
+    if not output_path or not Path(output_path).exists():
+        print("❌ Optimized resume was not created.")
+        return
+
+    if Path(source_pdf).exists():
+        with pdfplumber.open(str(source_pdf)) as source_reader:
+            source_text = "\n".join(page.extract_text() or "" for page in source_reader.pages)
+    elif ext == ".docx":
+        source_text = "\n".join(paragraph.text for paragraph in Document(resume_path).paragraphs)
+    else:
+        source_text = ""
+
+    def read_output_text(path: Path) -> str:
+        with pdfplumber.open(str(path)) as output_reader:
+            return "\n".join(page.extract_text() or "" for page in output_reader.pages)
+
+    optimized_text = read_output_text(Path(output_path))
+    report_path = Path(output_path).with_suffix(".match_report.json")
+    verification = optimizer.verify_format(
+        source_docx,
+        str(output_path_docx) if output_path_docx else "",
+        source_pdf,
+        str(output_path),
+        int(runtime_config.get("expected_page_count", DEFAULT_EXPECTED_PAGE_COUNT)),
+    )
+
+    # One constrained fallback keeps the existing JD-selected Skills section but removes
+    # layout-risky rewrites when a generated DOCX does not fit the source format.
+    if not verification["passed"] and ext == ".docx" and mode != "skills":
+        print("⚠️ Format verification failed; retrying with Skills-only layout-safe output.")
+        fallback_doc, _ = optimizer.read_docx_resume(resume_path)
+        fallback_docx = output_path_docx.with_name(output_path_docx.stem + "_layout_safe.docx")
+        fallback_pdf = output_path.with_name(output_path.stem + "_layout_safe.pdf")
+        optimizer.save_optimized_docx(fallback_doc, optimized_skills, str(fallback_docx), job_title, job_description, "skills")
+        if fallback_docx.exists() and optimizer.convert_docx_to_pdf(str(fallback_docx), str(fallback_pdf)):
+            fallback_verification = optimizer.verify_format(source_docx, str(fallback_docx), source_pdf, str(fallback_pdf), int(runtime_config.get("expected_page_count", DEFAULT_EXPECTED_PAGE_COUNT)))
+            if fallback_verification["passed"]:
+                output_path_docx, output_path, verification, effective_mode = fallback_docx, fallback_pdf, fallback_verification, "skills-fallback"
+                optimized_text = read_output_text(Path(output_path))
+                report_path = Path(output_path).with_suffix(".match_report.json")
+
+    report = {
+        "job_id": str(job_id),
+        "job_title": job_title,
+        "requested_mode": mode,
+        "effective_mode": effective_mode,
+        "role_profile": profile_name,
+        "skill_bank": bank.get("path"),
+        "keywords": keywords,
+        "unverified_terms": [
+            keyword for keyword in keywords
+            if any(
+                row.get("normalized") == normalize_keyword(keyword) and "†" in row.get("status", "")
+                for row in bank.get("keywords", []) if isinstance(row, dict)
+            )
+        ],
+        "pre_optimization": calculate_keyword_score(source_text, keywords, bank),
+        "post_optimization": calculate_keyword_score(optimized_text, keywords, bank),
+        "format_verification": verification,
+        "output_path": str(output_path),
+    }
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    if not verification["passed"]:
+        print(f"❌ Resume rejected by format verifier. See: {report_path}")
+        return
+
     print(f"\n🎯 Optimized resume saved to: {output_path}")
-    return output_path
+    print(f"📊 ATS coverage: {report['pre_optimization']['score']} -> {report['post_optimization']['score']}")
+    print(f"✅ Format verified; report saved to: {report_path}")
+    return str(output_path)
 
 # Function to load configuration variables
 def load_config() -> dict:
@@ -772,6 +1168,12 @@ def load_config() -> dict:
             return {
                 "replace_job_title": config.get("replace_job_title", False),
                 "rewrite_bullets": config.get("rewrite_bullets", False),
+                "optimization_mode": config.get("optimization_mode", "full"),
+                "skill_bank_path": config.get("skill_bank_path", str(DEFAULT_SKILL_BANK_PATH)),
+                "role_profile": config.get("role_profile", "auto"),
+                "allow_unverified_bank_terms": config.get("allow_unverified_bank_terms", True),
+                "max_skills": config.get("max_skills", 50),
+                "expected_page_count": config.get("expected_page_count", DEFAULT_EXPECTED_PAGE_COUNT),
                 "resume_path": config.get("resume_path", ""),
                 "job_id": config.get("job_id", ""),
                 "first_name": config.get("first_name", "first"),
@@ -784,6 +1186,12 @@ def load_config() -> dict:
         return {
             "replace_job_title": False,
             "rewrite_bullets": False,
+            "optimization_mode": "full",
+            "skill_bank_path": str(DEFAULT_SKILL_BANK_PATH),
+            "role_profile": "auto",
+            "allow_unverified_bank_terms": True,
+            "max_skills": 50,
+            "expected_page_count": DEFAULT_EXPECTED_PAGE_COUNT,
             "resume_path": "",
             "job_id": "",
             "first_name": "first",
@@ -796,6 +1204,12 @@ def load_config() -> dict:
         return {
             "replace_job_title": False,
             "rewrite_bullets": False,
+            "optimization_mode": "full",
+            "skill_bank_path": str(DEFAULT_SKILL_BANK_PATH),
+            "role_profile": "auto",
+            "allow_unverified_bank_terms": True,
+            "max_skills": 50,
+            "expected_page_count": DEFAULT_EXPECTED_PAGE_COUNT,
             "resume_path": "",
             "job_id": "",
             "first_name": "first",

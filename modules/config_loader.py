@@ -39,6 +39,12 @@ def load_runtime_config():
         return {
             "replace_job_title": False,
             "rewrite_bullets": False,
+            "optimization_mode": "full",
+            "skill_bank_path": "config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md",
+            "role_profile": "auto",
+            "allow_unverified_bank_terms": True,
+            "max_skills": 50,
+            "expected_page_count": 2,
             "resume_path": "",
             "job_id": "",
             "first_name": "first",

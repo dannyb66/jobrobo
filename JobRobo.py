@@ -60,11 +60,23 @@ class LinkedInApp:
         self.replace_job_title_var = tk.BooleanVar(value=config.get("replace_job_title", True))
         self.rewrite_bullets_var = tk.BooleanVar(value=config.get("rewrite_bullets", True))
 
-        tk.Checkbutton(self.optimizer_tab, text="Replace Job Title", variable=self.replace_job_title_var).grid(row=len(field_config), column=1, sticky="w")
-        tk.Checkbutton(self.optimizer_tab, text="Rewrite Resume Bullets", variable=self.rewrite_bullets_var).grid(row=len(field_config)+1, column=1, sticky="w")
+        mode_row = len(field_config)
+        tk.Label(self.optimizer_tab, text="Optimization Mode").grid(row=mode_row, column=0, sticky="e", pady=5, padx=10)
+        self.optimization_mode_var = tk.StringVar(value=config.get("optimization_mode", "full"))
+        mode_selector = ttk.Combobox(
+            self.optimizer_tab,
+            textvariable=self.optimization_mode_var,
+            values=("skills", "bullets", "full"),
+            state="readonly",
+            width=57,
+        )
+        mode_selector.grid(row=mode_row, column=1, pady=5)
+
+        tk.Checkbutton(self.optimizer_tab, text="Replace Job Title (legacy)", variable=self.replace_job_title_var).grid(row=mode_row+1, column=1, sticky="w")
+        tk.Checkbutton(self.optimizer_tab, text="Rewrite Resume Bullets (legacy)", variable=self.rewrite_bullets_var).grid(row=mode_row+2, column=1, sticky="w")
 
         run_button = tk.Button(self.optimizer_tab, text="Run Resume Optimizer", command=self.run_resume_optimizer_from_ui)
-        run_button.grid(row=len(field_config)+3, column=1, pady=20)
+        run_button.grid(row=mode_row+4, column=1, pady=20)
 
     def run_resume_optimizer_from_ui(self):
         try:
@@ -73,6 +85,12 @@ class LinkedInApp:
             }
             new_config["replace_job_title"] = self.replace_job_title_var.get()
             new_config["rewrite_bullets"] = self.rewrite_bullets_var.get()
+            new_config["optimization_mode"] = self.optimization_mode_var.get()
+            new_config["skill_bank_path"] = config.get("skill_bank_path", "config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md")
+            new_config["role_profile"] = config.get("role_profile", "auto")
+            new_config["allow_unverified_bank_terms"] = config.get("allow_unverified_bank_terms", True)
+            new_config["max_skills"] = config.get("max_skills", 50)
+            new_config["expected_page_count"] = config.get("expected_page_count", 2)
 
             save_runtime_config(new_config)
 
@@ -85,7 +103,8 @@ class LinkedInApp:
                 config["job_id"],
                 config["job_title"],
                 config["first_name"],
-                config["last_name"]
+                config["last_name"],
+                config.get("optimization_mode", "full")
             )
 
             messagebox.showinfo("Success", "Resume optimization completed successfully.")
