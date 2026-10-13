@@ -1,13 +1,8 @@
 from setuptools import setup, find_packages
-from dotenv import load_dotenv
 import os
 import sys
-from modules.ai.openai_key_loader import load_openai_key
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "modules"))
-
-# load_dotenv()  # take environment variables from .env
-load_openai_key()  # Load OpenAI key from environment or config
 
 APP = ['JobRobo.py']
 
@@ -28,7 +23,14 @@ OPTIONS = {
     'iconfile': 'assets/jobrobo.icns',
     'resources': [
         'assets',
-        ('config', ['config/resume_optimizer_defaults.json'])  # ✅ Explicitly include only this file
+        ('config', ['config/resume_optimizer_defaults.json']),
+        ('config/skills', ['config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md']),
+        ('config/bullets', [
+            'config/bullets/Trek_Health_Bullet_Bank.md',
+            'config/bullets/Codex_SelfHosted_Bullet_Bank.md',
+            'config/bullets/Sohamhamso_Bullet_Bank.md',
+            'config/bullets/SponsorSkip_Bullet_Bank.md',
+        ]),
     ]
 }
 

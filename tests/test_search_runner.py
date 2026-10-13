@@ -13,6 +13,7 @@ from modules.linkedin_search import SearchResult, apply_configured_filters
 from modules.search_history import append_history, load_applied_job_ids, search_metadata
 from modules.search_planner import SearchSpec
 from modules.search_state import SearchManifest, plan_fingerprint
+from modules.resume_upload import ResumeUploadError
 
 
 RUNNER = Path(__file__).resolve().parents[1] / "runAiBot.py"
@@ -121,6 +122,7 @@ class SearchRunnerTests(unittest.TestCase):
             "external_jobs_count": 0, "tabs_count": 1,
             "pause_before_submit": True, "pause_at_failed_question": False,
             "useNewResume": False, "use_AI": False, "use_AI_for_resume": False,
+            "first_name": "Test", "last_name": "Candidate",
             "keep_screen_awake": False, "click_gap": 0,
             "dailyEasyApplyLimitReached": False,
             "file_name": str(self.directory / "applied.csv"),
@@ -199,6 +201,41 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual(row["Search Profile"], "test-profile@1")
         self.assertEqual(row["Search Source"], "manual")
         self.assertLess(self.events.index("confirm"), self.events.index("Submit application"))
+
+    def test_missing_verified_resume_stops_before_submit_without_consuming_search_quota(self):
+        search = spec("resume-rejected")
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        self.namespace.update({
+            "use_AI_for_resume": True, "ResumeUploadError": ResumeUploadError,
+            "default_resume_docx_path": "source.docx",
+            "upload_optimized_resume": Mock(return_value=(False, "No verified resume")),
+        })
+        self.modal.find_elements = lambda *args: [Mock()]
+        self.execute(manifest)
+        self.namespace["upload_optimized_resume"].assert_called_once()
+        self.assertNotIn("Submit application", self.events)
+        self.assertNotIn("confirm", self.events)
+        self.assertEqual(manifest.query(search.query_id)["applied_count"], 0)
+        self.assertEqual(manifest.query(search.query_id)["jobs"]["1"]["status"], "failed")
+        self.assertFalse(manifest.has_uncertain_submission(search))
+        self.assertFalse((self.directory / "applied.csv").exists())
+
+    def test_verified_resume_submission_retains_search_metadata_and_quota(self):
+        search = spec("resume-verified")
+        manifest = self.manifest([search], {search.query_id: [["1", "2"]]})
+        self.namespace.update({
+            "use_AI_for_resume": True, "ResumeUploadError": ResumeUploadError,
+            "default_resume_docx_path": "source.docx",
+            "upload_optimized_resume": Mock(return_value=(True, "verified.pdf")),
+        })
+        self.modal.find_elements = lambda *args: [Mock()]
+        self.execute(manifest)
+        self.namespace["upload_optimized_resume"].assert_called_once()
+        self.assertEqual(self.events.count("Submit application"), 1)
+        self.assertEqual(self.visited, ["1"])
+        self.assertEqual(manifest.query(search.query_id)["applied_count"], 1)
+        self.assertEqual(manifest.query(search.query_id)["jobs"]["1"]["status"], "applied")
+        self.assertEqual(self.rows()[0]["Search Query ID"], search.query_id)
 
     def test_duplicate_job_in_next_query_and_applied_history_are_skipped(self):
         append_history(self.directory / "applied.csv", ["Job ID", "Date Applied"],
