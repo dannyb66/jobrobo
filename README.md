@@ -1,5 +1,5 @@
 # LinkedIn AI Auto Job Applier 🤖
-This is an web scraping bot that automates the process of job applications on LinkedIn. It searches for jobs relevant to you, answers all questions in application form, customizes your resume based on the collected job information, such as skills required, description, about company, etc. and applies to the job. Can apply 100+ jobs in less than 1 hour. 
+This is a web scraping bot that automates the process of job applications on LinkedIn. It searches for jobs relevant to you, answers application questions from your configured profile, customizes the resume using job information, and can submit Easy Apply applications. The bot can process many applications quickly, but it should be run with a submission pause enabled until the answers and resume output have been reviewed.
 
 
 ## 📽️ See it in Action
@@ -8,31 +8,142 @@ Click on above image to watch the demo or use this link https://youtu.be/gMbB1fW
 
 ## ✨ Content
 - [Introduction](#linkedin-ai-auto-job-applier-)
-- [Demo Video](#%EF%B8%8F-see-it-in-action)
+- [Demo Video](#-see-it-in-action)
 - [Index](#-content)
-- [Install](#%EF%B8%8F-how-to-install)
+- [Install](#-how-to-install)
+- [Current workflow](#current-workflow)
+- [Repository map](#repository-map)
+- [Run commands](#run-commands)
 - [Configure](#-how-to-configure)
+- [Resume ATS optimizer](#resume-ats-optimizer)
+- [Detailed documentation](docs/README.md)
+- [Troubleshooting](#troubleshooting)
 - [Contributor Guidelines](#-contributor-guidelines)
 - [Features](#-feature-list)
-- [My letter for YOU ❤️](#%EF%B8%8F-my-heartfelt-letter-to-you-%EF%B8%8F)
-- [Updates](%EF%B8%8F-major-updates-history)
+- [My letter for YOU ❤️](#-my-heartfelt-letter-to-you-)
+- [Updates](#major-updates-history)
 - [Disclaimer](#-disclaimer)
-- [Terms and Conditions](#%EF%B8%8F-terms-and-conditions)
-- [License](#%EF%B8%8F-license)
+- [Terms and Conditions](#-terms-and-conditions)
+- [License](#-license)
 - [Socials](#-socials)
-- [Support and Discussions](#-community-support-and-discussions)
+- [Support and Discussions](#community-support-and-discussions)
 
 <br>
 
+## Current workflow
+
+The repository has two related workflows:
+
+1. `runAiBot.py` drives the LinkedIn browser session. It searches using the values in `config/search.py`, filters jobs, reads the job and company information, answers Easy Apply questions from `config/questions.py` and `config/personals.py`, uploads the configured resume, and records the result in the CSV history files and `logs/`.
+2. `JobRobo.py` opens the desktop dashboard. The **Run LinkedIn Bot** action loads and starts the browser automation. The **Resume Optimizer** tab saves optimizer settings and runs the ATS pipeline without starting Chrome.
+
+For a DOCX resume in `bullets` or `full` mode, the optimizer follows this sequence:
+
+```text
+Job description
+      ↓
+Existing keyword extraction + skills-bank guidance
+      ↓
+Skills section update
+      ↓
+JD-aware bullet rewrite for ordinary professional experience
+      ↓
+Exact, curated bullet-bank selection for Trek Health and the first three projects
+      ↓
+Optional job-title alignment (`full` mode)
+      ↓
+DOCX → PDF conversion → configured page-count/layout verification
+      ↓
+Accepted PDF + `.match_report.json` (or failure report)
+```
+
+The optimizer and the LinkedIn bot are intentionally separate. You can generate and inspect a resume without starting Chrome, and you can use a static resume by running the bot without enabling resume optimization. A browser run can submit applications, so keep `pause_before_submit = True` while validating a new configuration.
+
+## Repository map
+
+| Path | Responsibility |
+| --- | --- |
+| `runAiBot.py` | Main LinkedIn automation entry point. |
+| `JobRobo.py` | Tkinter dashboard for browser automation and resume optimization. |
+| `config/search.py` | Search terms, location, filters, quotas, and skip rules. |
+| `config/questions.py` | Application answers, resume paths, pause behavior, salary, visa, and profile inputs. |
+| `config/personals.py` | Personal information used in application forms. |
+| `config/settings.py` | Browser, timing, safe mode, stealth mode, logging, and legacy resume flags. |
+| `config/resume_optimizer_defaults.json` | Persistent optimizer mode, bank paths, page-count expectation, and runtime defaults. |
+| `modules/ai/resume_optimizer.py` | Keyword guidance, skills optimization, bullet rewriting, bank selection, PDF/DOCX handling, and format verification. |
+| `modules/resume_upload.py` | Optimized-PDF attachment and independently verified source-PDF fallback. |
+| `config/skills/` | ATS vocabulary and role-profile guidance. |
+| `config/bullets/` | Fact-preserving bullet banks for specific companies and projects. |
+| `all resumes/default/` | Default DOCX/PDF resume uploaded by the bot. |
+| `all resumes/temp/` | Generated, job-specific resumes and match reports. |
+| `all excels/` | Applied and failed application history CSVs. |
+| `logs/` | Runtime logs and failure screenshots. |
+| `tests/` | Automated tests for the resume optimizer and format contract. |
+| `docs/` | In-depth architecture, optimizer reference, ATS guidance, role positioning, and developer runbook. |
+
+See the [documentation index](docs/README.md) for the tutorial, architecture explanation, configuration reference, ATS workflow, staff/principal positioning guide, current market notes, and maintenance runbook.
+
+## Run commands
+
+From the repository root, create an isolated environment and install the dependencies:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate              # macOS/Linux
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Run the automated checks before changing the live application configuration:
+
+```bash
+python -m py_compile modules/ai/resume_optimizer.py modules/config_loader.py JobRobo.py
+python -m json.tool config/resume_optimizer_defaults.json >/dev/null
+python -m unittest discover -s tests -v
+```
+
+Start the browser automation only after Chrome is closed or the dedicated JobRobo profile is configured:
+
+```bash
+python runAiBot.py
+```
+
+Open the dashboard when you want to configure and run the optimizer interactively:
+
+```bash
+python JobRobo.py
+```
+
+DOCX optimization requires LibreOffice in addition to Python dependencies. The converter checks `LIBREOFFICE_PATH`, `soffice` / `libreoffice` on `PATH`, and the macOS application path. All optimizer modes require an OpenAI API key for JD keyword extraction.
+
+The optimizer can also be called from Python without opening the dashboard. Repository defaults fill missing fields in the saved user configuration at `~/Library/Application Support/jobrobo/config/resume_optimizer_defaults.json`; existing user choices remain authoritative:
+
+```python
+from modules.ai.resume_optimizer import run_resume_optimization
+
+output_path = run_resume_optimization(
+    job_description="Staff AI platform engineer building secure LLM inference systems",
+    resume_path="all resumes/default/resume.docx",
+    job_id="local-smoke-test",
+    job_title="Staff AI Platform Engineer",
+    first_name="first",
+    last_name="last",
+    optimization_mode="skills",
+)
+print(output_path)
+```
+
+Use `optimization_mode="skills"` to update Skills only, `"bullets"` to update Skills and bullets, or `"full"` to also replace recognized professional-experience titles with the target title. `full` does not rewrite the summary or validate title equivalence. Use a distinct local job ID and inspect the returned PDF and report before an application run.
+
 ## ⚙️ How to install
 1. [Python 3.10](https://www.python.org/) or above. Visit https://www.python.org/downloads/ to download and install Python, or for windows you could visit Microsoft Store and search for "Python". **Please make sure Python is added to Path in System Environment Variables**.
-2. Install necessary [Undetected Chromedriver](https://pypi.org/project/undetected-chromedriver/), [PyAutoGUI](https://pypi.org/project/PyAutoGUI/) and [Setuptools](https://pypi.org/project/setuptools/) packages. After Python is installed, OPEN a console/terminal or shell, Use below command that uses the [pip](https://pip.pypa.io/en/stable) command-line tool to install these 3 package.
+2. Install the pinned Python dependencies from `requirements.txt`. After Python is installed, open a console/terminal or shell and use the [pip](https://pip.pypa.io/en/stable) command-line tool:
   ```
-  pip install undetected-chromedriver pyautogui setuptools openai
+  python -m pip install -r requirements.txt
   ```
 3. Download and install latest version of [Google Chrome](https://www.google.com/chrome) in it's default location, visit https://www.google.com/chrome to download it's installer.
-4. Clone the current git repo or download it as a zip file.
-5. (Not needed if you set `stealth_mode = True` in `config/settings.py` ) Download and install the appropriate [Chrome Driver](https://googlechromelabs.github.io/chrome-for-testing/) for Google Chrome and paste it in the location Chrome was installed, visit https://googlechromelabs.github.io/chrome-for-testing/ to download.
+4. Clone the current git repo or download it as a zip file, then run commands from the repository root.
+5. If `stealth_mode = False`, install the ChromeDriver build matching your Chrome major version. See [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) for downloads. If `stealth_mode = True`, `undetected-chromedriver` downloads a driver at runtime, but startup is less predictable and requires network access.
   <br> <br>
   ***OR*** 
   <br> <br>
@@ -47,30 +158,204 @@ Click on above image to watch the demo or use this link https://youtu.be/gMbB1fW
 1. Open `personals.py` file in `/config` folder and enter your details like name, phone number, address, etc. Whatever you want to fill in your applications.
 2. Open `questions.py` file in `/config` folder and enter your answers for application questions, configure wether you want the bot to pause before submission or pause if it can't answer unknown questions.
 3. Open `search.py` file in `/config` folder and enter your search preferences, job filters, configure the bot as per your needs (these settings decide which jobs to apply for or skip).
-4. Open `secrets.py` file in `/config` folder and enter your LinkedIn username, password to login and OpenAI API Key for generation of job tailored resumes and cover letters (This entire step is optional). If you do not provide username or password or leave them as default, it will login with saved profile in browser, if failed will ask you to login manually.
+4. Prefer environment variables or a local, uncommitted secrets configuration for LinkedIn/OpenAI credentials. Credentials are optional: if no LinkedIn username/password is supplied, the bot uses the configured Chrome profile and asks for manual login when needed. Never commit real credentials to `config/secrets.py`.
 5. Open `settings.py` file in `/config` folder to configure the bot settings like, keep screen awake, click intervals (click intervals are randomized to seem like human behavior), run in background, stealth mode (to avoid bot detection), etc. as per your needs.
-6. (Optional) Don't forget to add you default resume in the location you mentioned in `default_resume_path = "all resumes/default/resume.pdf"` given in `/config/questions.py`. If one is not provided, it will use your previous resume submitted in LinkedIn or (In Development) generate custom resume if OpenAI APT key is provided!
+6. Add the default resume paths in `config/questions.py`: `default_resume_path` for a static upload and `default_resume_docx_path` for DOCX optimization. With AI optimization enabled, keep a current sibling PDF beside the DOCX: if optimization fails, the bot independently verifies and explicitly attaches that PDF. If neither attachment succeeds, it discards the application before Review/Submit.
 7. Run `runAiBot.py` and see the magic happen.
 8. If you have questions or need help setting it up or to talk in general, join the github server: https://discord.gg/fFp7uUzWCY
 
+### Configuration reference
+
+| File or setting | What it controls | Typical first-run value |
+| --- | --- | --- |
+| `config/search.py:search_terms` | LinkedIn search queries. | `['Senior Software Engineer']` |
+| `config/search.py:search_location` | Location entered into LinkedIn search. | `'California, United States'` |
+| `config/search.py:switch_number` | Applications processed before moving to the next search. | `1` for a smoke test |
+| `config/settings.py:run_in_background` | Whether Chrome is visible. | `False` while debugging |
+| `config/settings.py:safe_mode` | Opens a clean Guest-style browser profile when normal Chrome startup fails. | `True` for startup troubleshooting |
+| `config/settings.py:chrome_profile_path` | Dedicated Chrome user-data directory used by JobRobo. | Leave the macOS default or set an absolute path |
+| `config/questions.py:pause_before_submit` | Pauses before the final submit action. | `True` until answers are verified |
+| `config/questions.py:pause_at_failed_question` | Pauses when an unknown question cannot be answered. | `True` |
+| `config/questions.py:default_resume_path` | PDF uploaded to LinkedIn. | `all resumes/default/resume.pdf` |
+| `config/questions.py:default_resume_docx_path` | DOCX source used when resume optimization is enabled. | `all resumes/default/resume.docx` |
+| `config/resume_optimizer_defaults.json:optimization_mode` | Resume rewrite scope. | `skills`, `bullets`, or `full` |
+
+Keep secrets out of commits. Use environment variables or the repository's existing key-loader flow for OpenAI credentials, and do not paste real passwords into documentation, issues, or screenshots. If a credential has ever been committed, rotate it before continuing.
+
+### Safe first run
+
+Use this sequence before allowing unattended applications:
+
+1. Use one search term and set `switch_number = 1`, `run_non_stop = False`, `run_in_background = False`, `pause_before_submit = True`, and `pause_at_failed_question = True`. The quota is per search term, not per run.
+2. Close extra Chrome windows and tabs. A large number of open tabs can cause ChromeDriver to start a browser without reaching the job page.
+3. Run the test suite and inspect the configured resume paths.
+4. Start `python runAiBot.py`, review the job, answers, attached resume, and final submission screen.
+5. Stop the run manually if it proceeds to another job unexpectedly. Multiple search terms can each process their quota even with non-stop looping disabled. Increase quotas or enable repeated cycling only after the one-job path is understood.
+
 ### Resume ATS optimizer
 
-The optimizer keeps the existing job-description keyword extraction flow and uses
-`config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md` as a vocabulary guide.
-Configure the mode in `config/resume_optimizer_defaults.json`:
+The optimizer keeps the existing job-description keyword extraction flow and adds
+curated vocabulary guidance from
+`config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md`. The job description
+is still authoritative: bank suggestions must match JD vocabulary, while the selected
+role profile helps rank those matches.
+
+Configure the mode in the GUI or saved user JSON. The bundled `config/resume_optimizer_defaults.json` supplies defaults for missing fields:
 
 ```json
 "optimization_mode": "full"
 ```
 
-Valid modes are `skills` (Skills section only), `bullets` (Skills plus experience
-bullets), and `full` (Skills, bullets, and job-title alignment). Generated resumes
-must pass the post-conversion verifier: exactly two pages, extractable text,
-preserved section order, similar margins/font sizing, and no horizontal overflow.
-Use the DOCX source for `bullets` or `full`; PDF input is limited to Skills-section
-optimization by the existing PDF writer.
-The optimizer writes a `.match_report.json` beside each generated PDF. A failed
-verification blocks upload and attempts one Skills-only layout-safe fallback.
+Valid modes are:
+
+| Mode | Changes | Use when |
+| --- | --- | --- |
+| `skills` | Reorders and replaces the Skills section only. | Existing bullets already fit the role, or the source is a PDF. |
+| `bullets` | Updates Skills, rewrites ordinary experience, and inserts exact bank bullets into matching entries. | You want JD alignment while preserving titles. |
+| `full` | Runs `bullets` plus recognized professional-experience title replacement. | You have reviewed the accuracy of the title changes. |
+
+Bullet and title operations require DOCX. PDF input always uses Skills-only editing
+and records `effective_mode: "skills-pdf"`. The optimizer
+does not rewrite the summary or change project titles.
+
+#### Skill guidance and JD context
+
+The flow extracts keywords from the JD, infers a role profile such as Staff / Principal
+AI Platform or Healthcare AI, and combines those results with the existing Skills
+section. The same selected skills and JD-guided phrases are passed to the bullet
+rewrite prompt. The model is instructed to preserve facts, but the implementation
+does not independently validate work history. Skills-bank terms marked `†` are allowed
+by default; set `allow_unverified_bank_terms` to `false` to filter those bank suggestions.
+Extracted JD terms still require human review for evidence.
+
+Skills selection prioritizes JD guidance and deduplicates recognized full-phrase/acronym
+pairs such as `Model Context Protocol (MCP)` and `MCP`. The original number of entries
+is an upper bound; duplicates can shrink the result. DOCX edits reuse source runs and
+their font/character spacing to preserve compact template formatting.
+
+#### Curated bullet banks
+
+Configured project bullet banks in `config/bullets/` provide exact, JD-ranked bullets
+for the first matching company entry. The default configuration covers:
+
+| Resume entry | Bank | Default selection |
+| --- | --- | ---: |
+| `TREK HEALTH` | `Trek_Health_Bullet_Bank.md` | 7 bullets, including platform and leadership sections |
+| `CODEX SELF-HOSTED` | `Codex_SelfHosted_Bullet_Bank.md` | 3–5 bullets, always including Platform |
+| `SOHAMHAMSO` | `Sohamhamso_Bullet_Bank.md` | 2–4 bullets, always including Overview |
+| `SPONSORSKIP` | `SponsorSkip_Bullet_Bank.md` | 1–2 bullets, always including Overview |
+
+The three project banks target named entries under `ENTREPRENEURIAL VENTURES & PROJECTS`;
+matching uses company/project text and the expected paragraph structure, not project order.
+For each bank, the selector scores preset references, JD lookup phrases, direct JD
+word overlap, and preferred character length. It applies maximum counts, category
+targets, metric/verb deduplication, and marker exclusions. Minimum counts and required
+categories can be unmet when too few eligible candidates remain. Bullets marked `†` or `‡` are
+excluded by default because they require candidate proof or confirmation. Set a bank's
+`allow_unverified` value to `true` only after reviewing its evidence. Unmarked bank
+text is not independently fact-checked by the optimizer.
+
+The exact bank bullet replaces the first matching entry's existing list paragraphs.
+All other professional-experience entries continue through the existing JD-aware LLM
+rewrite path. A `skills` run does not rewrite bullets or apply bullet banks.
+
+Example project-bank configuration:
+
+```json
+"project_bullet_banks": [
+  {
+    "path": "config/bullets/Codex_SelfHosted_Bullet_Bank.md",
+    "company": "CODEX SELF-HOSTED",
+    "min_bullets": 3,
+    "max_bullets": 5,
+    "required_sections": ["A"],
+    "allow_unverified": false
+  }
+]
+```
+
+#### Output and verification
+
+Generated files are written under the resume's sibling `temp/` directory with a
+job-specific filename. The optimizer also writes a `.match_report.json` beside the
+intended PDF containing requested/normalized/effective modes, status, attempt history,
+keywords, bank IDs, `pre_optimization` / `post_optimization` keyword coverage, and
+format-verification results. Keyword coverage is a local diagnostic, not an ATS vendor score.
+
+The post-conversion verifier rejects output when it does not meet the configured
+contract. The default expects two pages, extractable text, horizontal/vertical text
+bounds, source-relative sections and rendered headings, no new orphaned headings,
+stable bullet counts, and similar margins/body font sizes. DOCX/PDF consistency also
+requires at least 95% normalized token coverage and every DOCX section heading in
+rendered order. Wrapping details remain inspection
+signals; a pass does not establish identical appearance or truthful claims.
+
+A failed `bullets`/`full` DOCX verification receives one Skills-only retry from the source.
+If accepted, it records `effective_mode: "skills-fallback"`, with empty top-level bank
+selections; rejected choices and checks remain in `attempts`. If no optimized artifact is
+accepted, the bot can attach an independently verified source PDF. If both upload paths
+fail, the application is discarded before Review/Submit. A previous LinkedIn attachment
+is not accepted as fallback success. See the [reference](docs/resume-optimizer-reference.md)
+for the complete configuration and report contract.
+
+[back to index](#-content)
+
+<br>
+
+## Troubleshooting
+
+### Chrome opens and immediately exits
+
+This usually means ChromeDriver cannot create a compatible session, Chrome is
+already holding the selected profile, or the browser profile has stale startup
+state. Try these checks in order:
+
+1. Close every Chrome window and confirm no Chrome process is still running.
+2. Check that Chrome and ChromeDriver major versions match. Update Chrome and use
+   the matching driver from [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/).
+3. Set `safe_mode = True` in `config/settings.py` and retry. Safe mode uses a clean
+   profile rather than the everyday Chrome profile.
+4. If `stealth_mode = True`, reinstall the package in the active environment:
+
+   ```bash
+   python -m pip uninstall undetected-chromedriver
+   python -m pip install undetected-chromedriver
+   ```
+
+5. Keep the browser visible with `run_in_background = False` while diagnosing. Do
+   not debug startup failures with a large batch or unattended submission enabled.
+
+### The browser starts but does not reach the job
+
+Close excess tabs before starting. The bot expects to control the active JobRobo
+profile and can appear idle when Chrome opens with another profile or too many tabs.
+Check `chrome_profile_path`, confirm LinkedIn is logged in to that profile, and run
+with `pause_after_filters = True` if you need to inspect the search state.
+
+### The bot continues to another job
+
+`switch_number` controls the quota for each search term. For a one-job smoke test,
+use one term, set `switch_number = 1`, keep `run_non_stop = False`, and leave
+`pause_before_submit = True`. If a run has already
+submitted the expected application, stop it manually before changing the quota or
+cycling settings.
+
+### Resume optimization fails or produces the wrong output
+
+Check that the DOCX and PDF source paths exist, the DOCX contains a standalone
+`SKILLS` heading or an inline `Skills:` section, and the OpenAI key is available to
+the active Python environment. Run the unit tests before retrying. Then inspect the
+generated `.match_report.json`; it records keyword coverage, selected bank IDs, and
+the attempt and format check that failed. Early API or conversion errors can produce
+failure reports without an accepted PDF. Check the returned path and `status` before
+using any artifact from the output folder.
+
+### Generated resume is not two pages
+
+The default verifier expects two pages because the current resume template is a
+two-page document. Use `skills` mode first, reduce the configured skill count, or
+shorten unsupported source content. Do not bypass the verifier merely to submit a
+longer document: the bot's upload path is intended to use a verified PDF.
 
 [back to index](#-content)
 
@@ -207,7 +492,8 @@ Once your code is tested, your changes will be merged to the `main` branch in ne
 <br>
 
 ## 🤩 Feature List
-(I'm yet to complete the documentation, I'm adding in more features, still in development)
+The list below separates the working browser/application path from experimental or
+legacy paths. Some LinkedIn page changes can still require manual intervention.
 
 #### General Features 🚀:
 
@@ -241,12 +527,17 @@ Once your code is tested, your changes will be merged to the `main` branch in ne
 - Auto collects a looooooooooooooooooot of info about your jobs, check applied-jobs.excel and failed_jobs.excel for info after each run.
 - Optional pause before submit application.
 - Optional pause if stuck at a question.
+- Configurable ATS resume optimization with `skills`, `bullets`, and `full` modes.
+- JD-guided skill selection from the Staff / Principal keyword bank.
+- Curated, fact-preserving bullet banks for Trek Health, Codex Self-Hosted, Sohamhamso, and SponsorSkip.
+- Post-conversion resume verification for page count, text extraction, section order, clipping, and layout similarity.
+- JSON match reports with keyword coverage, verification results, and failed/accepted attempt history.
 
 
 
 
 #### Stealth features 🥸🤫:  
-- Undetected Chromedriver to bypass anti-bot scripts (Browser, Undetected ChromeDriver versions must be compatible) (Beta) {If problem occurs uninstall and install undetected chromedriver, update browser, selenium and chromedriver}
+- Optional undetected ChromeDriver integration. Chrome and ChromeDriver major versions must remain compatible.
 - Click intervals can be randomized and increased to avoid suspicions
 - Smooth Scrolls the elements into view before click
 
@@ -254,13 +545,12 @@ Once your code is tested, your changes will be merged to the `main` branch in ne
 - Answer questions with help of chatGpt or other LLMs
 - Humanize clicks and mouse movements for stealth 
 - Auto send personalized messages to HR that accept messages
-- Custom resume generator based on Skills required gathering (In Development)
-- Customize resume for every job using LLMs ChatGPT (In Development). (Halted decision pending, will probably implement api or utilize other LLMs or Web Scrape)
+- Broader resume generation beyond the current DOCX/PDF optimizer
+- Additional browser-supported application question strategies
 
 #### Currently Broken 🥲😭: 
-- All ChatGPT features:
-    - ChatGPT Login 
-    - ChatGPT resume chat window opener
+- Legacy browser-based ChatGPT login and resume chat-window integration. The current
+  optimizer uses the configured OpenAI API/key-loader path instead.
       
 [back to index](#-content)
 
@@ -300,7 +590,15 @@ With heartfelt appreciation, <br>
 
 <br>
 
-## 🗓️ Major Updates History:
+## Major Updates History
+
+### October 12, 2026
+- Added configurable ATS optimization modes: Skills-only, bullet rewrite, and full title alignment.
+- Added JD-guided skill-bank vocabulary and shared JD context for bullet rewriting.
+- Added exact, safe-claim bullet-bank selection for Trek Health and the first three entrepreneurial projects.
+- Added two-page/layout verification and JSON match reports before optimized resumes are accepted.
+- Added documentation and tests for Chrome profile troubleshooting, resume output verification, and project-bank configuration.
+
 ### Nov 28, 2024
 - Patched to work for latest changes in Linkedin.
 - Users can now select to follow or not follow companies when submitting application.
@@ -395,6 +693,21 @@ See [AGPLv3 LICENSE](LICENSE) for more info.
 
 
 <br>
+
+[back to index](#-content)
+
+<br>
+
+## Community support and discussions
+
+Use the [GitHub repository](https://github.com/deepakb66/jobrobo) for reproducible
+bugs, configuration questions, and patches. Include your operating system, Python
+version, Chrome version, ChromeDriver mode, optimization mode, and the relevant
+sanitized log excerpt. Never include LinkedIn credentials, API keys, application
+answers containing personal data, or full screenshots with private information.
+
+For setup discussion and community help, join the project's Discord server:
+https://discord.gg/fFp7uUzWCY
 
 [back to index](#-content)
 
