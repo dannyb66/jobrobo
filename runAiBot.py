@@ -3,7 +3,6 @@
 
 # Imports
 import os
-import csv
 import re
 import pyautogui
 
@@ -34,6 +33,12 @@ from dotenv import load_dotenv
 from modules.ai.resume_optimizer import run_resume_optimization
 from modules.resume_upload import ResumeUploadError, upload_verified_resume
 from modules.ai.openai_key_loader import load_openai_key
+from config import search_profile
+from modules.search_planner import build_search_plan
+from modules.search_state import SearchManifest, plan_fingerprint
+from modules.search_history import append_history, load_applied_job_ids, search_metadata, file_lock
+from modules.linkedin_search import start_search, apply_configured_filters, AI_INPUT_XPATH
+from modules.ai.search_refinement import make_refiner
 
 
 pyautogui.FAILSAFE = False
@@ -81,6 +86,9 @@ notice_period_weeks = str(notice_period//7)
 notice_period = str(notice_period)
 
 aiClient = None
+active_manifest = None
+active_search = None
+active_page = 1
 ##> ------ Dheeraj Deshwal : dheeraj9811 Email:dheeraj20194@iiitd.ac.in/dheerajdeshwal9811@gmail.com - Feature ------
 about_company_for_ai = None # TODO extract about company for AI
 ##<
@@ -150,15 +158,7 @@ def get_applied_job_ids() -> set:
     Function to get a `set` of applied job's Job IDs
     * Returns a set of Job IDs from existing applied jobs history csv file
     '''
-    job_ids = set()
-    try:
-        with open(file_name, 'r', encoding='utf-8') as file:
-            reader = csv.reader(file)
-            for row in reader:
-                job_ids.add(row[0])
-    except FileNotFoundError:
-        print_lg(f"The CSV file '{file_name}' does not exist.")
-    return job_ids
+    return load_applied_job_ids(file_name) | SearchManifest.applied_ids(search_profile.search_state_dir)
 
 
 
@@ -184,61 +184,82 @@ def set_search_location() -> None:
             print_lg("Failed to update search location, continuing with default location!", e)
 
 
-def apply_filters() -> None:
-    '''
-    Function to apply job search filters
-    '''
-    set_search_location()
-
+def apply_filters(spec) -> list[str]:
+    """Apply available controls independently and record unsupported preferences."""
+    warnings = []
+    if spec.mode == "classic":
+        set_search_location()
     try:
-        recommended_wait = 1 if click_gap < 1 else 0
+        button = driver.find_element(By.XPATH, '//button[normalize-space()="All filters"]')
+        button.click()
+        buffer(1)
+    except NoSuchElementException:
+        warnings.append("All filters unavailable; attempting visible search filters")
 
-        wait.until(EC.presence_of_element_located((By.XPATH, '//button[normalize-space()="All filters"]'))).click()
-        buffer(recommended_wait)
+    def xpath_literal(value):
+        if '"' not in value:
+            return '"' + value + '"'
+        if "'" not in value:
+            return "'" + value + "'"
+        return "concat(" + ", '\"', ".join('"' + part + '"' for part in value.split('"')) + ")"
 
-        wait_span_click(driver, sort_by)
-        wait_span_click(driver, date_posted)
-        buffer(recommended_wait)
+    def select_option(key, value):
+        literal = xpath_literal(value)
+        if key in {"easy_apply_only", "under_10_applicants", "in_your_network", "fair_chance_employer"}:
+            controls = driver.find_elements(By.XPATH, f'.//h3[normalize-space()={literal}]/ancestor::fieldset//input[@role="switch"]')
+            if controls:
+                control = controls[0]
+                if not control.is_selected():
+                    scroll_to_view(driver, control)
+                    actions.move_to_element(control).click().perform()
+                return True
+        matches = driver.find_elements(By.XPATH, f'.//label[normalize-space(.)={literal}] | .//span[normalize-space(.)={literal}]')
+        for element in matches:
+            if not element.is_displayed():
+                continue
+            controls = element.find_elements(By.XPATH, 'ancestor-or-self::label//input | ancestor::fieldset//input[@role="switch"]')
+            if controls and controls[0].is_selected():
+                return True
+            scroll_to_view(driver, element)
+            element.click()
+            return True
+        if key == "companies":
+            company_search_click(driver, actions, value)
+            # The dynamic picker must actually expose the requested company.
+            return bool(driver.find_elements(By.XPATH, f'.//label[contains(., {literal})]'))
+        return False
 
-        multi_sel_noWait(driver, experience_level) 
-        multi_sel_noWait(driver, companies, actions)
-        if experience_level or companies: buffer(recommended_wait)
+    warnings.extend(apply_configured_filters(spec.filters_snapshot["intent"], select_option))
+    buttons = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "Apply current filters to show") or normalize-space()="Show results"]')
+    if buttons:
+        buttons[0].click()
+    else:
+        try_xp(driver, './/button[@aria-label="Dismiss"]')
 
-        multi_sel_noWait(driver, job_type)
-        multi_sel_noWait(driver, on_site)
-        if job_type or on_site: buffer(recommended_wait)
+    global pause_after_filters
+    if pause_after_filters and "Turn off Pause after search" == pyautogui.confirm("These are your configured search results and filters. You can modify them while this dialog is open.", "Please check your results", ["Turn off Pause after search", "Look's good, Continue"]):
+        pause_after_filters = False
+    return warnings
 
-        if easy_apply_only: boolean_button_click(driver, actions, "Easy Apply")
-        
-        multi_sel_noWait(driver, location)
-        multi_sel_noWait(driver, industry)
-        if location or industry: buffer(recommended_wait)
 
-        multi_sel_noWait(driver, job_function)
-        multi_sel_noWait(driver, job_titles)
-        if job_function or job_titles: buffer(recommended_wait)
+def wait_for_search():
+    WebDriverWait(driver, 10).until(lambda browser: browser.find_elements(
+        By.XPATH, AI_INPUT_XPATH + ' | //input[contains(@aria-label, "Search") or contains(@id, "jobs-search-box-keyword")] | //li[@data-occludable-job-id]'
+    ))
 
-        if under_10_applicants: boolean_button_click(driver, actions, "Under 10 applicants")
-        if in_your_network: boolean_button_click(driver, actions, "In your network")
-        if fair_chance_employer: boolean_button_click(driver, actions, "Fair Chance Employer")
 
-        wait_span_click(driver, salary)
-        buffer(recommended_wait)
-        
-        multi_sel_noWait(driver, benefits)
-        multi_sel_noWait(driver, commitments)
-        if benefits or commitments: buffer(recommended_wait)
+def wait_for_search_results(previous):
+    # An AI field can remain visible throughout submission; wait for old cards to leave.
+    if previous:
+        WebDriverWait(driver, 15).until(EC.staleness_of(previous[0]))
+    WebDriverWait(driver, 15).until(lambda browser: browser.find_elements(
+        By.XPATH, '//li[@data-occludable-job-id] | //*[contains(@class, "jobs-search-no-results") or contains(normalize-space(.), "No matching jobs found") and not(*)]'
+    ))
 
-        show_results_button: WebElement = driver.find_element(By.XPATH, '//button[contains(@aria-label, "Apply current filters to show")]')
-        show_results_button.click()
 
-        global pause_after_filters
-        if pause_after_filters and "Turn off Pause after search" == pyautogui.confirm("These are your configured search results and filter. It is safe to change them while this dialog is open, any changes later could result in errors and skipping this search run.", "Please check your results", ["Turn off Pause after search", "Look's good, Continue"]):
-            pause_after_filters = False
-
-    except Exception as e:
-        print_lg("Setting the preferences failed!")
-        # print_lg(e)
+def checkpoint_job(job_id, status, reason=None):
+    if active_manifest and active_search:
+        active_manifest.record_job(active_search, job_id, status, reason, active_page)
 
 
 
@@ -729,12 +750,11 @@ def failed_job(job_id: str, job_link: str, resume: str, date_listed, error: str,
     Function to update failed jobs list in excel
     '''
     try:
-        with open(failed_file_name, 'a', newline='', encoding='utf-8') as file:
-            fieldnames = ['Job ID', 'Job Link', 'Resume Tried', 'Date listed', 'Date Tried', 'Assumed Reason', 'Stack Trace', 'External Job link', 'Screenshot Name']
-            writer = csv.DictWriter(file, fieldnames=fieldnames)
-            if file.tell() == 0: writer.writeheader()
-            writer.writerow({'Job ID':job_id, 'Job Link':job_link, 'Resume Tried':resume, 'Date listed':date_listed, 'Date Tried':datetime.now(), 'Assumed Reason':error, 'Stack Trace':exception, 'External Job link':application_link, 'Screenshot Name':screenshot_name})
-            file.close()
+        fieldnames = ['Job ID', 'Job Link', 'Resume Tried', 'Date listed', 'Date Tried', 'Assumed Reason', 'Stack Trace', 'External Job link', 'Screenshot Name']
+        row = {'Job ID':job_id, 'Job Link':job_link, 'Resume Tried':resume, 'Date listed':date_listed, 'Date Tried':datetime.now(), 'Assumed Reason':error, 'Stack Trace':exception, 'External Job link':application_link, 'Screenshot Name':screenshot_name}
+        row.update(search_metadata(active_manifest, active_search))
+        checkpoint_job(job_id, "skipped" if application_link == "Skipped" else "failed", str(error))
+        append_history(failed_file_name, fieldnames, row)
     except Exception as e:
         print_lg("Failed to update failed jobs list!", e)
         pyautogui.alert("Failed to update the excel of failed jobs!\nProbably because of 1 of the following reasons:\n1. The file is currently open or in use by another program\n2. Permission denied to write to the file\n3. Failed to find the file", "Failed Logging")
@@ -763,16 +783,14 @@ def submitted_jobs(job_id: str, title: str, company: str, work_location: str, wo
     Function to create or update the Applied jobs CSV file, once the application is submitted successfully
     '''
     try:
-        with open(file_name, mode='a', newline='', encoding='utf-8') as csv_file:
-            fieldnames = ['Job ID', 'Title', 'Company', 'Work Location', 'Work Style', 'About Job', 'Experience required', 'Skills required', 'HR Name', 'HR Link', 'Resume', 'Re-posted', 'Date Posted', 'Date Applied', 'Job Link', 'External Job link', 'Questions Found', 'Connect Request']
-            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-            if csv_file.tell() == 0: writer.writeheader()
-            writer.writerow({'Job ID':job_id, 'Title':title, 'Company':company, 'Work Location':work_location, 'Work Style':work_style, 
-                            'About Job':description, 'Experience required': experience_required, 'Skills required':skills, 
-                                'HR Name':hr_name, 'HR Link':hr_link, 'Resume':resume, 'Re-posted':reposted, 
-                                'Date Posted':date_listed, 'Date Applied':date_applied, 'Job Link':job_link, 
-                                'External Job link':application_link, 'Questions Found':questions_list, 'Connect Request':connect_request})
-        csv_file.close()
+        fieldnames = ['Job ID', 'Title', 'Company', 'Work Location', 'Work Style', 'About Job', 'Experience required', 'Skills required', 'HR Name', 'HR Link', 'Resume', 'Re-posted', 'Date Posted', 'Date Applied', 'Job Link', 'External Job link', 'Questions Found', 'Connect Request']
+        row = {'Job ID':job_id, 'Title':title, 'Company':company, 'Work Location':work_location, 'Work Style':work_style,
+               'About Job':description, 'Experience required':experience_required, 'Skills required':skills,
+               'HR Name':hr_name, 'HR Link':hr_link, 'Resume':resume, 'Re-posted':reposted,
+               'Date Posted':date_listed, 'Date Applied':date_applied, 'Job Link':job_link,
+               'External Job link':application_link, 'Questions Found':questions_list, 'Connect Request':connect_request}
+        row.update(search_metadata(active_manifest, active_search))
+        append_history(file_name, fieldnames, row)
     except Exception as e:
         print_lg("Failed to update submitted jobs list!", e)
         pyautogui.alert("Failed to update the excel of applied jobs!\nProbably because of 1 of the following reasons:\n1. The file is currently open or in use by another program\n2. Permission denied to write to the file\n3. Failed to find the file", "Failed Logging")
@@ -790,28 +808,41 @@ def discard_job() -> None:
 
 
 # Function to apply to jobs
-def apply_to_jobs(search_terms: list[str]) -> None:
+def execute_search_plan(manifest) -> None:
     applied_jobs = get_applied_job_ids()
     rejected_jobs = set()
     blacklisted_companies = set()
-    global current_city, failed_count, skip_count, easy_applied_count, external_jobs_count, tabs_count, pause_before_submit, pause_at_failed_question, useNewResume
+    global active_search, active_page, current_city, failed_count, skip_count, easy_applied_count, external_jobs_count, tabs_count, pause_before_submit, pause_at_failed_question, useNewResume
     current_city = current_city.strip()
 
-    if randomize_search_order:  shuffle(search_terms)
-    for searchTerm in search_terms:
-        driver.get(f"https://www.linkedin.com/jobs/search/?keywords={searchTerm}")
-        print_lg("\n________________________________________________________________________________________________________________________\n")
-        print_lg(f'\n>>>> Now searching for "{searchTerm}" <<<<\n\n')
-
-        apply_filters()
-
-        current_count = 0
+    for spec in manifest.queries():
+        active_search = spec
+        active_page = 1
+        active_job_id = None
+        manifest.begin_query(spec)
+        if manifest.has_uncertain_submission(spec):
+            row = manifest.query(spec.query_id)
+            row["status"], row["stop_reason"] = "pending", "submission_uncertain"
+            manifest.save()
+            print_lg(f"Query {spec.query_id} awaits verification of an uncertain submission on LinkedIn")
+            continue
+        if manifest.quota_met(spec):
+            manifest.finish_query(spec, "quota_met")
+            continue
         try:
-            while current_count < switch_number:
+            result = start_search(driver, spec, wait_for_search, wait_for_search_results)
+            manifest.record_mode(spec, result.mode, result.fallback_reason, result.warnings)
+            print_lg(f'Now searching [{spec.query_id}, {spec.mode}]: {spec.query_text}')
+            warnings = apply_filters(spec)
+            manifest.record_mode(spec, result.mode, result.fallback_reason, warnings)
+            for warning in warnings:
+                print_lg(warning)
+            while not manifest.quota_met(spec) and not manifest.has_uncertain_submission(spec):
                 # Wait until job listings are loaded
                 wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
 
                 pagination_element, current_page = get_page_info()
+                active_page = current_page or 1
 
                 # Find all job listings in current page
                 buffer(3)
@@ -820,16 +851,30 @@ def apply_to_jobs(search_terms: list[str]) -> None:
             
                 for job in job_listings:
                     if keep_screen_awake: pyautogui.press('shiftright')
-                    if current_count >= switch_number: break
+                    if manifest.quota_met(spec) or manifest.has_uncertain_submission(spec): break
+                    raw_job_id = job.get_dom_attribute('data-occludable-job-id')
+                    if not raw_job_id:
+                        continue
+                    if raw_job_id in manifest.processed_ids():
+                        continue
+                    if raw_job_id in applied_jobs:
+                        checkpoint_job(raw_job_id, "skipped", "Previously applied or awaiting submission verification in durable history")
+                        continue
+                    active_job_id = raw_job_id
+                    checkpoint_job(raw_job_id, "in_progress", "Job processing started")
                     print_lg("\n-@-\n")
 
                     job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
                     
-                    if skip: continue
+                    if skip:
+                        failed_job(job_id, "https://www.linkedin.com/jobs/view/" + job_id, "Pending", "Unknown",
+                                   "Previously applied or rejected by company gates", "", "Skipped", "Not Available")
+                        continue
                     # Redundant fail safe check for applied jobs!
                     try:
                         if job_id in applied_jobs or find_by_class(driver, "jobs-s-apply__application-link", 2):
                             print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
+                            checkpoint_job(job_id, 'skipped', 'Previously applied on LinkedIn')
                             continue
                     except Exception as e:
                         print_lg(f'Trying to Apply to "{title} | {company}" job. Job ID: {job_id}')
@@ -967,17 +1012,20 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                     pause_before_submit = False if "Disable Pause" == decision else True
                                     # try_xp(modal, ".//span[normalize-space(.)='Review']")
                                 follow_company(modal)
+                                checkpoint_job(job_id, "submitting", "Submission requested; verify LinkedIn if interrupted")
                                 if wait_span_click(driver, "Submit application", 2, scrollTop=True): 
                                     date_applied = datetime.now()
+                                    checkpoint_job(job_id, "applied", "Easy Apply submitted")
                                     if not wait_span_click(driver, "Done", 2): actions.send_keys(Keys.ESCAPE).perform()
                                 elif errored != "stuck" and cur_pause_before_submit and "Yes" in pyautogui.confirm("You submitted the application, didn't you 😒?", "Failed to find Submit Application!", ["Yes", "No"]):
                                     date_applied = datetime.now()
+                                    checkpoint_job(job_id, "applied", "Easy Apply submitted")
                                     wait_span_click(driver, "Done", 2)
                                 else:
                                     print_lg("Since, Submit Application failed, discarding the job application...")
                                     # if screenshot_name == "Not Available":  screenshot_name = screenshot(driver, job_id, "Failed to click Submit application")
                                     # else:   screenshot_name = [screenshot_name, screenshot(driver, job_id, "Failed to click Submit application")]
-                                    if errored == "nose": raise Exception("Failed to click Submit application 😑")
+                                    raise Exception("Failed to submit application")
 
 
                         except Exception as e:
@@ -986,27 +1034,36 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                             critical_error_log("Somewhere in Easy Apply process",e)
                             failed_job(job_id, job_link, resume, date_listed, "Problem in Easy Applying", e, application_link, screenshot_name)
                             failed_count += 1
-                            discard_job()
-                            continue
+                            if date_applied == "Pending":
+                                discard_job()
+                                continue
+                            print_lg("Submission succeeded; recording applied history despite a later UI error")
                     else:
                         # Case 2: Apply externally
                         skip, application_link, tabs_count = external_apply(pagination_element, job_id, job_link, resume, date_listed, application_link, screenshot_name)
                         if dailyEasyApplyLimitReached:
                             print_lg("\n###############  Daily application limit for Easy Apply is reached!  ###############\n")
+                            checkpoint_job(job_id, "skipped", "Daily Easy Apply limit reached")
+                            manifest.interrupt("daily_easy_apply_limit")
                             return
-                        if skip: continue
+                        if skip:
+                            checkpoint_job(job_id, "skipped", "External apply unavailable or Easy Apply required")
+                            continue
+                        checkpoint_job(job_id, "collected", "External application link collected; not submitted")
 
                     submitted_jobs(job_id, title, company, work_location, work_style, description, experience_required, skills, hr_name, hr_link, resume, reposted, date_listed, date_applied, job_link, application_link, questions_list, connect_request)
                     if uploaded:   useNewResume = False
 
                     print_lg(f'Successfully saved "{title} | {company}" job. Job ID: {job_id} info')
-                    current_count += 1
                     if application_link == "Easy Applied": easy_applied_count += 1
                     else:   external_jobs_count += 1
-                    applied_jobs.add(job_id)
+                    if date_applied != "Pending":
+                        applied_jobs.add(job_id)
 
 
 
+                if manifest.quota_met(spec) or manifest.has_uncertain_submission(spec):
+                    break
                 # Switching to next page
                 if pagination_element == None:
                     print_lg("Couldn't find pagination element, probably at the end page of results!")
@@ -1018,13 +1075,53 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                     print_lg(f"\n>-> Didn't find Page {current_page+1}. Probably at the end page of results!\n")
                     break
 
+            if manifest.has_uncertain_submission(spec):
+                row = manifest.query(spec.query_id)
+                row["status"], row["stop_reason"] = "pending", "submission_uncertain"
+                manifest.save()
+            else:
+                manifest.finish_query(spec, "quota_met" if manifest.quota_met(spec) else "results_exhausted")
         except Exception as e:
-            print_lg("Failed to find Job listings!")
-            critical_error_log("In Applier", e)
-            # print_lg(driver.page_source, pretty=True)
-            # print_lg(e)
+            empty = driver.find_elements(By.XPATH, '//*[contains(@class, "jobs-search-no-results") or contains(normalize-space(.), "No matching jobs found") and not(*)]')
+            if empty:
+                manifest.finish_query(spec, "results_exhausted")
+            else:
+                if active_job_id:
+                    checkpoint_job(active_job_id, "failed", f"Query interrupted ({type(e).__name__})")
+                row = manifest.query(spec.query_id)
+                row["status"], row["stop_reason"] = "pending", f"search_error:{type(e).__name__}"
+                manifest.save()
+                print_lg("Search interrupted; incomplete query will resume next run")
+                critical_error_log("In Applier", e)
 
-        
+
+def apply_to_jobs(legacy_terms: list[str]) -> None:
+    global active_manifest, active_search
+    # globals includes active date/sort cycling; filters still originate only in config/search.py.
+    config = dict(globals(), search_terms=list(legacy_terms))
+    profile = {key: value for key, value in vars(search_profile).items() if not key.startswith("_")}
+    deterministic = build_search_plan(dict(profile, ai_query_refinement_enabled=False), config, warn=print_lg)
+    configuration_id = plan_fingerprint(deterministic, profile)
+    with file_lock(os.path.join(profile["search_state_dir"], ".runner.lock")):
+        manifest = SearchManifest.find_resume(profile["search_state_dir"], configuration_id) if profile["resume_search_enabled"] else None
+        if manifest is None:
+            refiner = make_refiner(os.getenv("OPENAI_API_KEY") or llm_api_key, llm_api_url, llm_model, print_lg) if profile["ai_query_refinement_enabled"] else None
+            specs = build_search_plan(profile, config, refine=refiner, warn=print_lg)
+            if randomize_search_order:
+                shuffle(specs)
+            manifest = SearchManifest.create(profile["search_state_dir"], specs, configuration_id)
+        active_manifest = manifest
+        print_lg(f"Search run: {manifest.data['run_id']} ({manifest.path})")
+        try:
+            execute_search_plan(manifest)
+            manifest.finish()
+        except BaseException as error:
+            manifest.interrupt(type(error).__name__)
+            raise
+        finally:
+            active_manifest = active_search = None
+
+
 def run(total_runs: int) -> int:
     if dailyEasyApplyLimitReached:
         return total_runs
@@ -1137,14 +1234,8 @@ def main() -> None:
 
 # write a wrapper function to run the main function that loops until the user closes the browser
 def run_bot():
-    while True:
-        try:
-            print_lg("Starting the bot...")
-            main()
-            print_lg("Bot finished running. Waiting for 10 seconds before restarting...")
-            sleep(10)
-        except Exception as e:
-            print_lg("An error occurred in the main loop:", e)
+    # main already implements configured continuous cycles. A one-shot smoke run stays one-shot.
+    main()
 
 if __name__ == "__main__":
     # main()

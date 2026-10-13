@@ -18,6 +18,7 @@ Click on above image to watch the demo or use this link https://youtu.be/gMbB1fW
 - [Resume ATS optimizer](#resume-ats-optimizer)
 - [Detailed documentation](docs/README.md)
 - [Troubleshooting](#troubleshooting)
+- [Dynamic Search Profiles](#dynamic-search-profiles)
 - [Contributor Guidelines](#-contributor-guidelines)
 - [Features](#-feature-list)
 - [My letter for YOU ❤️](#-my-heartfelt-letter-to-you-)
@@ -157,7 +158,7 @@ Use `optimization_mode="skills"` to update Skills only, `"bullets"` to update Sk
 ## 🔧 How to configure
 1. Open `personals.py` file in `/config` folder and enter your details like name, phone number, address, etc. Whatever you want to fill in your applications.
 2. Open `questions.py` file in `/config` folder and enter your answers for application questions, configure wether you want the bot to pause before submission or pause if it can't answer unknown questions.
-3. Open `search.py` file in `/config` folder and enter your search preferences, job filters, configure the bot as per your needs (these settings decide which jobs to apply for or skip).
+3. Open `search.py` file in `/config` folder and enter your search preferences, job filters, configure the bot as per your needs (these settings decide which jobs to apply for or skip). Configure role lanes, skills, and manual searches in `search_profile.py`; location and filter values remain in `search.py`. See [Dynamic Search Profiles](docs/dynamic-search.md).
 4. Prefer environment variables or a local, uncommitted secrets configuration for LinkedIn/OpenAI credentials. Credentials are optional: if no LinkedIn username/password is supplied, the bot uses the configured Chrome profile and asks for manual login when needed. Never commit real credentials to `config/secrets.py`.
 5. Open `settings.py` file in `/config` folder to configure the bot settings like, keep screen awake, click intervals (click intervals are randomized to seem like human behavior), run in background, stealth mode (to avoid bot detection), etc. as per your needs.
 6. Add the default resume paths in `config/questions.py`: `default_resume_path` for a static upload and `default_resume_docx_path` for DOCX optimization. With AI optimization enabled, keep a current sibling PDF beside the DOCX: if optimization fails, the bot independently verifies and explicitly attaches that PDF. If neither attachment succeeds, it discards the application before Review/Submit.
@@ -356,6 +357,20 @@ The default verifier expects two pages because the current resume template is a
 two-page document. Use `skills` mode first, reduce the configured skill count, or
 shorten unsupported source content. Do not bypass the verifier merely to submit a
 longer document: the bot's upload path is intended to use a verified PDF.
+
+[back to index](#-content)
+
+<br>
+
+## Dynamic Search Profiles
+
+Searches combine enabled manual queries from `config/search_profile.py`, existing `search_terms`, and queries generated from your role lanes and skills. Each query uses the current location, filters, and exclusion settings in `config/search.py`. The existing San Francisco Bay Area, full-time, remote/hybrid preferences and Staff/Principal search terms are preserved. Duplicate queries keep the first definition, with manual searches taking precedence.
+
+`dynamic_search_enabled = True` and `ai_query_refinement_enabled = True` are enabled by default. Search refinement uses OpenAI independently of resume optimization and `use_AI`; missing credentials or invalid responses fall back to deterministic role queries. `use_AI_for_resume = True` is configured for the next run. `switch_number = 1` sets the default per-search smoke quota, and `pause_before_submit = True` remains enabled.
+
+The runner attempts LinkedIn's natural-language search, records the actual search mode and any fallback or filter warnings, and saves query checkpoints under `logs/search_runs/`. A matching interrupted run resumes automatically; completed searches and previously submitted jobs are skipped. Submission checkpoints across all saved runs also protect fresh runs when CSV logging failed; uncertain submissions remain skipped for manual inspection. Applied and failed CSV records include the run, query, mode, profile, and source. Existing CSV rows are preserved during header migration.
+
+See the [configuration, resume behavior, and verification guide](docs/dynamic-search.md) for manual-search examples, safe query previews, and the limits of the classic keyword fallback. Implementation verification uses automated tests; no live applications were submitted for verification.
 
 [back to index](#-content)
 

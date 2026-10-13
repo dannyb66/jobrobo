@@ -98,7 +98,14 @@ def validate_search() -> None | ValueError | TypeError:
     global __validation_file_path
     __validation_file_path = "config/search.py"
 
-    check_list(search_terms, "search_terms", min_length=1)
+    check_list(search_terms, "search_terms")
+    from config import search_profile
+    from modules.search_planner import validate_profile
+    validate_profile(search_profile)
+    if not search_terms and not search_profile.dynamic_search_enabled and not any(
+        item.get("enabled", True) for item in search_profile.manual_searches
+    ):
+        raise ValueError("Enable a manual, legacy, or generated search")
     check_string(search_location, "search_location")
     check_int(switch_number, "switch_number", 1)
     check_boolean(randomize_search_order, "randomize_search_order")

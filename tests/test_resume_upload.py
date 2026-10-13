@@ -100,10 +100,14 @@ class VerifiedResumeUploadTest(unittest.TestCase):
             "ResumeUploadError": ResumeUploadError, "wait_span_click": submit,
             "questions_list": [], "errored": "", "pause_before_submit": False,
             "driver": Mock(), "modal": Mock(), "follow_company": Mock(),
-            "datetime": datetime,
+            "datetime": datetime, "job_id": "123", "checkpoint_job": Mock(),
         }
         exec(compile(ast.Module(body=block, type_ignores=[]), str(path), "exec"), namespace)
         self.assertTrue(any(call.args[1] == "Submit application" for call in submit.call_args_list))
+        self.assertEqual(
+            [call.args[1] for call in namespace["checkpoint_job"].call_args_list],
+            ["submitting", "applied"],
+        )
 
     def test_source_fallback_requires_configured_pdf_page_count(self):
         from reportlab.pdfgen import canvas
