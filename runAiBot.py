@@ -32,6 +32,7 @@ from modules.ai.openaiConnections import *
 from typing import Literal
 from dotenv import load_dotenv
 from modules.ai.resume_optimizer import run_resume_optimization
+from modules.resume_upload import ResumeUploadError, upload_verified_resume
 from modules.ai.openai_key_loader import load_openai_key
 
 
@@ -411,16 +412,10 @@ def upload_resume(modal: WebElement, resume: str) -> tuple[bool, str]:
 
 # Function to upload optimized resume using run_resume_optimization function from resume_optimizer.py similar logic to upload_resume function
 def upload_optimized_resume(modal: WebElement, resume_path: str, job_description: str, job_id: str, job_title: str = "job", first_name: str = "first", last_name: str = "last") -> tuple[bool, str]:
-    try:
-        # Optimize the resume using the job description
-        optimized_resume_path = run_resume_optimization(job_description=job_description, resume_path=resume_path, job_id=job_id, job_title=job_title, first_name=first_name, last_name=last_name)
-
-        # Upload the optimized resume
-        modal.find_element(By.NAME, "file").send_keys(os.path.abspath(optimized_resume_path))
-        return True, os.path.basename(optimized_resume_path)
-    except Exception as e:
-        print_lg(f"Failed to upload optimized resume for Job ID: {job_id}!", e)
-        return False, "Previous resume"
+    return upload_verified_resume(
+        modal, resume_path, job_description, job_id, job_title, first_name, last_name,
+        optimize=run_resume_optimization, log=print_lg,
+    )
 
 # Function to answer common questions for Easy Apply
 def answer_common_questions(label: str, answer: str) -> str:
@@ -944,9 +939,11 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                         errored = "stuck"
                                         raise Exception("Seems like stuck in a continuous loop of next, probably because of new questions.")
                                     questions_list = answer_questions(modal, questions_list, work_location, job_description=description)
-                                    if use_AI_for_resume:
+                                    if use_AI_for_resume and not uploaded:
                                         if modal.find_elements(By.NAME, "file"):
                                             uploaded, resume = upload_optimized_resume(modal, default_resume_docx_path, description, job_id, title, first_name, last_name)
+                                            if not uploaded:
+                                                raise ResumeUploadError("No verified resume was attached; discarding application.")
                                     elif useNewResume and not uploaded:
                                         uploaded, resume = upload_resume(modal, default_resume_path)
                                     try: next_button = modal.find_element(By.XPATH, './/span[normalize-space(.)="Review"]') 
@@ -957,6 +954,8 @@ def apply_to_jobs(search_terms: list[str]) -> None:
 
                             except NoSuchElementException: errored = "nose"
                             finally:
+                                if use_AI_for_resume and not uploaded:
+                                    raise ResumeUploadError("No verified resume was attached; discarding application.")
                                 if questions_list and errored != "stuck": 
                                     print_lg("Answered the following questions...", questions_list)
                                     print("\n\n" + "\n".join(str(question) for question in questions_list) + "\n\n")
