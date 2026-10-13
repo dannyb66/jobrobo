@@ -39,6 +39,14 @@ def start_search(driver, spec, wait_for_search, wait_for_results=None):
         if field is None:
             fallback = "Natural-language search control unavailable"
         else:
+            current_url = getattr(driver, "current_url", "")
+            if (isinstance(current_url, str) and "/jobs/search/" in current_url
+                    and field.get_attribute("value") == spec.query_text):
+                # The results URL already submitted this query. Re-submitting identical
+                # text may reuse the same cards, so waiting for them to go stale is wrong.
+                if wait_for_results:
+                    wait_for_results([])
+                return SearchResult("ai")
             previous = driver.find_elements("xpath", "//li[@data-occludable-job-id]")
             field.clear()
             field.send_keys(spec.query_text)

@@ -45,6 +45,18 @@ class SearchUITests(unittest.TestCase):
         url = browser.get.call_args_list[-1].args[0]
         self.assertEqual(parse_qs(urlparse(url).query)["keywords"], [spec().query_text])
 
+    def test_identical_query_already_loaded_does_not_wait_for_card_staleness(self):
+        field = self.field()
+        field.get_attribute.return_value = spec().query_text
+        browser = self.browser([field])
+        browser.current_url = "https://www.linkedin.com/jobs/search/?keywords=already-loaded"
+        results = Mock()
+        result = start_search(browser, spec(), Mock(), results)
+        self.assertEqual(result.mode, "ai")
+        results.assert_called_once_with([])
+        field.clear.assert_not_called()
+        field.send_keys.assert_not_called()
+
     def test_missing_or_hidden_ai_control_falls_back_to_encoded_keywords(self):
         for fields in ([], [self.field(False)]):
             with self.subTest(fields=fields):
