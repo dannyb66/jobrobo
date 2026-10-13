@@ -719,7 +719,7 @@ https://discord.gg/fFp7uUzWCY
 - **X/Twitter**: https://x.com/deepakcool3
 
 
-#### ℹ️ Version: 25
+#### ℹ️ Version: [0.1.0.0](VERSION)
 
 ---
 
