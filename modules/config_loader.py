@@ -1,6 +1,9 @@
 import os
 import json
 import shutil
+import tempfile
+from copy import deepcopy
+from contextlib import contextmanager
 from pathlib import Path
 import sys
 
@@ -29,35 +32,105 @@ def ensure_runtime_config_exists():
         shutil.copy2(APP_BUNDLE_CONFIG_FILE, RUNTIME_CONFIG_FILE)
 
 
-def load_runtime_config():
-    ensure_runtime_config_exists()
+def _read_config(path: Path) -> dict:
     try:
-        with open(RUNTIME_CONFIG_FILE, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        print("⚠️ Could not load runtime config. Using fallback.")
-        return {
-            "replace_job_title": False,
-            "rewrite_bullets": False,
-            "optimization_mode": "full",
-            "skill_bank_path": "config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md",
-            "role_profile": "auto",
-            "allow_unverified_bank_terms": True,
-            "max_skills": 50,
-            "expected_page_count": 2,
-            "resume_path": "",
-            "job_id": "",
-            "first_name": "first",
-            "last_name": "last",
-            "job_title": "job",
-            "job_description": "",
-        }
+        with path.open(encoding="utf-8") as f:
+            config = json.load(f)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in configuration file: {path}") from exc
+    if not isinstance(config, dict):
+        raise ValueError(f"Configuration must be a JSON object: {path}")
+    return config
+
+
+def _merge_runtime_defaults(defaults: dict, runtime: dict) -> dict:
+    """Fill missing options while preserving user values and legacy behavior."""
+    merged = deepcopy(defaults)
+    merged.update(runtime)
+    if "optimization_mode" not in runtime and (
+        "replace_job_title" in runtime or "rewrite_bullets" in runtime
+    ):
+        merged["optimization_mode"] = (
+            "full" if runtime.get("replace_job_title") and runtime.get("rewrite_bullets")
+            else "bullets" if runtime.get("rewrite_bullets")
+            else "skills"
+        )
+
+    # A legacy custom Trek bank remains authoritative when expanding to the
+    # multi-project list. Explicit lists, including [], are never replaced.
+    if "project_bullet_banks" not in runtime:
+        for bank in merged.get("project_bullet_banks", []):
+            if bank.get("company") != "Trek Health":
+                continue
+            for old_key, new_key in (
+                ("bullet_bank_path", "path"), ("bullet_bank_company", "company"),
+                ("max_bank_bullets", "max_bullets"),
+                ("allow_unverified_bullet_terms", "allow_unverified"),
+            ):
+                if old_key in runtime:
+                    bank[new_key] = runtime[old_key]
+            if "max_bank_bullets" in runtime:
+                maximum = int(runtime["max_bank_bullets"] or 7)
+                bank["min_bullets"] = min(int(bank.get("min_bullets", maximum)), maximum)
+            break
+    return merged
+
+
+@contextmanager
+def _runtime_config_lock():
+    """Serialize config initialization and updates across processes and threads."""
+    RUNTIME_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = RUNTIME_CONFIG_DIR / (RUNTIME_CONFIG_FILE.name + ".lock")
+    with lock_path.open("a+b") as lock_file:
+        if os.name == "nt":
+            import msvcrt
+            if lock_file.tell() == 0:
+                lock_file.write(b"\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _load_runtime_config():
+    defaults = _read_config(APP_BUNDLE_CONFIG_FILE)
+    ensure_runtime_config_exists()
+    return _merge_runtime_defaults(defaults, _read_config(RUNTIME_CONFIG_FILE))
+
+
+def load_runtime_config():
+    with _runtime_config_lock():
+        return _load_runtime_config()
 
 
 def save_runtime_config(updated_config: dict):
-    ensure_runtime_config_exists()
-    with open(RUNTIME_CONFIG_FILE, "w") as f:
-        json.dump(updated_config, f, indent=4)
+    with _runtime_config_lock():
+        config = _load_runtime_config()
+        config.update(updated_config)
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=RUNTIME_CONFIG_DIR,
+                prefix="resume-optimizer-", suffix=".json", delete=False,
+            ) as f:
+                temporary_path = Path(f.name)
+                json.dump(config, f, indent=4)
+                f.write("\n")
+            os.replace(temporary_path, RUNTIME_CONFIG_FILE)
+        finally:
+            if temporary_path is not None and temporary_path.exists():
+                temporary_path.unlink()
 
 
 # For debugging / dev testing

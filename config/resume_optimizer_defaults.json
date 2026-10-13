@@ -3,6 +3,44 @@
     "rewrite_bullets": true,
     "optimization_mode": "full",
     "skill_bank_path": "config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md",
+    "bullet_bank_path": "config/bullets/Trek_Health_Bullet_Bank.md",
+    "bullet_bank_company": "Trek Health",
+    "max_bank_bullets": 7,
+    "allow_unverified_bullet_terms": false,
+    "project_bullet_banks": [
+        {
+            "path": "config/bullets/Trek_Health_Bullet_Bank.md",
+            "company": "Trek Health",
+            "min_bullets": 7,
+            "max_bullets": 7,
+            "required_sections": ["A", "N"],
+            "allow_unverified": false
+        },
+        {
+            "path": "config/bullets/Codex_SelfHosted_Bullet_Bank.md",
+            "company": "CODEX SELF-HOSTED",
+            "min_bullets": 3,
+            "max_bullets": 5,
+            "required_sections": ["A"],
+            "allow_unverified": false
+        },
+        {
+            "path": "config/bullets/Sohamhamso_Bullet_Bank.md",
+            "company": "SOHAMHAMSO",
+            "min_bullets": 2,
+            "max_bullets": 4,
+            "required_sections": ["A"],
+            "allow_unverified": false
+        },
+        {
+            "path": "config/bullets/SponsorSkip_Bullet_Bank.md",
+            "company": "SPONSORSKIP",
+            "min_bullets": 1,
+            "max_bullets": 2,
+            "required_sections": ["A"],
+            "allow_unverified": false
+        }
+    ],
     "role_profile": "auto",
     "allow_unverified_bank_terms": true,
     "max_skills": 50,

@@ -1,14 +1,10 @@
 # JobRobo.py
 import tkinter as tk
+import os
 from tkinter import ttk, messagebox
-from dotenv import load_dotenv
-from runAiBot import run_bot
 from modules.ai.resume_optimizer import run_resume_optimization
 from modules.config_loader import save_runtime_config, load_runtime_config
 from modules.ai.openai_key_loader import load_openai_key
-
-# load_dotenv()  # Load environment variables from .env
-load_openai_key()  # Load OpenAI key from environment or config
 
 class LinkedInApp:
     def __init__(self, root):
@@ -33,8 +29,16 @@ class LinkedInApp:
         label = tk.Label(self.bot_tab, text="Click to start LinkedIn automation")
         label.pack(pady=20)
 
-        button = tk.Button(self.bot_tab, text="Run Bot", command=run_bot)
+        button = tk.Button(self.bot_tab, text="Run Bot", command=self.run_bot_from_ui)
         button.pack(pady=10)
+
+    def run_bot_from_ui(self):
+        try:
+            # Importing the bot initializes Chrome. Delay until the user starts it.
+            from runAiBot import run_bot
+            run_bot()
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
 
     def init_optimizer_tab(self):
         config = load_runtime_config()
@@ -80,24 +84,22 @@ class LinkedInApp:
 
     def run_resume_optimizer_from_ui(self):
         try:
-            new_config = {
-                key: self.fields[key].get() for key in self.fields
-            }
+            # Save form values only; the loader merges the latest bank rules and
+            # settings under its file lock, preserving edits from other sessions.
+            new_config = {key: field.get() for key, field in self.fields.items()}
             new_config["replace_job_title"] = self.replace_job_title_var.get()
             new_config["rewrite_bullets"] = self.rewrite_bullets_var.get()
             new_config["optimization_mode"] = self.optimization_mode_var.get()
-            new_config["skill_bank_path"] = config.get("skill_bank_path", "config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md")
-            new_config["role_profile"] = config.get("role_profile", "auto")
-            new_config["allow_unverified_bank_terms"] = config.get("allow_unverified_bank_terms", True)
-            new_config["max_skills"] = config.get("max_skills", 50)
-            new_config["expected_page_count"] = config.get("expected_page_count", 2)
 
             save_runtime_config(new_config)
 
             # Re-load to ensure consistent values
             config = load_runtime_config()
 
-            run_resume_optimization(
+            if not os.getenv("OPENAI_API_KEY"):
+                load_openai_key()
+
+            optimized_pdf = run_resume_optimization(
                 config["job_description"],
                 config["resume_path"],
                 config["job_id"],
@@ -107,6 +109,12 @@ class LinkedInApp:
                 config.get("optimization_mode", "full")
             )
 
+            if not optimized_pdf:
+                messagebox.showerror(
+                    "Optimization Failed",
+                    "Resume optimization did not produce a verified PDF. Check the logs for details."
+                )
+                return
             messagebox.showinfo("Success", "Resume optimization completed successfully.")
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {str(e)}")
