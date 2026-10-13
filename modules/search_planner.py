@@ -174,7 +174,7 @@ def validate_refinement(response, roles):
             raise ValueError("Coverage must be a finite number between zero and one")
         tokens = set(re.findall(r"[a-z]+", normalize_query(role)))
         original = set(re.findall(r"[a-z]+", normalize_query(roles[index])))
-        seniority = original.intersection({"staff", "principal", "founding"})
+        seniority = original.intersection({"staff", "principal", "founding", "senior", "lead", "junior"})
         forbidden = {"ignore", "apply", "exclude", "prefer", "salary", "remote", "hybrid", "clearance", "instructions", "override"}
         specialty = original - {"engineer", "developer", "roles", "staff", "principal", "founding", "senior"}
         engineering = {"engineer", "engineering", "developer", "architect"}

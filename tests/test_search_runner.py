@@ -245,17 +245,63 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual(resumed.query("second")["last_page"], 2)
 
     def test_resume_retries_unsubmitted_in_progress_but_skips_uncertain_submission(self):
-        search = spec("resume")
-        manifest = self.manifest([search], {"resume": [["10", "11"]]})
-        manifest.begin_query(search)
-        manifest.record_job(search, "10", "submitting")
-        manifest.record_job(search, "11", "in_progress")
+        uncertain, retry = spec("uncertain"), spec("retry")
+        manifest = self.manifest([uncertain, retry], {"uncertain": [["10", "12"]], "retry": [["11"]]})
+        manifest.begin_query(uncertain)
+        manifest.record_job(uncertain, "10", "submitting")
+        manifest.begin_query(retry)
+        manifest.record_job(retry, "11", "in_progress")
         manifest.interrupt("KeyboardInterrupt")
-        resumed = SearchManifest.find_resume(self.directory / "state", plan_fingerprint([search]))
+        resumed = SearchManifest.find_resume(self.directory / "state", plan_fingerprint([uncertain, retry]))
         self.execute(resumed)
         self.assertEqual(self.visited, ["11"])
-        self.assertEqual(resumed.query("resume")["jobs"]["10"]["status"], "submitting")
-        self.assertEqual(resumed.query("resume")["jobs"]["11"]["status"], "applied")
+        self.assertEqual(self.browser.started, ["retry"])
+        self.assertEqual(resumed.query("uncertain")["jobs"]["10"]["status"], "submitting")
+        self.assertEqual(resumed.query("uncertain")["stop_reason"], "submission_uncertain")
+        self.assertEqual(resumed.query("uncertain")["status"], "pending")
+        self.assertEqual(resumed.query("retry")["jobs"]["11"]["status"], "applied")
+        self.assertEqual(resumed.data["status"], "interrupted")
+
+    def test_ambiguous_submit_preserves_uncertainty_blocks_lane_and_cannot_retry_on_resume_or_new_run(self):
+        uncertain, other = spec("uncertain"), spec("other")
+        manifest = self.manifest([uncertain, other], {"uncertain": [["1", "2"]], "other": [["1", "3"]]})
+
+        def click(target, label, *args, **kwargs):
+            if label == "Submit application" and self.visited[-1] == "1":
+                self.events.append(label)
+                raise RuntimeError("Submit may have reached LinkedIn before browser failed")
+            return self.click(target, label, *args, **kwargs)
+
+        self.namespace["wait_span_click"] = click
+        self.execute(manifest)
+        self.assertEqual(self.visited, ["1", "3"])
+        self.assertEqual(self.events.count("Submit application"), 2)
+        self.assertEqual(manifest.query("uncertain")["jobs"]["1"]["status"], "submitting")
+        self.assertEqual(manifest.query("uncertain")["stop_reason"], "submission_uncertain")
+        self.assertEqual(manifest.query("uncertain")["status"], "pending")
+        self.assertEqual(manifest.query("uncertain")["applied_count"], 0)
+        self.assertEqual(manifest.query("other")["jobs"]["3"]["status"], "applied")
+        self.assertEqual(manifest.data["status"], "interrupted")
+        self.assertTrue(any("Post-submit issue" in warning for warning in manifest.query("uncertain")["warnings"]))
+        failure = self.rows("failed.csv")[0]
+        self.assertEqual(failure["Job ID"], "1")
+        self.assertEqual(failure["Search Query ID"], "uncertain")
+        self.assertEqual(failure["Search Run ID"], manifest.data["run_id"])
+
+        resumed = SearchManifest.find_resume(self.directory / "state", plan_fingerprint([uncertain, other]))
+        self.execute(resumed)
+        self.assertEqual(self.visited, ["1", "3"])
+        self.assertEqual(self.browser.started, ["uncertain", "other"])
+        self.assertEqual(resumed.query("uncertain")["jobs"]["1"]["status"], "submitting")
+        self.assertEqual(resumed.data["status"], "interrupted")
+
+        fresh = spec("fresh")
+        new_run = self.manifest([fresh], {"fresh": [["1", "4"]]})
+        self.execute(new_run)
+        self.assertEqual(self.visited, ["1", "3", "4"])
+        self.assertEqual(self.events.count("Submit application"), 3)
+        self.assertEqual(new_run.query("fresh")["jobs"]["1"]["status"], "skipped")
+        self.assertEqual(new_run.query("fresh")["jobs"]["4"]["status"], "applied")
 
     def test_user_discards_before_submit_logs_failure_without_using_quota(self):
         search = spec("discard")

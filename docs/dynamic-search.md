@@ -124,7 +124,7 @@ On resume:
 2. The incomplete query restarts at page one, retaining its prior counts.
 3. Previously processed terminal outcomes are skipped across all queries in the run.
 4. Jobs recorded only as `in_progress` before submission may be retried.
-5. Jobs checkpointed as `submitting` are conservatively skipped because submission may have succeeded before interruption. Inspect their application status on LinkedIn manually.
+5. Jobs checkpointed as `submitting` remain protected even if the browser reports a submit error. Their query stops with `submission_uncertain` until you verify the application status on LinkedIn. Other queries can continue.
 6. Previously submitted jobs in the applied CSV and jobs recorded as `applied` or uncertain `submitting` in any saved manifest are skipped, including across new runs.
 7. Pagination continues until the remaining quota is met or results are exhausted, then the next incomplete query runs.
 
@@ -133,6 +133,22 @@ Set `resume_search_enabled = False` to start a new run with current settings. Su
 Each `logs/search_runs/<run_id>.json` manifest stores run and profile identifiers, configuration identity, timestamps, status, current query, and stop reason. Query records contain the search specification, status, actual mode, executed text, fallback reason, warnings, applied and collected counts, processed IDs, job outcomes and reasons, last page, and last job ID. The saved last page is audit information; resume restarts at page one to avoid missing shifted results.
 
 Checkpoints are written atomically, and a runner lock prevents simultaneous search runners from sharing state. A corrupt manifest is reported rather than silently overwritten.
+
+After verifying an uncertain application's status on LinkedIn, resolve its checkpoint locally. Copy the run ID, query ID, and job ID from the manifest; choose `"applied"` only if submission is confirmed, or `"failed"` if it was not submitted:
+
+```python
+import json
+from pathlib import Path
+from modules.search_history import file_lock
+from modules.search_state import SearchManifest
+
+path = Path("logs/search_runs/<run_id>.json")
+with file_lock(path.parent / ".runner.lock"):
+    manifest = SearchManifest(path, json.loads(path.read_text()))
+    manifest.resolve_submission("<query_id>", "<job_id>", "applied")
+```
+
+This updates the manifest and its applied count; existing CSV audit records remain intact. Rerun the bot to continue the remaining work. A verified failure remains skipped within that run and may be reconsidered in a new run.
 
 ## Application history and migration
 
@@ -148,6 +164,8 @@ Applied and failed CSV rows gain these fields:
 `Search Query` records the executed text, including the shorter query when classic fallback runs. `Search Profile` contains `<profile_name>@<profile_version>`. Use `Search Run ID` and `Search Query ID` to locate the matching manifest, filter snapshot, and job outcome.
 
 When a record is first written to an older CSV, the writer creates `<filename>.bak`, retains existing columns and rows, and atomically replaces the file with an extended header before appending. Old rows have blank search metadata because their exact queries were not tracked. An existing backup is preserved. Unrecognized headers or malformed rows stop migration and preserve the original file.
+
+If an older applied-history schema has no `Date Applied` column, migration labels those dates `Unknown (legacy applied history)` so its previously protected job IDs remain protected without inventing application dates.
 
 Applied-job IDs are loaded by the `Job ID` header rather than a column position, excluding the header itself and pending external links. They are combined with `applied` and uncertain `submitting` job IDs from every manifest in `search_state_dir`. This preserves duplicate protection across overlapping queries, resumed runs, fresh runs, and changed configurations, including when CSV logging failed after submission. Inspect uncertain submissions on LinkedIn before a manual retry.
 

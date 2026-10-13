@@ -58,6 +58,17 @@ class HistoryTests(unittest.TestCase):
                 self.assertEqual(row["Search Profile"], "test-ai-platform@2")
                 self.assertEqual(row["Search Source"], "manual")
 
+    def test_migrating_undated_applied_history_preserves_duplicate_protection(self):
+        self.write_csv(["Job ID", "Title"], [{"Job ID": "101", "Title": "Historical application"}])
+        self.assertEqual(load_applied_job_ids(self.path), {"101"})
+        append_history(self.path, ["Job ID", "Title", "Date Applied"], {
+            "Job ID": "102", "Title": "New application", "Date Applied": "2026-10-12",
+        })
+        self.assertEqual(load_applied_job_ids(self.path), {"101", "102"})
+        _, rows = self.read_csv()
+        self.assertEqual(rows[0]["Title"], "Historical application")
+        self.assertEqual(rows[0]["Date Applied"], "Unknown (legacy applied history)")
+
     def test_no_active_search_writes_empty_metadata(self):
         self.assertEqual(search_metadata(), dict.fromkeys(SEARCH_FIELDS, ""))
         self.assertEqual(search_metadata(None, spec()), dict.fromkeys(SEARCH_FIELDS, ""))
@@ -139,6 +150,33 @@ class ManifestTests(unittest.TestCase):
 
     def create(self, specs=None, configuration_id="test-configuration"):
         return SearchManifest.create(self.directory, specs or [spec()], configuration_id)
+
+    def test_submit_error_preserves_uncertainty_until_manually_verified(self):
+        current = spec()
+        manifest = self.create([current])
+        manifest.record_job(current, "101", "submitting")
+        manifest.record_job(current, "101", "failed", "Submit response timed out")
+        self.assertEqual(manifest.query(current.query_id)["jobs"]["101"]["status"], "submitting")
+        self.assertTrue(manifest.has_uncertain_submission(current))
+        self.assertIn("101", SearchManifest.applied_ids(self.directory))
+        manifest.resolve_submission(current.query_id, "101", "failed")
+        self.assertFalse(manifest.has_uncertain_submission(current))
+        self.assertNotIn("101", SearchManifest.applied_ids(self.directory))
+        self.assertFalse(manifest.quota_met(current))
+        with self.assertRaises(ValueError):
+            manifest.resolve_submission(current.query_id, "101", "applied")
+
+    def test_manually_confirmed_submission_counts_once_and_remains_protected(self):
+        current = spec()
+        manifest = self.create([current])
+        manifest.record_job(current, "101", "submitting")
+        with self.assertRaises(ValueError):
+            manifest.resolve_submission(current.query_id, "101", "unknown")
+        manifest.resolve_submission(current.query_id, "101", "applied")
+        self.assertEqual(manifest.query(current.query_id)["applied_count"], 1)
+        self.assertTrue(manifest.quota_met(current))
+        self.assertFalse(manifest.has_uncertain_submission(current))
+        self.assertIn("101", SearchManifest.applied_ids(self.directory))
 
     def test_creation_is_durable_and_contains_profile_and_query_plan(self):
         current = spec()

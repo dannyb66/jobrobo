@@ -315,6 +315,11 @@ class RefinementTests(unittest.TestCase):
                 self.assertEqual(plan[0].source, "generated")
                 self.assertEqual(plan[0].classic_query, roles[0])
 
+    def test_refinement_cannot_drop_configured_senior_seniority(self):
+        response = {"queries": [{"role": "Software Engineer", "role_index": 0, "coverage": 0.9}]}
+        with self.assertRaises(ValueError):
+            validate_refinement(response, ["Senior Software Engineer"])
+
     def test_openai_request_and_client_are_mocked_and_bounded(self):
         roles = profile()["role_lanes"]
         response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(refinement(roles))))])

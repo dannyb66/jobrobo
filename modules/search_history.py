@@ -69,6 +69,11 @@ def append_history(path, fieldnames, row):
                 rows = list(csv.DictReader(handle))
             if any(None in item or any(value is None for value in item.values()) for item in rows):
                 raise ValueError("Malformed history row; original file preserved")
+            if "Date Applied" in fields and "Date Applied" not in existing:
+                # An undated applied-history schema was previously treated as applied.
+                # Keep that meaning when adding the date column, without inventing a date.
+                for item in rows:
+                    item["Date Applied"] = "Unknown (legacy applied history)"
             backup = path.with_name(path.name + ".bak")
             if not backup.exists():
                 shutil.copy2(path, backup)

@@ -125,7 +125,8 @@ class SearchManifest:
             status, reason = "skipped", "Previously completed under another query"
         previous = row["jobs"].get(job_id, {}).get("status")
         # Once submission is recorded, a later UI/CSV failure must not erase it.
-        if previous == "applied" and status != "applied":
+        if (previous == "applied" and status != "applied"
+                or previous == "submitting" and status in {"failed", "skipped", "in_progress"}):
             row["warnings"].append(f"Post-submit issue for {job_id}: {reason or status}")
         else:
             row["jobs"][job_id] = {"status": status, "reason": reason, "updated_at": timestamp()}
@@ -139,6 +140,21 @@ class SearchManifest:
     def quota_met(self, spec):
         row = self.query(spec.query_id)
         return row["applied_count"] + row["collected_count"] >= spec.quota
+
+    def has_uncertain_submission(self, spec):
+        return any(job["status"] == "submitting" for job in self.query(spec.query_id)["jobs"].values())
+
+    def resolve_submission(self, query_id, job_id, outcome):
+        """Resolve only after the operator verifies LinkedIn's application status."""
+        if outcome not in {"applied", "failed"}:
+            raise ValueError("Verified outcome must be applied or failed")
+        row = self.query(query_id)
+        if row["jobs"].get(job_id, {}).get("status") != "submitting":
+            raise ValueError("Only an uncertain submission can be resolved")
+        row["jobs"][job_id] = {"status": outcome, "reason": "Application status manually verified on LinkedIn", "updated_at": timestamp()}
+        row["applied_count"] = sum(job["status"] == "applied" for job in row["jobs"].values())
+        row["warnings"].append(f"Uncertain submission {job_id} resolved as {outcome}")
+        self.save()
 
     def finish_query(self, spec, reason):
         row = self.query(spec.query_id)

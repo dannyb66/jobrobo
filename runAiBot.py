@@ -825,6 +825,12 @@ def execute_search_plan(manifest) -> None:
         active_page = 1
         active_job_id = None
         manifest.begin_query(spec)
+        if manifest.has_uncertain_submission(spec):
+            row = manifest.query(spec.query_id)
+            row["status"], row["stop_reason"] = "pending", "submission_uncertain"
+            manifest.save()
+            print_lg(f"Query {spec.query_id} awaits verification of an uncertain submission on LinkedIn")
+            continue
         if manifest.quota_met(spec):
             manifest.finish_query(spec, "quota_met")
             continue
@@ -836,7 +842,7 @@ def execute_search_plan(manifest) -> None:
             manifest.record_mode(spec, result.mode, result.fallback_reason, warnings)
             for warning in warnings:
                 print_lg(warning)
-            while not manifest.quota_met(spec):
+            while not manifest.quota_met(spec) and not manifest.has_uncertain_submission(spec):
                 # Wait until job listings are loaded
                 wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
 
@@ -850,7 +856,7 @@ def execute_search_plan(manifest) -> None:
             
                 for job in job_listings:
                     if keep_screen_awake: pyautogui.press('shiftright')
-                    if manifest.quota_met(spec): break
+                    if manifest.quota_met(spec) or manifest.has_uncertain_submission(spec): break
                     raw_job_id = job.get_dom_attribute('data-occludable-job-id')
                     if not raw_job_id:
                         continue
@@ -1057,7 +1063,7 @@ def execute_search_plan(manifest) -> None:
 
 
 
-                if manifest.quota_met(spec):
+                if manifest.quota_met(spec) or manifest.has_uncertain_submission(spec):
                     break
                 # Switching to next page
                 if pagination_element == None:
@@ -1070,7 +1076,12 @@ def execute_search_plan(manifest) -> None:
                     print_lg(f"\n>-> Didn't find Page {current_page+1}. Probably at the end page of results!\n")
                     break
 
-            manifest.finish_query(spec, "quota_met" if manifest.quota_met(spec) else "results_exhausted")
+            if manifest.has_uncertain_submission(spec):
+                row = manifest.query(spec.query_id)
+                row["status"], row["stop_reason"] = "pending", "submission_uncertain"
+                manifest.save()
+            else:
+                manifest.finish_query(spec, "quota_met" if manifest.quota_met(spec) else "results_exhausted")
         except Exception as e:
             empty = driver.find_elements(By.XPATH, '//*[contains(@class, "jobs-search-no-results") or contains(normalize-space(.), "No matching jobs found") and not(*)]')
             if empty:
