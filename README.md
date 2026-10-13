@@ -12,6 +12,7 @@ Click on above image to watch the demo or use this link https://youtu.be/gMbB1fW
 - [Index](#-content)
 - [Install](#%EF%B8%8F-how-to-install)
 - [Configure](#-how-to-configure)
+- [Dynamic Search Profiles](#dynamic-search-profiles)
 - [Contributor Guidelines](#-contributor-guidelines)
 - [Features](#-feature-list)
 - [My letter for YOU ❤️](#%EF%B8%8F-my-heartfelt-letter-to-you-%EF%B8%8F)
@@ -46,12 +47,26 @@ Click on above image to watch the demo or use this link https://youtu.be/gMbB1fW
 ## 🔧 How to configure
 1. Open `personals.py` file in `/config` folder and enter your details like name, phone number, address, etc. Whatever you want to fill in your applications.
 2. Open `questions.py` file in `/config` folder and enter your answers for application questions, configure wether you want the bot to pause before submission or pause if it can't answer unknown questions.
-3. Open `search.py` file in `/config` folder and enter your search preferences, job filters, configure the bot as per your needs (these settings decide which jobs to apply for or skip).
+3. Open `search.py` file in `/config` folder and enter your search preferences, job filters, configure the bot as per your needs (these settings decide which jobs to apply for or skip). Configure role lanes, skills, and manual searches in `search_profile.py`; location and filter values remain in `search.py`. See [Dynamic Search Profiles](docs/dynamic-search.md).
 4. Open `secrets.py` file in `/config` folder and enter your LinkedIn username, password to login and OpenAI API Key for generation of job tailored resumes and cover letters (This entire step is optional). If you do not provide username or password or leave them as default, it will login with saved profile in browser, if failed will ask you to login manually.
 5. Open `settings.py` file in `/config` folder to configure the bot settings like, keep screen awake, click intervals (click intervals are randomized to seem like human behavior), run in background, stealth mode (to avoid bot detection), etc. as per your needs.
 6. (Optional) Don't forget to add you default resume in the location you mentioned in `default_resume_path = "all resumes/default/resume.pdf"` given in `/config/questions.py`. If one is not provided, it will use your previous resume submitted in LinkedIn or (In Development) generate custom resume if OpenAI APT key is provided!
 7. Run `runAiBot.py` and see the magic happen.
 8. If you have questions or need help setting it up or to talk in general, join the github server: https://discord.gg/fFp7uUzWCY
+
+[back to index](#-content)
+
+<br>
+
+## Dynamic Search Profiles
+
+Searches combine enabled manual queries from `config/search_profile.py`, existing `search_terms`, and queries generated from your role lanes and skills. Each query uses the current location, filters, and exclusion settings in `config/search.py`. The existing San Francisco Bay Area, full-time, remote/hybrid preferences and Staff/Principal search terms are preserved. Duplicate queries keep the first definition, with manual searches taking precedence.
+
+`dynamic_search_enabled = True` and `ai_query_refinement_enabled = True` are enabled by default. Search refinement uses OpenAI independently of resume optimization and `use_AI`; missing credentials or invalid responses fall back to deterministic role queries. `use_AI_for_resume = True` is configured for the next run. `switch_number = 1` sets the default per-search smoke quota, and `pause_before_submit = True` remains enabled.
+
+The runner attempts LinkedIn's natural-language search, records the actual search mode and any fallback or filter warnings, and saves query checkpoints under `logs/search_runs/`. A matching interrupted run resumes automatically; completed searches and previously submitted jobs are skipped. Submission checkpoints across all saved runs also protect fresh runs when CSV logging failed; uncertain submissions remain skipped for manual inspection. Applied and failed CSV records include the run, query, mode, profile, and source. Existing CSV rows are preserved during header migration.
+
+See the [configuration, resume behavior, and verification guide](docs/dynamic-search.md) for manual-search examples, safe query previews, and the limits of the classic keyword fallback. Implementation verification uses automated tests; no live applications were submitted for verification.
 
 [back to index](#-content)
 
