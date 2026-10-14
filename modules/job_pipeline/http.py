@@ -157,6 +157,8 @@ def render_page(url, render):
     """Renderer injection is for normal public UI rendering, never a challenge bypass."""
     try:
         result = render(url)
+    except FetchError:
+        raise
     except Exception as exc:
         raise FetchError("render_failed", type(exc).__name__, url, True) from exc
     if isinstance(result, str):
@@ -165,7 +167,9 @@ def render_page(url, render):
         destination = public_url(result.get("url", url))
         if not destination:
             raise FetchError("unsafe_url", "Renderer returned a nonpublic destination", url)
-        coverage = result.get("complete") if type(result.get("complete")) is bool else None
+        coverage = result.get("coverage_complete")
+        if type(coverage) is not bool:
+            coverage = result.get("complete") if type(result.get("complete")) is bool else None
         return Page(destination, result["html"], coverage_complete=coverage)
     raise FetchError("render_failed", "Renderer must return HTML or {html, url}", url)
 

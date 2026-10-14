@@ -7,6 +7,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlparse
 
 from .http import Document, FetchError, PublicHTTPClient, embedded_json, error, fetch_page, now, objects, plain_text, public_url, render_page
 from .sources import ATS_HOSTS, domain_of, provenance, setting, stable_id
+from .settings import company_maturity
 
 
 BAY_AREA_CITIES = (
@@ -93,23 +94,14 @@ def _workplace(value, locations, description="", remote=None):
     return "Unknown"
 
 
-def priority_tier(company, title):
+def priority_tier(company, title, config=None):
     if re.search(r"\bfounding\b", title, re.I):
         return 3
-    count = company.get("employee_count")
-    lower_count = None
-    if type(count) is int:
-        lower_count = count
-    elif isinstance(count, str):
-        match = re.match(r"\s*(\d[\d,]*)", count)
-        if match:
-            lower_count = int(match.group(1).replace(",", ""))
-    stage = str(company.get("funding_stage") or "").casefold()
-    established = lower_count is not None and lower_count >= 50 or bool(re.search(r"\bseries\s+[b-z]\b|\bipo\b|\bpublic\b", stage))
-    if established:
+    maturity = company_maturity(company, config)
+    if maturity == "established":
         leveled_title = re.sub(r"\bmember(?: of)? technical staff\b", "", title, flags=re.I)
         return 1 if re.search(r"\b(?:staff|principal)\b", leveled_title, re.I) else 2
-    if lower_count is not None and lower_count < 50 or re.search(r"\b(?:pre.seed|seed|series\s+a)\b", stage):
+    if maturity == "early":
         return 3
     return 4
 

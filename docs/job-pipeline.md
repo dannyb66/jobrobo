@@ -7,8 +7,8 @@ The pipeline keeps discovery separate from application. Discover companies, veri
 From the repository root, use a named set for each stage:
 
 ```bash
-python -m job_pipeline discover companies --set ai-companies --limit 25
-python -m job_pipeline verify careers --input ai-companies --set hiring-roles --limit 25 \
+python -m job_pipeline discover companies --set ai-companies
+python -m job_pipeline verify careers --input ai-companies --set hiring-roles \
   --output data/job_pipeline/hiring-roles.json
 python -m job_pipeline search linkedin --input hiring-roles --set linkedin-candidates --limit 25 \
   --output data/job_pipeline/linkedin-candidates.json
@@ -70,11 +70,11 @@ Bare `python -m job_pipeline` and `python -m job_pipeline --help` print help wit
 | `apply linkedin` | `linkedin_jobs` | `applications` | Selected application work for the run. |
 | `run linkedin` | `verified_roles` | `applications` | Combined LinkedIn work for the run. |
 
-The defaults are `--limit 25`, `--set startup-companies`, and `--db data/job_pipeline/pipeline.sqlite3`. Use `--set` to name the output set. `--input` accepts a JSON artifact path or a named set in the selected database; repeat it to combine multiple inputs of the required stage. Wrong-stage or malformed artifacts fail validation before browser startup. `--output` writes the returned result as JSON. Changing an output filename does not change the saved work's identity.
+The default set is `startup-companies`, and the default database is `data/job_pipeline/pipeline.sqlite3`. LinkedIn commands retain the `default_limit = 25` budget. Discovery and verification use their stage settings described below. Use `--set` to name the output set. `--input` accepts a JSON artifact path or a named set in the selected database; repeat it to combine multiple inputs of the required stage. Wrong-stage or malformed artifacts fail validation before browser startup. `--output` writes the returned result as JSON. Changing an output filename does not change the saved work's identity.
 
 Successful commands return exit status `0`. A result with errors returns `1` while still printing and exporting its partial records. Invalid input or an I/O failure returns `2`. Inspect `errors` even when a partial result contains useful records.
 
-Use `--refresh` on discovery, verification, search, or combined runs when you intend to restart that stage's scan. Discovery refresh resets its source cursor. Verification otherwise uses a seven-day freshness window. `--source` may be repeated for discovery to restrict the configured sources.
+Use `--refresh` on discovery, verification, search, or combined runs when you intend to restart that stage's scan. Discovery and verification also accept `--no-refresh` to override a configured refresh default. Discovery refresh resets its source cursor; verification otherwise uses its configured freshness window. `--source` may be repeated for discovery to restrict the configured sources. Discovery and verification accept `--render-public` and `--no-render-public`; these options are separate from LinkedIn browser and application settings.
 
 The existing bot provides the same LinkedIn modes:
 
@@ -86,13 +86,55 @@ python runAiBot.py --mode search-and-apply --input hiring-roles --set hiring-app
 
 Both frontends use `runAiBot.run_pipeline(request)` and the same database, stage contracts, checkpoints, and history. The standalone `run linkedin` command maps to the same `search-and-apply` request mode as `runAiBot.py --mode search-and-apply`. Running `python runAiBot.py` without arguments retains the existing configured bot workflow, including application behavior.
 
+## Configure discovery and verification
+
+Edit [`config/job_pipeline.py`](../config/job_pipeline.py) to change stage budgets and behavior without adding command-line flags. These controls do not change application preferences, LinkedIn limits, resume settings, or submission pauses; those retain their existing configuration files.
+
+| Discovery setting | Default | Behavior |
+| --- | --- | --- |
+| `discovery_limit_per_source` | `50` | Maximum company records requested from each source in one run. Positive integer. |
+| `discovery_target_companies` | `250` | Stop further discovery once the cumulative output set reaches this target. Set `None` to disable the target. Existing and imported companies are retained. |
+| `discovery_source_limits` | `{}` | Optional per-source budgets, for example `{"a16z": 100, "hn": 25}`. Values must be positive integers. |
+| `discovery_refresh` | `False` | Restart source cursors when `True`; otherwise continue saved progress. |
+| `discovery_render_enabled` | `False` | Enable bounded rendering of ordinary public JavaScript pages when needed. |
+
+| Verification setting | Default | Behavior |
+| --- | --- | --- |
+| `verification_limit_companies` | `25` | Maximum companies checked in one run. Positive integer. |
+| `verification_refresh` | `False` | Recheck companies even when their verification cache is fresh. |
+| `verification_render_enabled` | `False` | Enable bounded public-page rendering when HTTP results require it. |
+| `verification_prioritize_established` | `True` | Check companies with established-company evidence before early-stage and unknown companies. Ordering is stable within each group. |
+| `verification_freshness_days` | `7` | Freshness window for cached verification and verified roles used by LinkedIn. Positive integer. |
+
+| Shared setting | Default | Behavior |
+| --- | --- | --- |
+| `established_min_employees` | `50` | Explicit employee-count threshold for established-company evidence. Positive integer; count ranges use their lower bound. |
+| `established_funding_stages` | Series B through Z, IPO, Public | Funding stages that establish company maturity without a known employee count. List of nonempty names. |
+| `public_render_max_pages` | `5` | Maximum public pages rendered in a discovery or verification run. Positive integer. |
+| `public_render_timeout_seconds` | `15` | Timeout for each rendered public page. Finite positive number. |
+
+The existing `db_path`, `default_set`, `sources`, and `source_config` remain supported. `source_config` stores per-source adapter options such as permitted public URLs. `default_limit = 25` remains the LinkedIn default and supplies a stage budget for older configuration files that lack the corresponding new field.
+
+Explicit CLI flags override configuration. Discovery budget precedence is `--limit`, then `discovery_source_limits[source]`, then `discovery_limit_per_source`. Omitting `--limit` preserves source-specific budgets. `--target-companies N` overrides the cumulative target; `--target-companies 0` disables it for that run. Raising or disabling a reached target allows discovery to continue; a refresh does not remove existing companies from the set.
+
+`--refresh`/`--no-refresh` and `--render-public`/`--no-render-public` override their stage defaults. Verification additionally accepts `--prioritize-established`/`--no-prioritize-established`. For example:
+
+```bash
+python -m job_pipeline discover companies --set ai-companies \
+  --limit 100 --target-companies 500 --no-refresh
+python -m job_pipeline verify careers --input ai-companies --set hiring-roles \
+  --limit 40 --no-prioritize-established --no-render-public
+```
+
+Rendering is disabled by default. Enabling it starts the public-page renderer only when a supported adapter needs ordinary page rendering, within the page and timeout budgets. Access challenges and restricted responses remain recorded errors. Help and bare CLI imports do not start a renderer or load Chrome/OpenAI services, even when rendering is enabled in configuration. Invalid stage settings fail validation before discovery or verification work starts.
+
 ## Company discovery and source limitations
 
 Discovery uses the enabled sources in `config/job_pipeline.py`. The public-source adapters cover Greylock, Sequoia, a16z, Y Combinator, Hacker News hiring threads, and HiringCafe where public data is available. Sources carry their observations into company records, including employee-count and funding-stage evidence when available.
 
 Source availability is part of the result: a blocked page, inaccessible endpoint, unsupported import, or missing public data is recorded as an error or restriction rather than treated as a successful crawl. Wellfound and Crunchbase can be selected explicitly for permitted public-page discovery or supplied through authorized imports; neither is enabled in the default six-source list. Profile enrichment can fail even when a public company listing succeeds. The pipeline does not claim to bypass login or access restrictions. A partial result can still contain useful companies from other sources.
 
-Discovery deduplicates company records and preserves source observations. Its saved source cursor allows later runs to continue adding companies instead of repeating the first page. The default cap is 25 companies per source per run.
+Discovery deduplicates company records and preserves source observations. Its saved source cursor allows later runs to continue adding companies instead of repeating the first page. The default budget is 50 companies per source per run, with a cumulative target of 250 companies; configure source overrides or disable the target when needed.
 
 To import a permitted company export without crawling discovery sources, use:
 
@@ -103,7 +145,7 @@ python -m job_pipeline discover companies \
 
 ## Verification against official careers pages
 
-Verification reads each company's official careers URL and follows the supported Ashby, Greenhouse, Lever, or generic structured HTML/JSON careers adapter. Python callers can supply a public-page renderer through the service's `render` argument for pages that need ordinary JavaScript rendering. The CLI uses public HTTP requests by default and reports pages that need rendering; discovery and verification do not automatically start Chrome. A LinkedIn search result alone does not establish that the company has an open official role.
+Verification reads each company's official careers URL and follows the supported Ashby, Greenhouse, Lever, or generic structured HTML/JSON careers adapter. Python callers can supply a public-page renderer through the service's `render` argument. The CLI uses public HTTP requests by default and reports pages that need rendering; configure `verification_render_enabled = True` or pass `--render-public` to allow the bounded renderer. A LinkedIn search result alone does not establish that the company has an open official role.
 
 Verified roles include the full title and job description, official role URL, company identity, locations, workplace arrangement, employment type, sources, verification timestamp, and eligibility outcome. Eligibility reads the existing canonical `config/search.py` settings: location, work arrangement, employment type, exclusion terms, security-clearance rules, and experience gates remain configured once.
 
@@ -120,7 +162,7 @@ The version 2 search profile includes Staff/Principal infrastructure, platform, 
 | 3 | Early-stage companies and founding roles. |
 | 4 | Companies whose scale or stage is unknown. |
 
-Established-company evidence means a sourced employee count of at least 50 or a sourced Series B or later funding stage. Unknown evidence remains unknown. Related engineering titles can match the configured role families; junior roles or an explicit seniority downgrade are excluded. The profile holds semantic role intent, while location and eligibility filters remain in `config/search.py`.
+With the default maturity settings, established-company evidence means a sourced employee count of at least 50 or a sourced Series B or later funding stage, IPO, or public-company status. The shared settings above control those thresholds. Unknown evidence remains unknown. Related engineering titles can match the configured role families; junior roles or an explicit seniority downgrade are excluded. The profile holds semantic role intent, while location and eligibility filters remain in `config/search.py`.
 
 ## LinkedIn matching and application boundaries
 

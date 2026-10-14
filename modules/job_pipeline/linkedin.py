@@ -38,7 +38,10 @@ def priority_tier(company, title):
     return career_priority(company, title)
 
 
-def fresh_role(role, days=7):
+def fresh_role(role, days=None):
+    if days is None:
+        from .settings import resolve_config
+        days = resolve_config(stage="verification")["verification_freshness_days"]
     try:
         checked = datetime.fromisoformat(role["verified_at"].replace("Z", "+00:00"))
         if checked.tzinfo is None:
