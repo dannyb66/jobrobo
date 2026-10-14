@@ -174,7 +174,7 @@ Use `optimization_mode="skills"` to update Skills only, `"bullets"` to update Sk
 | `config/search.py:switch_number` | Applications processed before moving to the next search. | `1` for a smoke test |
 | `config/settings.py:run_in_background` | Whether Chrome is visible. | `False` while debugging |
 | `config/settings.py:safe_mode` | Opens a clean Guest-style browser profile when normal Chrome startup fails. | `True` for startup troubleshooting |
-| `config/settings.py:chrome_profile_path` | Dedicated Chrome user-data directory used by JobRobo. | Leave the macOS default or set an absolute path |
+| `config/settings.py:chrome_profile_path` | Dedicated Chrome user-data directory used by JobRobo. | Defaults to `~/.jobrobo/chrome-profile`; an empty value uses the same default |
 | `config/questions.py:pause_before_submit` | Pauses before the final submit action. | `True` until answers are verified |
 | `config/questions.py:pause_at_failed_question` | Pauses when an unknown question cannot be answered. | `True` |
 | `config/questions.py:default_resume_path` | PDF uploaded to LinkedIn. | `all resumes/default/resume.pdf` |
@@ -512,7 +512,7 @@ legacy paths. Some LinkedIn page changes can still require manual intervention.
 
 #### General Features 🚀:
 
-- Opens browser with default logged in google account (Yet to test with browsers having multiple profiles)
+- Opens Chrome with a dedicated or configured JobRobo profile; log in there on first use (Yet to test with browsers having multiple profiles)
 - **Auto Login**: If configured or already saved in browser (not saved passwords)
 - Apply filters (Salary, Companies, Experience Level,... ) Must config
 - Region specific searches
@@ -734,7 +734,7 @@ https://discord.gg/fFp7uUzWCY
 - **X/Twitter**: https://x.com/deepakcool3
 
 
-#### ℹ️ Version: [0.1.1.0](VERSION)
+#### ℹ️ Version: [0.1.2.0](VERSION)
 
 ---
 
