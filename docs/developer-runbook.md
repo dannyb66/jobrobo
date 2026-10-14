@@ -25,7 +25,7 @@ Read:
 4. [Architecture](architecture.md) and the [optimizer reference](resume-optimizer-reference.md);
 5. the focused tests in `tests/test_resume_optimizer.py`.
 
-Preserve existing user changes in application CSVs, resume artifacts, logs, screenshots, and local configuration. Use a new working copy for generated documents. Application histories, logs/screenshots, Python caches, Finder metadata, local backup folders, and virtual environments are ignored by Git. Existing histories stay on the local machine; a new checkout creates its own histories as applications are recorded. Personal config and resume changes may still appear in `git status`; keep them out of shared commits.
+Preserve existing user changes in application CSVs, resume artifacts, logs, screenshots, and local configuration. Use a new working copy for generated documents. Application histories, logs/screenshots, Python caches, Finder metadata, local backup folders, and virtual environments are ignored by Git. Back up application histories and logs before updating a checkout that still tracks them; restore the local data afterward. New checkouts create their own histories as applications are recorded. Personal config and resume changes may still appear in `git status`; keep them out of shared commits.
 
 ## Test loop
 

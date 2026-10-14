@@ -512,7 +512,7 @@ legacy paths. Some LinkedIn page changes can still require manual intervention.
 
 #### General Features 🚀:
 
-- Opens browser with default logged in google account (Yet to test with browsers having multiple profiles)
+- Opens Chrome with a dedicated or configured JobRobo profile; log in there on first use (Yet to test with browsers having multiple profiles)
 - **Auto Login**: If configured or already saved in browser (not saved passwords)
 - Apply filters (Salary, Companies, Experience Level,... ) Must config
 - Region specific searches
