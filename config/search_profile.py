@@ -1,7 +1,7 @@
 """Semantic search intent. Locations and filters belong in config/search.py."""
 
 profile_name = "staff-principal-ai-platform"
-profile_version = "1"
+profile_version = "2"
 dynamic_search_enabled = True
 ai_query_refinement_enabled = True
 
@@ -11,6 +11,22 @@ role_lanes = [
     "AI Platform Engineer",
     "Staff Machine Learning Engineer",
     "Staff Backend Engineer",
+    "Staff Infrastructure Engineer",
+    "Principal Platform Engineer",
+    "Staff Systems Engineer",
+    "Principal Inference Engineer",
+    "Staff SDK Engineer",
+    "Member of Technical Staff - Systems",
+    "Member of Technical Staff - Inference Runtime",
+    "Member of Technical Staff - Machines",
+    "Member of Technical Staff - ML Performance",
+    "Member of Technical Staff - Platform Engineering",
+    "Member of Technical Staff - Product Backend",
+    "Member of Technical Staff - SDK",
+    "Member of Technical Staff - Storage",
+    "Systems Engineer",
+    "Inference Engineer",
+    "SDK Engineer",
     "Founding Engineer",
 ]
 skills = [

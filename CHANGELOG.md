@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Discover startup companies from public investment and hiring boards, and verify roles against official careers pages and Ashby, Greenhouse, or Lever listings.
+- Run discovery, career verification, LinkedIn collection, and selected-job applications independently with cumulative SQLite sets and portable JSON exports.
+- Use matching LinkedIn search and application modes from both `python -m job_pipeline` and `runAiBot.py`, with durable provenance, checkpoints, and application history.
+
+### Changed
+
+- Expand engineering searches with Modal systems, inference, platform, SDK, and storage role families; prioritize established Staff and Principal roles before early teams.
+- Keep LinkedIn collection separate from application state, revalidate selected job IDs before applying, and retain the final review pause and verified-resume requirement.
+- Report inaccessible sources and incomplete career checks explicitly while preserving previously observed records.
+
 ## [0.1.0.0] - 2026-10-13
 
 ### Added

@@ -116,12 +116,13 @@ class PlanningTests(unittest.TestCase):
             {"id": "default-quota", "query": "Founding Engineer", "enabled": True},
         ])
         specs = build_search_plan(settings, search_config(search_terms=["Senior Engineer"], switch_number=2))
-        self.assertEqual([spec.source for spec in specs], ["manual", "manual", "legacy", "generated", "generated"])
+        self.assertEqual([spec.source for spec in specs], ["manual", "generated", "generated", "legacy", "manual"])
         self.assertEqual([spec.quota for spec in specs], [3, 2, 2, 2, 2])
         self.assertEqual(specs[0].query_id, "manual:manual-lane")
         self.assertEqual(specs[0].classic_query, "Staff Infrastructure")
-        self.assertTrue(specs[2].query_id.startswith("legacy:"))
-        self.assertTrue(specs[3].query_id.startswith("generated:"))
+        self.assertTrue(specs[3].query_id.startswith("legacy:"))
+        self.assertTrue(specs[1].query_id.startswith("generated:"))
+        self.assertEqual(specs[-1].classic_query, "Founding Engineer")
         self.assertTrue(all(spec.mode == "ai" for spec in specs))
         self.assertTrue(all(spec.profile_name == settings["profile_name"] for spec in specs))
         settings["manual_searches"][0]["query"] = "Principal Infrastructure Engineer"
@@ -263,7 +264,7 @@ class RefinementTests(unittest.TestCase):
         warnings = []
         settings = profile(manual_searches=[{"id": "manual", "query": "Founding Engineer"}])
         specs = build_search_plan(settings, search_config(), refine=Mock(side_effect=RuntimeError("API offline")), warn=warnings.append)
-        self.assertEqual([spec.source for spec in specs], ["manual", "generated", "generated"])
+        self.assertEqual([spec.source for spec in specs], ["generated", "generated", "manual"])
         self.assertIn("RuntimeError", warnings[0])
 
     def test_missing_key_is_optional_and_warns_without_importing_openai(self):

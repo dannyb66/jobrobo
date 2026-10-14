@@ -58,6 +58,7 @@ disable_extensions = False          # True or False, Note: True or False are cas
 
 # Run in safe mode. Set this true if chrome is taking too long to open or if you have multiple profiles in browser. This will open chrome in guest profile!
 safe_mode = False                   # True or False, Note: True or False are case-sensitive
+chrome_profile_path = ""            # Optional dedicated Chrome profile directory; supports ~. Empty uses the existing default-profile lookup.
 
 # Do you want scrolling to be smooth or instantaneous? (Can reduce performance if True)
 smooth_scroll = False               # True or False, Note: True or False are case-sensitive

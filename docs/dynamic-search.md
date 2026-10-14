@@ -7,10 +7,10 @@ Dynamic searches turn your role intent and existing search preferences into natu
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `profile_name` | `"staff-principal-ai-platform"` | Identifies the profile in manifests and CSV history. |
-| `profile_version` | `"1"` | Identifies the profile revision. Use a nonempty string. |
+| `profile_version` | `"2"` | Identifies the profile revision. Use a nonempty string. |
 | `dynamic_search_enabled` | `True` | Generates queries from `role_lanes`. Manual and legacy searches still run when disabled. |
 | `ai_query_refinement_enabled` | `True` | Attempts OpenAI role-query refinement for generated searches. |
-| `role_lanes` | Six configured engineer roles | Nonempty strings describing roles. At least one is required when dynamic search is enabled. |
+| `role_lanes` | 22 configured engineering lanes | Nonempty strings describing roles. At least one is required when dynamic search is enabled. |
 | `skills` | AI, platform, and infrastructure skills | Nonempty strings added to each natural-language query. |
 | `manual_searches` | One enabled Staff AI Platform Engineer search | Explicit queries with stable IDs and optional quota overrides. |
 | `resume_search_enabled` | `True` | Automatically resumes the latest matching unfinished run. |
@@ -18,7 +18,7 @@ Dynamic searches turn your role intent and existing search preferences into natu
 
 Boolean settings must be `True` or `False`. `role_lanes` and `skills` must be lists; their entries are limited to 200 characters. Profile name, version, and state directory must be nonempty strings. An invalid profile stops the run rather than silently changing its meaning.
 
-The supplied role lanes cover Staff Software Engineer, Principal Software Engineer, AI Platform Engineer, Staff Machine Learning Engineer, Staff Backend Engineer, and Founding Engineer. Edit those lanes and the skill list to match your goals.
+The supplied role lanes cover Staff/Principal software, AI, machine learning, backend, infrastructure, platform, systems, inference, and SDK work; Member of Technical Staff variants for systems, inference runtime, machines, ML performance, platform, backend, SDK, and storage; related generic engineering titles; and Founding Engineer. See `config/search_profile.py` for the complete list. Edit those lanes and the skill list to match your goals.
 
 ## How to add or disable a manual search
 

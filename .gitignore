@@ -6,3 +6,5 @@ logs/search_runs/
 *.csv.bak
 *.csv.lock
 **/__pycache__/
+
+data/job_pipeline/

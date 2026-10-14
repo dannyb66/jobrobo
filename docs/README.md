@@ -9,6 +9,7 @@ This folder is the detailed technical and operating documentation for JobRobo. T
 | [Getting started](getting-started.md) | Tutorial | You are setting up the repository or running the first safe test. |
 | [Architecture](architecture.md) | Explanation | You need to understand the browser bot, optimizer, files, and control flow. |
 | [Dynamic search profiles](dynamic-search.md) | How-to + reference | You need profile queries, resumable runs, quotas, or application-history metadata. |
+| [Job discovery pipeline](job-pipeline.md) | How-to + reference | You want reusable company sets, official-careers verification, LinkedIn collection, or selected-job application. |
 | [Resume optimizer reference](resume-optimizer-reference.md) | Reference | You need exact modes, config fields, bank behavior, or report fields. |
 | [How to ATS-optimize a resume](how-to-ats-optimize.md) | How-to | You want to tailor a two-page resume to a job description. |
 | [Staff/principal positioning](staff-principal-positioning.md) | Explanation + how-to | You are positioning the resume for staff, principal, or senior AI engineering roles. |

@@ -1,38 +1,12 @@
-'''
-'''
+"""LinkedIn bot and shared pipeline entry point. Importing does not start a browser."""
+from __future__ import annotations
 
-# Imports
 import os
 import re
-import pyautogui
-
 from random import choice, shuffle, randint
 from datetime import datetime
-
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support.select import Select
-from selenium.webdriver.remote.webelement import WebElement
-from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, NoSuchWindowException, ElementNotInteractableException
-
-from config.personals import *
-from config.questions import *
-from config.search import *
-from config.secrets import use_AI, use_AI_for_resume, username, password
-from config.settings import *
-
-from modules.open_chrome import *
-from modules.helpers import *
-from modules.clickers_and_finders import *
-from modules.validator import validate_config
-from modules.ai.openaiConnections import *
-
 from typing import Literal
-from dotenv import load_dotenv
-from modules.ai.resume_optimizer import run_resume_optimization
-from modules.resume_upload import ResumeUploadError, upload_verified_resume
-from modules.ai.openai_key_loader import load_openai_key
+
 from config import search_profile
 from modules.search_planner import build_search_plan
 from modules.search_state import SearchManifest, plan_fingerprint
@@ -40,61 +14,120 @@ from modules.search_history import append_history, load_applied_job_ids, search_
 from modules.linkedin_search import start_search, apply_configured_filters, AI_INPUT_XPATH
 from modules.ai.search_refinement import make_refiner
 
-
-pyautogui.FAILSAFE = False
-# if use_resume_generator:    from resume_generator import is_logged_in_GPT, login_GPT, open_resume_chat, create_custom_resume
-
-
-#< Global Variables and logics
-# Update environment variables
-# load_dotenv()  # take environment variables from .env.
-load_openai_key()  # Load OpenAI key from environment or config
-llm_api_key = os.getenv("OPENAI_API_KEY")
-
-if run_in_background == True:
-    pause_at_failed_question = False
-    pause_before_submit = False
-    run_non_stop = False
-
-first_name = first_name.strip()
-middle_name = middle_name.strip()
-last_name = last_name.strip()
-full_name = first_name + " " + middle_name + " " + last_name if middle_name else first_name + " " + last_name
-
-useNewResume = True
-randomly_answered_questions = set()
-
-tabs_count = 1
-easy_applied_count = 0
-external_jobs_count = 0
-failed_count = 0
-skip_count = 0
-dailyEasyApplyLimitReached = False
-
-re_experience = re.compile(r'[(]?\s*(\d+)\s*[)]?\s*[-to]*\s*\d*[+]*\s*year[s]?', re.IGNORECASE)
-
-desired_salary_lakhs = str(round(desired_salary / 100000, 2))
-desired_salary_monthly = str(round(desired_salary/12, 2))
-desired_salary = str(desired_salary)
-
-current_ctc_lakhs = str(round(current_ctc / 100000, 2))
-current_ctc_monthly = str(round(current_ctc/12, 2))
-current_ctc = str(current_ctc)
-
-notice_period_months = str(notice_period//30)
-notice_period_weeks = str(notice_period//7)
-notice_period = str(notice_period)
-
-aiClient = None
-active_manifest = None
-active_search = None
+_runtime_loaded = False
+_apply_credentials_loaded = False
+driver = wait = actions = None
+_browser_background = None
+active_manifest = active_search = None
 active_page = 1
-##> ------ Dheeraj Deshwal : dheeraj9811 Email:dheeraj20194@iiitd.ac.in/dheerajdeshwal9811@gmail.com - Feature ------
-about_company_for_ai = None # TODO extract about company for AI
-##<
+active_result_sink = None
+current_pipeline_blocked_ids = set()
+aiClient = None
 
-#>
 
+def initialize_browser(*, background=None):
+    global driver, wait, actions, _browser_background
+    if driver is not None:
+        try:
+            reusable = bool(driver.window_handles) and not (background is False and _browser_background is True)
+        except Exception:
+            reusable = False
+        if not reusable:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+            driver = wait = actions = None
+    if driver is None:
+        from modules.open_chrome import create_browser
+        driver, wait, actions = create_browser(background=background)
+        _browser_background = globals().get("run_in_background", False) if background is None else background
+    return driver
+
+
+def _export_runtime_module(name):
+    import importlib
+    module = importlib.import_module(name)
+    globals().update({key: value for key, value in vars(module).items() if not key.startswith("_")})
+
+
+def load_runtime(execution_mode="apply"):
+    global _runtime_loaded, _apply_credentials_loaded
+    global AI_INPUT_XPATH, By, EC, ElementClickInterceptedException, ElementNotInteractableException, Literal, NoSuchElementException, NoSuchWindowException, ResumeUploadError, SearchManifest, Select, WebDriverWait, WebElement, about_company_for_ai, active_manifest, active_page, active_search, aiClient, append_history, apply_configured_filters, build_search_plan, choice, current_ctc, current_ctc_lakhs, current_ctc_monthly, dailyEasyApplyLimitReached, datetime, desired_salary, desired_salary_lakhs, desired_salary_monthly, easy_applied_count, external_jobs_count, failed_count, file_lock, first_name, full_name, last_name, llm_api_key, load_applied_job_ids, load_dotenv, load_openai_key, make_refiner, middle_name, notice_period, notice_period_months, notice_period_weeks, os, password, pause_at_failed_question, pause_before_submit, plan_fingerprint, pyautogui, randint, randomly_answered_questions, re, re_experience, run_non_stop, run_resume_optimization, search_metadata, search_profile, shuffle, skip_count, start_search, tabs_count, upload_verified_resume, useNewResume, use_AI, use_AI_for_resume, username, validate_config
+    if _runtime_loaded:
+        if execution_mode != "search" and not _apply_credentials_loaded:
+            load_openai_key()
+            globals()["llm_api_key"] = os.getenv("OPENAI_API_KEY") or globals().get("llm_api_key")
+            _apply_credentials_loaded = True
+        return
+    import os
+    import re
+    import pyautogui
+    from random import choice, shuffle, randint
+    from datetime import datetime
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support.select import Select
+    from selenium.webdriver.remote.webelement import WebElement
+    from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, NoSuchWindowException, ElementNotInteractableException
+    _export_runtime_module("config.personals")
+    _export_runtime_module("config.questions")
+    _export_runtime_module("config.search")
+    from config.secrets import use_AI, use_AI_for_resume, username, password
+    _export_runtime_module("config.settings")
+    _export_runtime_module("modules.helpers")
+    _export_runtime_module("modules.clickers_and_finders")
+    from modules.validator import validate_config
+    _export_runtime_module("modules.ai.openaiConnections")
+    from typing import Literal
+    from dotenv import load_dotenv
+    from modules.ai.resume_optimizer import run_resume_optimization
+    from modules.resume_upload import ResumeUploadError, upload_verified_resume
+    from modules.ai.openai_key_loader import load_openai_key
+    from config import search_profile
+    from modules.search_planner import build_search_plan
+    from modules.search_state import SearchManifest, plan_fingerprint
+    from modules.search_history import append_history, load_applied_job_ids, search_metadata, file_lock
+    from modules.linkedin_search import start_search, apply_configured_filters, AI_INPUT_XPATH
+    from modules.ai.search_refinement import make_refiner
+    pyautogui.FAILSAFE = False
+    if execution_mode != "search":
+        load_openai_key()
+        _apply_credentials_loaded = True
+    llm_api_key = os.getenv("OPENAI_API_KEY") or globals().get("llm_api_key")
+    if run_in_background == True:
+        pause_at_failed_question = False
+        pause_before_submit = False
+        run_non_stop = False
+    first_name = first_name.strip()
+    middle_name = middle_name.strip()
+    last_name = last_name.strip()
+    full_name = first_name + " " + middle_name + " " + last_name if middle_name else first_name + " " + last_name
+    useNewResume = True
+    randomly_answered_questions = set()
+    tabs_count = 1
+    easy_applied_count = 0
+    external_jobs_count = 0
+    failed_count = 0
+    skip_count = 0
+    dailyEasyApplyLimitReached = False
+    re_experience = re.compile(r'[(]?\s*(\d+)\s*[)]?\s*[-to]*\s*\d*[+]*\s*year[s]?', re.IGNORECASE)
+    desired_salary_lakhs = str(round(desired_salary / 100000, 2))
+    desired_salary_monthly = str(round(desired_salary/12, 2))
+    desired_salary = str(desired_salary)
+    current_ctc_lakhs = str(round(current_ctc / 100000, 2))
+    current_ctc_monthly = str(round(current_ctc/12, 2))
+    current_ctc = str(current_ctc)
+    notice_period_months = str(notice_period//30)
+    notice_period_weeks = str(notice_period//7)
+    notice_period = str(notice_period)
+    aiClient = None
+    active_manifest = None
+    active_search = None
+    active_page = 1
+    about_company_for_ai = None
+    _runtime_loaded = True
 
 #< Login Functions
 def is_logged_in_LN() -> bool:
@@ -158,7 +191,8 @@ def get_applied_job_ids() -> set:
     Function to get a `set` of applied job's Job IDs
     * Returns a set of Job IDs from existing applied jobs history csv file
     '''
-    return load_applied_job_ids(file_name) | SearchManifest.applied_ids(search_profile.search_state_dir)
+    return (load_applied_job_ids(file_name) | SearchManifest.applied_ids(search_profile.search_state_dir)
+            | globals().get("current_pipeline_blocked_ids", set()))
 
 
 
@@ -260,6 +294,8 @@ def wait_for_search_results(previous):
 def checkpoint_job(job_id, status, reason=None):
     if active_manifest and active_search:
         active_manifest.record_job(active_search, job_id, status, reason, active_page)
+        if globals().get("active_result_sink"):
+            active_result_sink(application_outcome(active_manifest, active_search, job_id))
 
 
 
@@ -280,7 +316,7 @@ def get_page_info() -> tuple[WebElement | None, int | None]:
 
 
 
-def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_jobs: set) -> tuple[str, str, str, str, str, bool]:
+def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_jobs: set, *, read_only=False) -> tuple[str, str, str, str, str, bool]:
     '''
     # Function to get job main details.
     Returns a tuple of (job_id, title, company, work_location, work_style, skip)
@@ -295,15 +331,14 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
     scroll_to_view(driver, job_details_button, True)
     job_id = job.get_dom_attribute('data-occludable-job-id')
     title = job_details_button.text
-    title = title[:title.find("\n")]
+    title = title.splitlines()[0]
     # company = job.find_element(By.CLASS_NAME, "job-card-container__primary-description").text
     # work_location = job.find_element(By.CLASS_NAME, "job-card-container__metadata-item").text
     other_details = job.find_element(By.CLASS_NAME, 'artdeco-entity-lockup__subtitle').text
-    index = other_details.find(' · ')
-    company = other_details[:index]
-    work_location = other_details[index+3:]
-    work_style = work_location[work_location.rfind('(')+1:work_location.rfind(')')]
-    work_location = work_location[:work_location.rfind('(')].strip()
+    company, _, work_location = other_details.partition(' · ')
+    style = re.search(r'\((Remote|Hybrid|On-site)\)', work_location, re.I)
+    work_style = style.group(1) if style else "Unknown"
+    work_location = re.sub(r'\((Remote|Hybrid|On-site)\)', '', work_location, flags=re.I).strip()
     
     # Skip if previously rejected due to blacklist or already applied
     skip = False
@@ -323,7 +358,8 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
     except Exception as e:
         print_lg(f'Failed to click "{title} | {company}" job on details button. Job ID: {job_id}!') 
         # print_lg(e)
-        discard_job()
+        if not read_only:
+            discard_job()
         job_details_button.click() # To pass the error outside
     buffer(click_gap)
     return (job_id,title,company,work_location,work_style,skip)
@@ -731,10 +767,11 @@ def external_apply(pagination_element: WebElement, job_id: str, job_link: str, r
 
 
 
-def follow_company(modal: WebDriver = driver) -> None:
+def follow_company(modal: WebDriver = None) -> None:
     '''
     Function to follow or un-follow easy applied companies based om `follow_companies`
     '''
+    modal = driver if modal is None else modal
     try:
         follow_checkbox_input = try_xp(modal, ".//input[@id='follow-company-checkbox' and @type='checkbox']", False)
         if follow_checkbox_input and follow_checkbox_input.is_selected() != follow_companies:
@@ -807,15 +844,158 @@ def discard_job() -> None:
 
 
 
+def selected_live_details(record, spec):
+    """Re-read the selected LinkedIn posting before opening any application form."""
+    from modules.job_pipeline.linkedin import company_matches
+    from datetime import timezone
+    from urllib.parse import urlparse, parse_qs
+    job_id = str(record["linkedin_id"])
+    url = urlparse(driver.current_url)
+    path_id = re.search(r"/jobs/view/(?:[^/]*-)?([0-9]+)/?", url.path)
+    live_id = path_id.group(1) if path_id else (parse_qs(url.query).get("currentJobId") or [None])[0]
+    if url.hostname not in {"www.linkedin.com", "linkedin.com"} or live_id != job_id:
+        raise ValueError("Selected LinkedIn ID could not be verified after navigation")
+    title_node = WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
+    anchors = driver.find_elements(By.CSS_SELECTOR, ".job-details-jobs-unified-top-card__company-name a, .jobs-unified-top-card__company-name a")
+    if not anchors:
+        raise ValueError("Live employer identity unavailable; selected job was not applied")
+    company = anchors[0].text.strip()
+    company_url = anchors[0].get_attribute("href")
+    if not company_matches(spec.pipeline_context["company"], company, company_url):
+        return job_id, title_node.text, company, "Unknown", "Unknown", True
+    metadata = driver.find_elements(By.CSS_SELECTOR, ".job-details-jobs-unified-top-card__primary-description-container, .jobs-unified-top-card__primary-description")
+    text = " ".join(node.text for node in metadata)
+    styles = driver.find_elements(By.CSS_SELECTOR, ".job-details-jobs-unified-top-card__job-insight, .jobs-unified-top-card__job-insight")
+    style_text = " ".join(node.text for node in styles) + " " + text
+    style = next((value for value in ("Remote", "Hybrid", "On-site") if re.search(r"\b" + value + r"\b", style_text, re.I)), "Unknown")
+    employment = next((value for value in ("Full-time", "Part-time", "Contract", "Temporary", "Internship") if value.casefold() in style_text.casefold()), "Unknown")
+    date_nodes = driver.find_elements(By.CSS_SELECTOR, ".job-details-jobs-unified-top-card__tertiary-description-container, .jobs-unified-top-card__posted-date")
+    date_text = " ".join(node.text for node in date_nodes)
+    posted_match = re.search(r"(?:\d+\s+(?:minute|hour|day|week|month)s? ago|today|just now)", date_text, re.I)
+    posted = calculate_date_posted(posted_match.group()) if posted_match else None
+    record["_live_details"] = {"workplace_type": style, "employment_type": employment,
+                               "locations": [text], "published_at": posted.astimezone(timezone.utc).isoformat() if posted else None}
+    allowed = spec.filters_snapshot["intent"].get("on_site") or []
+    skip = bool(allowed and style not in allowed)
+    return job_id, title_node.text.strip(), company, text or "Unknown", style, skip
+
+
+def application_outcome(manifest, spec, job_id):
+    from copy import deepcopy
+    row = manifest.query(spec.query_id)
+    context = deepcopy(spec.pipeline_context)
+    return dict(
+        id="linkedin:" + str(job_id), job_id=str(job_id), linkedin_id=str(job_id),
+        job_link="https://www.linkedin.com/jobs/view/" + str(job_id),
+        **row["jobs"][str(job_id)], company=context.get("company"),
+        company_id=context.get("company_id"), career_job_ids=context.get("career_job_ids", []),
+        career_roles=context.get("career_roles", []), verification_run_ids=context.get("verification_run_ids", []),
+        query_id=spec.query_id, query_text=spec.query_text, classic_query=spec.classic_query,
+        search_mode=row.get("search_mode") or spec.mode, search_source=spec.source,
+        search_run_id=manifest.data["run_id"], search_spec=spec.to_dict(),
+        fallback_reason=row.get("fallback_reason"), warnings=list(row.get("warnings", [])),
+        profile_name=spec.profile_name, profile_version=spec.profile_version,
+    )
+
+
+def collect_linkedin_jobs(specs, *, limit=25, result_sink=None, checkpoints=None, checkpoint_sink=None, refresh=False):
+    """Read job details and persist matches; never open forms or upload a resume."""
+    from copy import deepcopy
+    from modules.job_pipeline.models import utc_now
+    from modules.job_pipeline.linkedin import company_matches, role_matches
+    records, errors, seen = [], [], set()
+    for spec in specs:
+        if len(records) >= limit:
+            break
+        checkpoint = (checkpoints or {}).get(spec.query_id) or {}
+        fingerprint = plan_fingerprint([spec])
+        if not refresh and checkpoint.get("complete") and checkpoint.get("fingerprint") == fingerprint:
+            continue
+        processed = set(checkpoint.get("processed_ids", [])) if not refresh and checkpoint.get("fingerprint") == fingerprint else set()
+        accepted, page = 0, 1
+        try:
+            result = start_search(driver, spec, wait_for_search, wait_for_search_results)
+            spec.mode = result.mode
+            warnings = list(result.warnings) + apply_filters(spec)
+            while len(records) < limit:
+                listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")
+                if not listings:
+                    empty = driver.find_elements(By.XPATH, '//*[contains(@class, "jobs-search-no-results") or contains(normalize-space(.), "No matching jobs found") and not(*)]')
+                    if not empty:
+                        raise ValueError("LinkedIn result cards unavailable; scan is incomplete")
+                    break
+                pagination, page = get_page_info()
+                for card in listings:
+                    job_id = str(card.get_dom_attribute("data-occludable-job-id") or "")
+                    if not job_id.isdigit() or job_id in seen or job_id in processed:
+                        continue
+                    job_id, title, company, location, style, skip_card = get_job_main_details(card, set(), set(), read_only=True)
+                    if skip_card:
+                        processed.add(job_id)
+                        continue
+                    try:
+                        check_blacklist(set(), job_id, company, set())
+                        description, _, skip, _, _ = get_job_description()
+                        allowed = spec.filters_snapshot["intent"].get("on_site") or []
+                        eligible = (not skip and description != "Unknown" and company_matches(spec.pipeline_context["company"], company)
+                                    and role_matches(title, description, spec) and (not allowed or style in allowed))
+                    except ValueError:
+                        eligible = False
+                    if eligible:
+                        context = deepcopy(spec.pipeline_context)
+                        record = dict(
+                            id="linkedin:" + job_id, job_id=job_id, linkedin_id=job_id,
+                            job_link="https://www.linkedin.com/jobs/view/" + job_id, url="https://www.linkedin.com/jobs/view/" + job_id,
+                            title=title, description=description, location=location, workplace_type=style,
+                            eligible=True, status="open", company=context["company"], company_id=context["company_id"],
+                            career_job_ids=context["career_job_ids"], career_roles=context["career_roles"],
+                            verification_run_ids=context["verification_run_ids"], priority_tier=context["priority_tier"],
+                            query_id=spec.query_id, query_text=spec.query_text, classic_query=spec.classic_query,
+                            search_mode=result.mode, search_source=spec.source, search_spec=spec.to_dict(),
+                            profile_name=spec.profile_name, profile_version=spec.profile_version,
+                            fallback_reason=result.fallback_reason, warnings=warnings,
+                            discovered_at=utc_now(), match_relationship="company_engineering_family",
+                            eligibility_basis="company_identity_role_family_and_description",
+                            unverified_preferences=["employment_type", "posted_date", "live_location"],
+                        )
+                        records.append(record)
+                        if result_sink:
+                            result_sink(record)
+                        seen.add(job_id)
+                        accepted += 1
+                    processed.add(job_id)
+                    if checkpoint_sink:
+                        checkpoint_sink(spec.query_id, {"fingerprint": fingerprint, "processed_ids": sorted(processed), "last_page": page or 1, "complete": False})
+                    if len(records) >= limit:
+                        break
+                if len(records) >= limit or pagination is None:
+                    break
+                next_page = pagination.find_elements(By.XPATH, f"//button[@aria-label='Page {(page or 1) + 1}']")
+                if not next_page:
+                    break
+                previous = listings
+                next_page[0].click()
+                wait_for_search_results(previous)
+            if checkpoint_sink:
+                checkpoint_sink(spec.query_id, {"fingerprint": fingerprint, "processed_ids": sorted(processed), "last_page": page or 1, "complete": len(records) < limit, "stop_reason": "results_exhausted" if len(records) < limit else "scan_limit"})
+        except Exception as error:
+            errors.append({"query_id": spec.query_id, "code": type(error).__name__, "message": str(error), "retryable": True})
+    return records, errors
+
+
 # Function to apply to jobs
-def execute_search_plan(manifest) -> None:
+def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_limit=None) -> None:
     applied_jobs = get_applied_job_ids()
     rejected_jobs = set()
     blacklisted_companies = set()
+    processed_this_run = 0
     global active_search, active_page, current_city, failed_count, skip_count, easy_applied_count, external_jobs_count, tabs_count, pause_before_submit, pause_at_failed_question, useNewResume
     current_city = current_city.strip()
 
     for spec in manifest.queries():
+        if spec.pipeline_context and globals().get("current_pipeline_run_id"):
+            spec.pipeline_context["pipeline_run_id"] = current_pipeline_run_id
+            manifest.query(spec.query_id)["spec"]["pipeline_context"] = spec.pipeline_context
         active_search = spec
         active_page = 1
         active_job_id = None
@@ -830,29 +1010,32 @@ def execute_search_plan(manifest) -> None:
             manifest.finish_query(spec, "quota_met")
             continue
         try:
-            result = start_search(driver, spec, wait_for_search, wait_for_search_results)
+            if selected_jobs is None:
+                result = start_search(driver, spec, wait_for_search, wait_for_search_results)
+            else:
+                from modules.linkedin_search import SearchResult
+                result = SearchResult(spec.mode)
             manifest.record_mode(spec, result.mode, result.fallback_reason, result.warnings)
             print_lg(f'Now searching [{spec.query_id}, {spec.mode}]: {spec.query_text}')
-            warnings = apply_filters(spec)
+            warnings = apply_filters(spec) if selected_jobs is None else []
             manifest.record_mode(spec, result.mode, result.fallback_reason, warnings)
             for warning in warnings:
                 print_lg(warning)
             while not manifest.quota_met(spec) and not manifest.has_uncertain_submission(spec):
-                # Wait until job listings are loaded
-                wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
+                if selected_jobs is None:
+                    wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
+                    pagination_element, current_page = get_page_info()
+                    active_page = current_page or 1
+                    buffer(3)
+                    job_listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")
+                else:
+                    pagination_element, current_page, active_page = None, 1, 1
+                    job_listings = list(selected_jobs.get(spec.query_id, []))
 
-                pagination_element, current_page = get_page_info()
-                active_page = current_page or 1
-
-                # Find all job listings in current page
-                buffer(3)
-                job_listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")  
-
-            
                 for job in job_listings:
                     if keep_screen_awake: pyautogui.press('shiftright')
                     if manifest.quota_met(spec) or manifest.has_uncertain_submission(spec): break
-                    raw_job_id = job.get_dom_attribute('data-occludable-job-id')
+                    raw_job_id = str(job.get('linkedin_id', '')) if isinstance(job, dict) else job.get_dom_attribute('data-occludable-job-id')
                     if not raw_job_id:
                         continue
                     if raw_job_id in manifest.processed_ids():
@@ -860,11 +1043,24 @@ def execute_search_plan(manifest) -> None:
                     if raw_job_id in applied_jobs:
                         checkpoint_job(raw_job_id, "skipped", "Previously applied or awaiting submission verification in durable history")
                         continue
+                    if job_limit is not None and processed_this_run >= job_limit:
+                        manifest.interrupt("work_limit")
+                        return
+                    processed_this_run += 1
                     active_job_id = raw_job_id
                     checkpoint_job(raw_job_id, "in_progress", "Job processing started")
                     print_lg("\n-@-\n")
 
-                    job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
+                    if isinstance(job, dict):
+                        driver.get("https://www.linkedin.com/jobs/view/" + raw_job_id)
+                        job_id,title,company,work_location,work_style,skip = selected_live_details(job, spec)
+                    else:
+                        job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
+                    if spec.pipeline_context:
+                        from modules.job_pipeline.linkedin import company_matches
+                        if not company_matches(spec.pipeline_context["company"], company):
+                            checkpoint_job(job_id, "skipped", "Employer does not match verified company")
+                            continue
                     
                     if skip:
                         failed_job(job_id, "https://www.linkedin.com/jobs/view/" + job_id, "Pending", "Unknown",
@@ -954,7 +1150,20 @@ def execute_search_plan(manifest) -> None:
                         continue
 
                     
-                    if use_AI and description != "Unknown":
+                    if spec.pipeline_context:
+                        from modules.job_pipeline.linkedin import role_matches
+                        if isinstance(job, dict) and job.get("_live_details"):
+                            from modules.job_pipeline.careers import evaluate_role
+                            live_role = dict(job["_live_details"], title=title, description=description,
+                                             company=spec.pipeline_context["company"], status="open")
+                            canonical = dict(spec.filters_snapshot["intent"], **spec.filters_snapshot["gates"])
+                            if not evaluate_role(live_role, canonical)["eligible"]:
+                                checkpoint_job(job_id, "skipped", "Live eligibility changed: " + ", ".join(live_role["exclusion_reasons"]))
+                                continue
+                        if not role_matches(title, description, spec):
+                            checkpoint_job(job_id, "skipped", "Role is outside verified engineering family or seniority")
+                            continue
+                    if use_AI and aiClient and description != "Unknown":
                         skills = ai_extract_skills(aiClient, description)
 
                     uploaded = False
@@ -1059,6 +1268,8 @@ def execute_search_plan(manifest) -> None:
                     else:   external_jobs_count += 1
                     if date_applied != "Pending":
                         applied_jobs.add(job_id)
+                    if result_sink:
+                        result_sink(application_outcome(manifest, spec, job_id))
 
 
 
@@ -1081,6 +1292,9 @@ def execute_search_plan(manifest) -> None:
                 manifest.save()
             else:
                 manifest.finish_query(spec, "quota_met" if manifest.quota_met(spec) else "results_exhausted")
+            if result_sink:
+                for job_id in manifest.query(spec.query_id)["jobs"]:
+                    result_sink(application_outcome(manifest, spec, job_id))
         except Exception as e:
             empty = driver.find_elements(By.XPATH, '//*[contains(@class, "jobs-search-no-results") or contains(normalize-space(.), "No matching jobs found") and not(*)]')
             if empty:
@@ -1095,31 +1309,51 @@ def execute_search_plan(manifest) -> None:
                 critical_error_log("In Applier", e)
 
 
-def apply_to_jobs(legacy_terms: list[str]) -> None:
-    global active_manifest, active_search
+def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs=None, result_sink=None, job_limit=None):
+    from modules.search_planner import role_priority
+    global active_manifest, active_search, active_result_sink
     # globals includes active date/sort cycling; filters still originate only in config/search.py.
     config = dict(globals(), search_terms=list(legacy_terms))
     profile = {key: value for key, value in vars(search_profile).items() if not key.startswith("_")}
-    deterministic = build_search_plan(dict(profile, ai_query_refinement_enabled=False), config, warn=print_lg)
+    if prepared_specs is not None and not prepared_specs:
+        return None
+    deterministic = prepared_specs if prepared_specs is not None else build_search_plan(dict(profile, ai_query_refinement_enabled=False), config, warn=print_lg)
     configuration_id = plan_fingerprint(deterministic, profile)
+    if selected_jobs is not None:
+        import hashlib
+        import json
+        selection = {key: sorted(str(job["linkedin_id"]) for job in jobs) for key, jobs in selected_jobs.items()}
+        configuration_id += ":selected:" + hashlib.sha256(json.dumps(selection, sort_keys=True).encode()).hexdigest()
     with file_lock(os.path.join(profile["search_state_dir"], ".runner.lock")):
         manifest = SearchManifest.find_resume(profile["search_state_dir"], configuration_id) if profile["resume_search_enabled"] else None
         if manifest is None:
-            refiner = make_refiner(os.getenv("OPENAI_API_KEY") or llm_api_key, llm_api_url, llm_model, print_lg) if profile["ai_query_refinement_enabled"] else None
-            specs = build_search_plan(profile, config, refine=refiner, warn=print_lg)
+            refiner = None if prepared_specs is not None else make_refiner(os.getenv("OPENAI_API_KEY") or llm_api_key, llm_api_url, llm_model, print_lg) if profile["ai_query_refinement_enabled"] else None
+            specs = prepared_specs if prepared_specs is not None else build_search_plan(profile, config, refine=refiner, warn=print_lg)
             if randomize_search_order:
-                shuffle(specs)
+                from itertools import groupby
+                ordered = []
+                for _, group in groupby(specs, key=lambda spec: spec.pipeline_context.get("priority_tier", 4) if spec.pipeline_context else role_priority(spec.classic_query)):
+                    group = list(group)
+                    shuffle(group)
+                    ordered.extend(group)
+                specs = ordered
             manifest = SearchManifest.create(profile["search_state_dir"], specs, configuration_id)
         active_manifest = manifest
+        active_result_sink = result_sink
         print_lg(f"Search run: {manifest.data['run_id']} ({manifest.path})")
         try:
-            execute_search_plan(manifest)
+            if selected_jobs is None and result_sink is None and job_limit is None:
+                execute_search_plan(manifest)
+            else:
+                execute_search_plan(manifest, selected_jobs=selected_jobs, result_sink=result_sink, job_limit=job_limit)
             manifest.finish()
+            return manifest
         except BaseException as error:
             manifest.interrupt(type(error).__name__)
             raise
         finally:
             active_manifest = active_search = None
+            active_result_sink = None
 
 
 def run(total_runs: int) -> int:
@@ -1145,6 +1379,8 @@ chatGPT_tab = False
 linkedIn_tab = False
 
 def main() -> None:
+    load_runtime()
+    initialize_browser()
     try:
         global linkedIn_tab, tabs_count, useNewResume, aiClient
         alert_title = "Error Occurred. Closing Browser!"
@@ -1237,6 +1473,184 @@ def run_bot():
     # main already implements configured continuous cycles. A one-shot smoke run stays one-shot.
     main()
 
+
+def run_pipeline(request):
+    """Shared durable backend for job_pipeline and explicit runAiBot modes."""
+    from contextlib import redirect_stdout
+    from copy import deepcopy
+    import sys
+    from config import search as search_config
+    from modules.job_pipeline.models import LinkedInRunRequest, StageResult, write_artifact
+    from modules.job_pipeline.store import PipelineStore
+    from modules.job_pipeline.service import load_inputs
+    from modules.job_pipeline.linkedin import mapping, prepare_specs, selected_specs
+
+    global current_pipeline_run_id, current_pipeline_blocked_ids, linkedIn_tab, tabs_count, aiClient, pause_before_submit
+    if not isinstance(request, LinkedInRunRequest):
+        raise ValueError("run_pipeline expects a LinkedInRunRequest")
+    expected = "linkedin_jobs" if request.mode == "apply" else "verified_roles"
+    output_stage = "linkedin_jobs" if request.mode == "search" else "applications"
+    with PipelineStore(request.db_path) as store:
+        artifacts = load_inputs(store, request.input_sets, expected)
+        inputs = [record for artifact in artifacts for record in artifact.records] if artifacts else store.load_set(expected, request.set_name)
+        inputs = list({record["id"]: record for record in inputs}.values())
+        if not artifacts and not inputs:
+            raise ValueError(f"No {expected} available; supply --input or populate the named set first")
+        parent_ids = list(dict.fromkeys(f"{artifact.stage}:{artifact.set_name}" for artifact in artifacts)) or [expected + ":" + request.set_name]
+        config, profile = mapping(search_config), mapping(search_profile)
+        # Existing newer closure evidence wins over descriptions embedded in old exports.
+        if request.mode == "apply":
+            for job in inputs:
+                job["career_roles"] = [store.resolve_record("verified_roles", role["id"]) or role for role in job.get("career_roles", [])]
+            specs, selection, errors = selected_specs(inputs, profile, config)
+        else:
+            specs, errors = prepare_specs(inputs, profile, config)
+            selection = None
+        for spec in specs:
+            spec.pipeline_context["set_name"] = request.set_name
+        run_id = store.begin_run(output_stage, request.set_name, parent_ids, {"mode": request.mode, "limit": request.limit, "filters": config, "profile": profile})
+        delta, scan_delta = [], []
+        current_pipeline_run_id = run_id
+        current_pipeline_blocked_ids = set()
+        selection_by_id = {str(row.get("linkedin_id")): row for rows in (selection or {}).values() for row in rows}
+
+        def save_match(record):
+            record = dict(record, search_run_id=run_id, pipeline_run_id=run_id, pipeline_set=request.set_name)
+            scan_delta.extend(store.upsert_many("linkedin_jobs", request.set_name, [record], run_id))
+
+        def save_outcome(record):
+            original = selection_by_id.get(record["job_id"], {})
+            record = {**deepcopy(original), **record, "pipeline_run_id": run_id, "pipeline_set": request.set_name,
+                      "discovery_run_id": original.get("search_run_id")}
+            delta.extend(store.upsert_many("applications", request.set_name, [record], run_id))
+
+        def protect_applications(current_specs, current_selection):
+            runnable = False
+            for query_id, jobs in current_selection.items():
+                for job in jobs:
+                    previous = store.application_for_job(str(job["linkedin_id"]))
+                    if previous and previous.get("status") in {"applied", "submitting"}:
+                        current_pipeline_blocked_ids.add(str(job["linkedin_id"]))
+                        delta.extend(store.upsert_many("applications", request.set_name, [previous], run_id))
+                        if previous["status"] == "submitting":
+                            errors.append({"record_id": job["id"], "code": "submission_uncertain", "message": "Verify the earlier submission on LinkedIn before retrying"})
+                    else:
+                        runnable = True
+            # Keep the selected plan stable across resume; the runner skips protected IDs.
+            return (current_specs if runnable else []), current_selection
+
+        if request.mode == "apply":
+            selected_ids = set(selection_by_id)
+            for job in inputs:
+                job_id = str(job.get("linkedin_id", ""))
+                if job_id.isdigit() and job_id not in selected_ids:
+                    save_outcome(dict(job, job_id=job_id, eligible=False, status="skipped", reason="Verified parent is closed, stale, excluded, or inconsistent"))
+            specs, selection = protect_applications(specs, selection)
+
+        status, remaining_work = "complete", False
+        try:
+            if specs:
+                # Runtime diagnostics go to stderr; stdout remains one portable JSON result.
+                with redirect_stdout(sys.stderr):
+                    load_runtime(request.mode)
+                    if request.mode != "search":
+                        validate_config()
+                        # Pipeline applications retain a visible final review even in background configuration.
+                        pause_before_submit = True
+                    initialize_browser(background=False if request.mode != "search" else None)
+                    tabs_count = len(driver.window_handles)
+                    driver.get("https://www.linkedin.com/login")
+                    if not is_logged_in_LN():
+                        login_LN()
+                    if not is_logged_in_LN():
+                        raise ValueError("LinkedIn authentication is required")
+                    linkedIn_tab = driver.current_window_handle
+                    if request.mode != "apply":
+                        checkpoints = {spec.query_id: store.get_checkpoint("linkedin-search:" + spec.query_id, request.set_name) for spec in specs}
+                        _, scan_errors = collect_linkedin_jobs(
+                            specs, limit=request.limit, result_sink=save_match, checkpoints=checkpoints,
+                            checkpoint_sink=lambda query_id, value: store.save_checkpoint("linkedin-search:" + query_id, request.set_name, value),
+                            refresh=request.refresh,
+                        )
+                        errors.extend(scan_errors)
+                    if request.mode == "search-and-apply":
+                        parent_roles = {role["id"] for spec in specs for role in spec.pipeline_context["career_roles"]}
+                        matches = [record for record in store.load_set("linkedin_jobs", request.set_name) if parent_roles.intersection(record.get("career_job_ids", []))]
+                        specs, selection, preparation_errors = selected_specs(matches, profile, config)
+                        errors.extend(preparation_errors)
+                        selection_by_id.update({str(row["linkedin_id"]): row for rows in selection.values() for row in rows})
+                        for spec in specs:
+                            spec.pipeline_context["set_name"] = request.set_name
+                        specs, selection = protect_applications(specs, selection)
+                    if request.mode != "search" and specs:
+                        if use_AI:
+                            aiClient = ai_create_openai_client()
+                        manifest = apply_to_jobs([], prepared_specs=specs, selected_jobs=selection, result_sink=save_outcome, job_limit=request.limit)
+                        if manifest and manifest.data["status"] != "complete":
+                            remaining_work = True
+                            if manifest.data.get("stop_reason") != "work_limit":
+                                errors.append({"code": "application_interrupted", "message": manifest.data.get("stop_reason") or "An incomplete query requires resume or submission verification", "search_run_id": manifest.data["run_id"]})
+            status = "partial" if errors or remaining_work else "complete"
+        except KeyboardInterrupt:
+            errors.append({"code": "KeyboardInterrupt", "message": "Run interrupted; durable checkpoints were retained", "retryable": True})
+            status = "interrupted"
+        except Exception as error:
+            errors.append({"code": type(error).__name__, "message": str(error), "retryable": True})
+            status = "partial" if delta or scan_delta else "failed"
+        finally:
+            store.finish_run(run_id, status, errors)
+            current_pipeline_run_id = None
+            current_pipeline_blocked_ids = set()
+            if aiClient:
+                ai_close_openai_client(aiClient)
+                aiClient = None
+        cumulative = store.load_set(output_stage, request.set_name)
+        changed_ids = {row["id"] for row in (scan_delta if output_stage == "linkedin_jobs" else delta)}
+        result = StageResult.create(output_stage, request.set_name, run_id, cumulative,
+                                    [row for row in cumulative if row["id"] in changed_ids], errors, parent_ids)
+        if request.output_path:
+            write_artifact(result, request.output_path)
+        return result
+
+
+def cli_main(argv=None):
+    import argparse
+    import json
+    import sys
+    from config import job_pipeline as config
+    from job_pipeline import _positive
+    from modules.job_pipeline.models import LinkedInRunRequest, StageResult, write_artifact
+    from modules.job_pipeline.service import load_inputs
+    from modules.job_pipeline.store import PipelineStore
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv:
+        run_bot()
+        return 0
+    parser = argparse.ArgumentParser(description="Legacy bot or the shared persisted LinkedIn pipeline.")
+    parser.add_argument("--mode", choices=("search", "apply", "search-and-apply"), default="search")
+    parser.add_argument("--input", action="append", default=[], metavar="JSON_OR_SET")
+    parser.add_argument("--set", dest="set_name", default=config.default_set)
+    parser.add_argument("--output", dest="output_path")
+    parser.add_argument("--limit", type=_positive, default=config.default_limit)
+    parser.add_argument("--db", dest="db_path", default=config.db_path)
+    parser.add_argument("--refresh", action="store_true")
+    args = parser.parse_args(argv)
+    if args.mode == "apply" and args.refresh:
+        parser.error("--refresh is available for search modes only; application history is retained")
+    try:
+        expected = "linkedin_jobs" if args.mode == "apply" else "verified_roles"
+        with PipelineStore(args.db_path) as store:
+            artifacts = load_inputs(store, args.input, expected)
+        request = LinkedInRunRequest(args.mode, [item.to_dict() for item in artifacts], args.set_name,
+                                     args.output_path, args.limit, args.db_path, args.refresh)
+        result = StageResult.from_dict(run_pipeline(request))
+        if args.output_path:
+            write_artifact(result, args.output_path)
+        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+        return 1 if result.errors else 0
+    except (ValueError, OSError, json.JSONDecodeError) as error:
+        print(f"runAiBot: {error}", file=sys.stderr)
+        return 2
+
 if __name__ == "__main__":
-    # main()
-    run_bot()
+    raise SystemExit(cli_main())
