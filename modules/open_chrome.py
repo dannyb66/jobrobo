@@ -1,8 +1,11 @@
 '''
 '''
 
+import os
+from pathlib import Path
+
 from modules.helpers import make_directories
-from config.settings import run_in_background, stealth_mode, disable_extensions, safe_mode, file_name, failed_file_name, logs_folder_path, generated_resume_path
+from config.settings import run_in_background, stealth_mode, disable_extensions, safe_mode, chrome_profile_path, file_name, failed_file_name, logs_folder_path, generated_resume_path
 from config.questions import default_resume_path
 if stealth_mode:
     import undetected_chromedriver as uc
@@ -26,8 +29,11 @@ try:
     if safe_mode: 
         print_lg("SAFE MODE: Will login with a guest profile, browsing history will not be saved in the browser!")
     else:
-        profile_dir = find_default_profile_directory()
-        if profile_dir: options.add_argument(f"--user-data-dir={profile_dir}")
+        profile_dir = os.path.expanduser(chrome_profile_path.strip()) if chrome_profile_path.strip() else find_default_profile_directory()
+        if profile_dir:
+            Path(profile_dir).mkdir(parents=True, exist_ok=True)
+            print_lg(f"Using Chrome profile: {profile_dir}")
+            options.add_argument(f"--user-data-dir={profile_dir}")
         else: print_lg("Default profile directory not found. Logging in with a guest profile, Web history will not be saved!")
     if stealth_mode:
         # try: 
