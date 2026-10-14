@@ -65,7 +65,7 @@ The planner snapshots these values from `config/search.py`:
 | UI ordering | `sort_by` |
 | Post-discovery gates | `about_company_bad_words`, `about_company_good_words`, `bad_words`, `security_clearance`, `did_masters`, `current_experience` |
 
-Application budgets also live in `config/search.py`: `switch_number = 1` sets the default per-query quota, and `max_applications_per_run = 1` caps confirmed submissions for the whole command. Set the latter to a positive integer or `None` to disable the command-wide cap. A manual search's `quota` overrides only its per-query quota.
+Application budgets also live in `config/search.py`: `switch_number = 10` sets the default per-query quota, and `max_applications_per_run = 1` caps confirmed submissions for the whole command. Set the latter to a positive integer or `None` to disable the command-wide cap. A manual search's `quota` overrides only its per-query quota.
 
 Each role query includes the applicable location, employment type, work arrangement, experience level, company, industry, date, salary, and applicant preferences, plus profile skills. Exclusion and experience hints also appear in the natural-language query. Existing checks on company and job descriptions still apply after discovery, including company exceptions and the configured master's-degree experience allowance. `current_experience = -1` disables the experience ceiling.
 
