@@ -123,6 +123,33 @@ class CareerAdapterTests(unittest.TestCase):
         self.assertFalse(role["eligible"])
         self.assertEqual(result["status"], "hiring")
 
+    def test_greenhouse_explicit_null_internal_job_id_is_audited_as_unverified_prospect(self):
+        url = "https://boards-api.greenhouse.io/v1/boards/example/jobs?content=true"
+        job = {"id": 42, "title": "Software Engineer - General Interest", "location": {"name": "San Francisco, CA"},
+               "absolute_url": "https://job-boards.greenhouse.io/example/jobs/42",
+               "content": "<p>Full-time hybrid engineering role. Build distributed systems.</p>"}
+        for has_internal_id, internal_id in ((False, None), (True, 123), (True, None)):
+            with self.subTest(has_internal_id=has_internal_id, internal_id=internal_id):
+                posting = dict(job)
+                if has_internal_id:
+                    posting["internal_job_id"] = internal_id
+                result = verify_company(company("https://job-boards.greenhouse.io/example"), config(date_posted="Any time"),
+                                        client=Client({url: {"jobs": [posting]}}))
+                role = result["records"][0]
+                is_prospect = has_internal_id and internal_id is None
+                self.assertEqual(role["is_prospect"], is_prospect)
+                self.assertEqual(role["status"], "unknown" if is_prospect else "open")
+                self.assertEqual(role["eligible"], not is_prospect)
+                self.assertEqual(result["status"], "unknown" if is_prospect else "hiring")
+                self.assertEqual(result["complete"], not is_prospect)
+                if is_prospect:
+                    self.assertIn("prospect_post_not_verified_vacancy", role["exclusion_reasons"])
+                    self.assertIn("unverified_vacancies", [issue["code"] for issue in result["errors"]])
+                    # The historical store can retain an earlier open status: prospect proof must survive reevaluation.
+                    role["status"] = "open"
+                    self.assertFalse(evaluate_role(role, config(date_posted="Any time"))["eligible"])
+                    self.assertIn("prospect_post_not_verified_vacancy", role["exclusion_reasons"])
+
     def test_lever_full_description_combines_requirements_and_additional_sections(self):
         url = "https://api.lever.co/v0/postings/example?mode=json&limit=100&skip=0"
         job = {"id": "lever-42", "text": "Software Engineer, Systems", "hostedUrl": "https://jobs.lever.co/example/lever-42",
@@ -244,6 +271,22 @@ class CanonicalGateTests(unittest.TestCase):
         self.assertIn("unknown_workplace_type", role["exclusion_reasons"])
         self.assertIn("unknown_employment_type", role["exclusion_reasons"])
         self.assertIn("missing_full_description", role["exclusion_reasons"])
+
+    def test_unreadable_live_description_placeholders_cannot_clear_known_exclusions(self):
+        for placeholder in ("", "Unknown", " N/A ", "Not available", "notavailable"):
+            with self.subTest(placeholder=placeholder):
+                role = evaluate_role(self.role(descriptionPlain="US Citizens must have security clearance and 8 years of experience."),
+                                     config(current_experience=5))
+                role["description"] = placeholder
+                evaluated = evaluate_role(role, config(current_experience=5))
+                self.assertFalse(evaluated["eligible"])
+                self.assertIn("missing_full_description", evaluated["exclusion_reasons"])
+                self.assertIn("description_exclusion:US Citizen", evaluated["exclusion_reasons"])
+                self.assertIn("security_clearance_required", evaluated["exclusion_reasons"])
+                self.assertIn("experience_excluded", evaluated["exclusion_reasons"])
+                clean = self.role(descriptionPlain=placeholder)
+                self.assertIn("missing_full_description", evaluate_role(clean, config())["exclusion_reasons"])
+                self.assertFalse(clean["eligible"])
 
     def test_explicit_hybrid_arrangement_takes_precedence_over_legacy_remote_boolean(self):
         role = evaluate_role(self.role(location="New York, United States", workplaceType="Hybrid", isRemote=True), config())

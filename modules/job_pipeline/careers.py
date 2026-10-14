@@ -137,11 +137,15 @@ def role_record(company, row, origin, kind="official_careers"):
         status = "unknown"
     if valid_through and valid_through < datetime.now(timezone.utc) or NO_OPENINGS.search(description):
         status = "closed"
+    is_prospect = row.get("is_prospect") is True
+    if is_prospect:
+        status = "unknown"
     return {
         "id": stable_id("role", url), "company_id": company["id"], "company": deepcopy(company),
         "title": plain_text(title), "description": description, "career_url": url,
         "locations": locations, "workplace_type": workplace, "employment_type": employment,
         "eligible": False, "exclusion_reasons": [], "status": status, "verified_at": now(),
+        "is_prospect": is_prospect,
         "priority_tier": priority_tier(company, title),
         "sources": [*deepcopy(company.get("sources", [])), provenance(kind, origin, row.get("id"), "career_verification")],
         "published_at": row.get("publishedAt") or row.get("datePosted"),
@@ -156,8 +160,13 @@ def evaluate_role(role, search_config):
     lowered = description.casefold()
     if role["status"] != "open":
         reasons.append("role_closed" if role["status"] == "closed" else "unverified_open_status")
-    if not description:
+    if role.get("is_prospect") is True:
+        reasons.append("prospect_post_not_verified_vacancy")
+    if lowered.strip() in {"", "unknown", "n/a", "not available", "notavailable"}:
         reasons.append("missing_full_description")
+        # Failed live selectors cannot disprove exclusions established from a full JD.
+        reasons.extend(reason for reason in role.get("exclusion_reasons", [])
+                       if reason.startswith("description_exclusion:") or reason in {"security_clearance_required", "experience_excluded"})
     if not OCCUPATION.search(title) or not (TECH_TITLE.search(title) or re.search(r"\b(?:mts|member(?: of)? technical staff)\b", title, re.I)):
         reasons.append("outside_role_families")
     preferences = setting(search_config, "on_site", []) or []
@@ -297,7 +306,8 @@ def _board(company, board, client, timeout, max_pages):
                 sections.extend(str(section.get("text", "")) + " " + str(section.get("content", "")) for section in job.get("lists", []) if isinstance(section, dict))
                 row["description"] = " ".join(section for section in sections if isinstance(section, str))
                 row["descriptionPlain"] = plain_text(row["description"])
-            row["status"] = "open"
+            row["is_prospect"] = kind == "greenhouse" and "internal_job_id" in job and job["internal_job_id"] is None
+            row["status"] = "unknown" if row["is_prospect"] else "open"
             role = role_record(company, row, page.url, kind)
             if role:
                 rows.append(role)
@@ -309,6 +319,9 @@ def _board(company, board, client, timeout, max_pages):
             complete = False
             errors.append(error(kind, "pagination_limit", "Lever board exceeded bounded page limit", page.url, True))
         url = re.sub(r"skip=\d+", f"skip={(page_number + 1) * 100}", url)
+    if any(role.get("is_prospect") for role in rows):
+        errors.append(error(kind, "unverified_vacancies", "Prospect posts do not verify current vacancies; prior roles cannot be retired from this observation", url))
+        complete = False
     return rows, errors, complete and not errors
 
 
