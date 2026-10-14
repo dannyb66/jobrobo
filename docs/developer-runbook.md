@@ -81,7 +81,7 @@ When changing role inference, add examples for at least the platform, agents/app
 
 ## Chrome and ChromeDriver diagnostics
 
-JobRobo defaults to the dedicated `~/.jobrobo/chrome-profile` data directory; an empty `chrome_profile_path` selects that same directory. Set an explicit dedicated path to reuse a JobRobo login, such as `~/Library/Application Support/JobRobo/ChromeProfile` on macOS. Chrome 136 and newer restrict debugger connections to the everyday default data directory, so use a separate automation profile. See [Chrome’s debugging-profile guidance](https://developer.chrome.com/blog/remote-debugging-port).
+JobRobo defaults to the dedicated `~/.jobrobo/chrome-profile` data directory; an empty `chrome_profile_path` selects that same directory. Set an explicit dedicated path to reuse a JobRobo login, such as `~/Library/Application Support/JobRobo/ChromeProfile` on macOS. Chrome 136 and newer block remote debugging of the everyday default data directory, so use a separate automation profile. See [Chrome’s debugging-profile guidance](https://developer.chrome.com/blog/remote-debugging-port).
 
 When `runAiBot.py` reports `session not created: Chrome instance exited`:
 

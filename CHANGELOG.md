@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.2.0] - 2026-10-13
+
+### Fixed
+
+- Run Chrome with a dedicated or explicitly configured profile, including expanded macOS paths, while keeping guest-profile behavior in safe mode.
+
+### Changed
+
+- Keep application histories, logs, screenshots, Python caches, and Finder metadata local instead of tracking them in Git. New checkouts create their own runtime histories.
+
 ## [0.1.1.0] - 2026-10-13
 
 ### Fixed
