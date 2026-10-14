@@ -3,11 +3,12 @@
 
 def create_browser(*, background=None):
     import os
+    import importlib
     from pathlib import Path
-    from config import settings
+    settings = importlib.import_module("config.settings")
     from selenium.webdriver.common.action_chains import ActionChains
     from selenium.webdriver.support.ui import WebDriverWait
-    from modules.helpers import find_default_profile_directory, make_directories
+    from modules.helpers import make_directories
     from config.questions import default_resume_path
 
     make_directories([settings.file_name, settings.failed_file_name, settings.logs_folder_path + "/screenshots",
@@ -26,7 +27,7 @@ def create_browser(*, background=None):
         options.add_argument("--disable-extensions")
     if not settings.safe_mode:
         configured = getattr(settings, "chrome_profile_path", "").strip()
-        profile = os.path.expanduser(configured) if configured else find_default_profile_directory()
+        profile = os.path.expanduser(configured or "~/.jobrobo/chrome-profile")
         if profile:
             Path(profile).mkdir(parents=True, exist_ok=True)
             options.add_argument(f"--user-data-dir={profile}")

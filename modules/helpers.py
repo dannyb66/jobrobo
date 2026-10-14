@@ -35,17 +35,23 @@ def make_directories(paths: list[str]) -> None:
 
 from typing import Optional
 def find_default_profile_directory() -> Optional[str]:
-# def find_default_profile_directory() -> str | None:
     '''
-    Function to search for Chrome Profiles within default locations
+    Search for Chrome's user-data directory on supported desktop platforms.
+
+    Returning the user-data directory allows Selenium to reuse an existing
+    browser profile, including a logged-in LinkedIn session. On macOS this is
+    under the user's Library directory rather than a Windows LOCALAPPDATA
+    path.
     '''
     default_locations = [
+        r"~/Library/Application Support/Google/Chrome",
+        r"~/Library/Application Support/Chromium",
         r"%LOCALAPPDATA%\Google\Chrome\User Data",
         r"%USERPROFILE%\AppData\Local\Google\Chrome\User Data",
         r"%USERPROFILE%\Local Settings\Application Data\Google\Chrome\User Data"
     ]
     for location in default_locations:
-        profile_dir = os.path.expandvars(location)
+        profile_dir = os.path.expanduser(os.path.expandvars(location))
         if os.path.exists(profile_dir):
             return profile_dir
     return None

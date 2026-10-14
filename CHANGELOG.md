@@ -19,6 +19,16 @@
 
 - Cap confirmed submissions across every query and nonstop cycle in one command with `max_applications_per_run = 1` by default, including pipeline application modes; keep capped runs resumable and retain review and verified-resume checks.
 
+## [0.1.2.0] - 2026-10-13
+
+### Fixed
+
+- Run Chrome with a dedicated or explicitly configured profile, including expanded macOS paths, while keeping guest-profile behavior in safe mode.
+
+### Changed
+
+- Keep application histories, logs, screenshots, Python caches, and Finder metadata local instead of tracking them in Git. New checkouts create their own runtime histories.
+
 ## [0.1.1.0] - 2026-10-13
 
 ### Fixed

@@ -176,7 +176,7 @@ Pipeline applications set `pause_before_submit = True` before entering the exist
 
 `max_applications_per_run` in `config/search.py` caps confirmed submissions across all queries in one command, including explicit `apply` and combined modes from either frontend. Its default is `1`; use a positive integer to change it or `None` to disable it. Failed or skipped applications and collected external application links do not consume this budget. `switch_number` remains a per-query application/external-link collection quota. `--limit` remains a candidate-work ceiling and does not override the submission cap. Search-only mode is unaffected. Bare bot runs share one submission budget across any nonstop cycles.
 
-`chrome_profile_path` in `config/settings.py` optionally selects a dedicated Chrome user-data directory; an empty value uses the existing default-profile lookup. Search can use the configured background mode. Pipeline application runs use a visible browser, recreating a cached headless or invalid session when needed.
+`chrome_profile_path` in `config/settings.py` selects a dedicated Chrome user-data directory; the default and an empty value use `~/.jobrobo/chrome-profile`. Safe mode uses a temporary browser profile. Search can use the configured background mode. Pipeline application runs use a visible browser, recreating a cached headless or invalid session when needed.
 
 ## Saved state and resume
 

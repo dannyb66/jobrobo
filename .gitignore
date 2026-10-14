@@ -8,3 +8,14 @@ logs/search_runs/
 **/__pycache__/
 
 data/job_pipeline/
+
+# Generated runtime files and local development artifacts
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+venv/
+/backups/
+/docstest/
+/logs/
+/all excels/*_applications_history.csv
