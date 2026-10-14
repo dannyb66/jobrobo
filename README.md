@@ -174,7 +174,7 @@ Use `optimization_mode="skills"` to update Skills only, `"bullets"` to update Sk
 | `config/search.py:switch_number` | Applications processed before moving to the next search. | `1` for a smoke test |
 | `config/settings.py:run_in_background` | Whether Chrome is visible. | `False` while debugging |
 | `config/settings.py:safe_mode` | Opens a clean Guest-style browser profile when normal Chrome startup fails. | `True` for startup troubleshooting |
-| `config/settings.py:chrome_profile_path` | Optional Chrome user-data directory used by JobRobo. | Empty detects the standard profile; use a dedicated path to keep JobRobo separate |
+| `config/settings.py:chrome_profile_path` | Dedicated Chrome user-data directory used by JobRobo. | Defaults to `~/.jobrobo/chrome-profile`; an empty value uses the same default |
 | `config/questions.py:pause_before_submit` | Pauses before the final submit action. | `True` until answers are verified |
 | `config/questions.py:pause_at_failed_question` | Pauses when an unknown question cannot be answered. | `True` |
 | `config/questions.py:default_resume_path` | PDF uploaded to LinkedIn. | `all resumes/default/resume.pdf` |

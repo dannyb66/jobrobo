@@ -74,11 +74,24 @@ class ChromeProfileTest(unittest.TestCase):
         self.assertIn("--user-data-dir=" + str(expected), arguments)
         helpers.find_default_profile_directory.assert_not_called()
 
-    def test_empty_override_uses_detected_default(self):
-        expected = self.home / "detected profile"
-        arguments, helpers = self.start_browser("", fallback=str(expected))
+    def test_empty_override_uses_dedicated_profile_instead_of_standard_chrome(self):
+        standard = self.home / "Library/Application Support/Google/Chrome"
+        expected = self.home / ".jobrobo/chrome-profile"
+        arguments, helpers = self.start_browser("", fallback=str(standard))
+        self.assertTrue(expected.is_dir())
         self.assertIn("--user-data-dir=" + str(expected), arguments)
-        helpers.find_default_profile_directory.assert_called_once()
+        self.assertNotIn("--user-data-dir=" + str(standard), arguments)
+        helpers.find_default_profile_directory.assert_not_called()
+
+    def test_bundled_default_starts_with_a_dedicated_profile(self):
+        default = runpy.run_path(str(ROOT / "config/settings.py"))["chrome_profile_path"]
+        standard = self.home / "Library/Application Support/Google/Chrome"
+        arguments, helpers = self.start_browser(default, fallback=str(standard))
+        profile_arguments = [arg for arg in arguments if arg.startswith("--user-data-dir=")]
+        self.assertEqual(len(profile_arguments), 1)
+        self.assertNotEqual(profile_arguments[0], "--user-data-dir=" + str(standard))
+        self.assertTrue(Path(profile_arguments[0].split("=", 1)[1]).is_dir())
+        helpers.find_default_profile_directory.assert_not_called()
 
     def test_safe_mode_ignores_override_and_profile_detection(self):
         arguments, helpers = self.start_browser("~/unused profile", safe=True)
