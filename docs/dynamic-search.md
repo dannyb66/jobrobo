@@ -69,6 +69,8 @@ Application budgets also live in `config/search.py`: `switch_number = 10` sets t
 
 Each role query includes the applicable location, employment type, work arrangement, experience level, company, industry, date, salary, and applicant preferences, plus profile skills. Exclusion and experience hints also appear in the natural-language query. Existing checks on company and job descriptions still apply after discovery, including company exceptions and the configured master's-degree experience allowance. `current_experience = -1` disables the experience ceiling.
 
+The runner also checks each job's location and work arrangement before opening an application form, using the query's canonical filter snapshot. With the configured San Francisco Bay Area preference, hybrid and on-site jobs must be in the Bay Area; US-eligible remote jobs remain allowed under the existing location policy. Missing or incompatible location evidence causes the job to be skipped. These checks use the same location policy as careers verification, without a separate location setting in the profile.
+
 `sort_by` is attempted through the UI and recorded in the snapshot. Search wording expresses intent; LinkedIn controls ranking and may return results outside that intent. This feature does not introduce a local job-fit score.
 
 ## Query generation and OpenAI fallback
@@ -114,7 +116,9 @@ The per-query quota remains separate: successful Easy Apply submissions and coll
 
 For each query, the runner looks for a visible natural-language search control on LinkedIn's jobs page or search-results page. It submits the rendered query there when available. If the control is absent or fails, it attempts the classic keyword route using `classic_query`.
 
-The manifest records actual mode (`ai` or `classic`), executed query text, fallback reason, and unavailable or failed filter warnings. The runner attempts each configured filter independently, including sorting, and continues if a control is missing. In natural-language mode, rendered preferences remain in the query even if the corresponding filter is unavailable. A missing filter in classic mode may leave that discovery preference unenforced by the UI; existing post-discovery gates still run.
+The manifest records actual mode (`ai` or `classic`), executed query text, fallback reason, and unavailable or failed filter warnings. The runner attempts each configured filter independently, including sorting. Most missing controls produce warnings and allow the query to continue; classic search requires a verified location selection.
+
+Classic search selects the matching location autocomplete option and verifies the committed geographic URL and location label. Typed text alone does not establish the search location. If the selection cannot be verified, the query fails instead of continuing with LinkedIn's default geography. In natural-language mode, a missing location control produces a warning and the location remains expressed in the query. Every job still passes the location check before application, regardless of search mode or LinkedIn's result ranking.
 
 The classic fallback is an attempted keyword route, not a guarantee that the old LinkedIn UI is available. LinkedIn reports that it is gradually retiring classic search and restoring some filters to the AI experience. See [LinkedIn's AI-powered job search help](https://www.linkedin.com/help/linkedin/answer/a6889044/) for current availability. Mode detection uses visible UI controls; selector behavior must be verified against the account's current interface.
 
@@ -183,8 +187,10 @@ Run the automated tests from the repository root:
 python3 -m unittest discover -s tests -v
 ```
 
-Tests cover planning, refinement validation and fallback, search-mode detection, resumable state, per-query quotas and command-wide submission caps, CSV migration, and application metadata using local fixtures and mocked browser interactions. No live LinkedIn applications were submitted during implementation verification. Live UI availability and account-specific selectors remain to be checked during a supervised run.
+Tests cover planning, refinement validation and fallback, search-mode detection, committed location selection and job-location gates, resumable state, per-query quotas and command-wide submission caps, CSV migration, and application metadata using local fixtures and mocked browser interactions. No live LinkedIn applications were submitted during implementation verification. Live UI availability and account-specific selectors remain to be checked during a supervised run.
 
 If refinement warns that credentials are unavailable, deterministic queries still run. If a filter warning appears, inspect the saved query and current LinkedIn filter controls. If a run resumes an older query list, its manifest matches the current effective plan; disable automatic resume to start a new run. If a job remains `submitting` after interruption, verify it on LinkedIn before any manual retry.
+
+If the location input shows San Francisco Bay Area while the results header still shows United States, the typed value has not established the intended search geography. Inspect the recorded location warning or query failure and the selected LinkedIn location. The job-location gate remains active, so an out-of-area hybrid result must be skipped before an application form opens. Final review, resume verification, and the command-wide submission cap continue to apply.
 
 See the [README configuration instructions](../README.md#-how-to-configure) for the existing login, resume, and application-question settings.

@@ -198,33 +198,28 @@ def get_applied_job_ids() -> set:
 
 
 
-def set_search_location() -> None:
-    '''
-    Function to set search location
-    '''
-    if search_location.strip():
-        try:
-            print_lg(f'Setting search location as: "{search_location.strip()}"')
-            search_location_ele = try_xp(driver, ".//input[@aria-label='City, state, or zip code'and not(@disabled)]", False) #  and not(@aria-hidden='true')]")
-            text_input(actions, search_location_ele, search_location, "Search Location")
-        except ElementNotInteractableException:
-            try_xp(driver, ".//label[@class='jobs-search-box__input-icon jobs-search-box__keywords-label']")
-            actions.send_keys(Keys.TAB, Keys.TAB).perform()
-            actions.key_down(Keys.CONTROL).send_keys("a").key_up(Keys.CONTROL).perform()
-            actions.send_keys(search_location.strip()).perform()
-            sleep(2)
-            actions.send_keys(Keys.ENTER).perform()
-            try_xp(driver, ".//button[@aria-label='Cancel']")
-        except Exception as e:
-            try_xp(driver, ".//button[@aria-label='Cancel']")
-            print_lg("Failed to update search location, continuing with default location!", e)
+def set_search_location(location=None):
+    """Commit the configured geographic suggestion; text alone is insufficient."""
+    from modules.linkedin_search import select_search_location
+    location = globals().get("search_location", "") if location is None else location
+    if location.strip():
+        print_lg(f'Setting search location as: "{location.strip()}"')
+    return select_search_location(driver, location, wait_for_search_results)
 
 
 def apply_filters(spec) -> list[str]:
     """Apply available controls independently and record unsupported preferences."""
+    from modules.linkedin_search import LocationSelectionError, verify_search_location
     warnings = []
-    if spec.mode == "classic":
-        set_search_location()
+    confirmation = None
+    location = spec.filters_snapshot["intent"].get("search_location") or ""
+    if location:
+        try:
+            confirmation = set_search_location(location)
+        except LocationSelectionError as error:
+            if spec.mode == "classic":
+                raise
+            warnings.append(f"Location filter unavailable in AI mode: {error}; checking each job's location before applying")
     try:
         button = driver.find_element(By.XPATH, '//button[normalize-space()="All filters"]')
         button.click()
@@ -271,6 +266,9 @@ def apply_filters(spec) -> list[str]:
         buttons[0].click()
     else:
         try_xp(driver, './/button[@aria-label="Dismiss"]')
+
+    if confirmation is not None:
+        verify_search_location(driver, confirmation)
 
     global pause_after_filters
     if pause_after_filters and "Turn off Pause after search" == pyautogui.confirm("These are your configured search results and filters. You can modify them while this dialog is open.", "Please check your results", ["Turn off Pause after search", "Look's good, Continue"]):
@@ -344,7 +342,19 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
     # company = job.find_element(By.CLASS_NAME, "job-card-container__primary-description").text
     # work_location = job.find_element(By.CLASS_NAME, "job-card-container__metadata-item").text
     other_details = job.find_element(By.CLASS_NAME, 'artdeco-entity-lockup__subtitle').text
-    company, _, work_location = other_details.partition(' · ')
+    company, separator, work_location = other_details.partition(' · ')
+    if not separator:
+        lines = [line.strip() for line in other_details.splitlines() if line.strip()]
+        company = lines[0] if lines else ""
+        work_location = " ".join(lines[1:])
+    if not work_location:
+        for class_name in ("artdeco-entity-lockup__caption", "job-card-container__metadata-item", "job-card-container__metadata-wrapper"):
+            try:
+                work_location = job.find_element(By.CLASS_NAME, class_name).text.strip()
+                if work_location:
+                    break
+            except NoSuchElementException:
+                continue
     style = re.search(r'\((Remote|Hybrid|On-site)\)', work_location, re.I)
     work_style = style.group(1) if style else "Unknown"
     work_location = re.sub(r'\((Remote|Hybrid|On-site)\)', '', work_location, flags=re.I).strip()
@@ -1070,6 +1080,17 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                         job_id,title,company,work_location,work_style,skip = selected_live_details(job, spec)
                     else:
                         job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
+                    from modules.job_pipeline.careers import location_reasons
+                    geography_rejections = location_reasons(
+                        [work_location], work_style, spec.filters_snapshot["intent"].get("search_location", ""),
+                    )
+                    if geography_rejections:
+                        failed_job(job_id, "https://www.linkedin.com/jobs/view/" + job_id, "Pending", "Unknown",
+                                   "Location rejected: " + ", ".join(geography_rejections),
+                                   f"Observed {work_location!r} ({work_style}); configured location: {spec.filters_snapshot['intent'].get('search_location')}",
+                                   "Skipped", "Not Available")
+                        skip_count += 1
+                        continue
                     if spec.pipeline_context:
                         from modules.job_pipeline.linkedin import company_matches
                         if not company_matches(spec.pipeline_context["company"], company):
@@ -1312,7 +1333,12 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                 for job_id in manifest.query(spec.query_id)["jobs"]:
                     result_sink(application_outcome(manifest, spec, job_id))
         except Exception as e:
-            empty = driver.find_elements(By.XPATH, '//*[contains(@class, "jobs-search-no-results") or contains(normalize-space(.), "No matching jobs found") and not(*)]')
+            from modules.linkedin_search import LocationSelectionError
+            if isinstance(e, LocationSelectionError):
+                empty = []
+                manifest.query(spec.query_id)["warnings"].append(f"Configured search location was not confirmed: {e}")
+            else:
+                empty = driver.find_elements(By.XPATH, '//*[contains(@class, "jobs-search-no-results") or contains(normalize-space(.), "No matching jobs found") and not(*)]')
             if empty:
                 manifest.finish_query(spec, "results_exhausted")
             else:

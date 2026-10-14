@@ -18,6 +18,7 @@
 ### Fixed
 
 - Cap confirmed submissions across every query and nonstop cycle in one command with `max_applications_per_run = 1` by default, including pipeline application modes; keep capped runs resumable and retain review and verified-resume checks.
+- Verify LinkedIn's committed classic-search location and check each job against the canonical location policy before opening an application form, preventing out-of-area hybrid jobs from passing a Bay Area search while retaining eligible remote jobs.
 
 ## [0.1.2.0] - 2026-10-13
 

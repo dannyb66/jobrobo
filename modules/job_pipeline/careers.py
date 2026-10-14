@@ -145,6 +145,27 @@ def role_record(company, row, origin, kind="official_careers"):
     }
 
 
+def location_reasons(locations, workplace_type, configured_location):
+    """Shared geographic gate for official roles and LinkedIn application jobs."""
+    desired = str(configured_location or "").casefold()
+    if not desired:
+        return []
+    locations = " ".join(locations).casefold()
+    if "bay area" in desired or "san francisco" in desired:
+        located = any(city in locations for city in BAY_AREA_CITIES)
+        us_remote = workplace_type == "Remote" and bool(re.search(r"\b(?:united states|usa|us|u\.s\.|north america|worldwide|global|california)\b", locations))
+        matched = located or us_remote
+    else:
+        terms = [term.strip() for term in desired.split(",") if term.strip()]
+        matched = bool(locations and terms and terms[0] in locations)
+        if workplace_type == "Remote" and terms:
+            country = terms[-1] if len(terms) > 1 else terms[0]
+            matched = matched or country in locations or bool(re.search(r"\b(?:worldwide|global)\b", locations))
+    if matched:
+        return []
+    return ["unknown_location" if not locations or locations.strip() in {"remote", "hybrid", "unknown", "n/a", "not available"} else "location_excluded"]
+
+
 def evaluate_role(role, search_config):
     """Apply canonical requirements without claiming missing evidence is a match."""
     reasons = []
@@ -167,22 +188,7 @@ def evaluate_role(role, search_config):
     job_types = setting(search_config, "job_type", []) or []
     if job_types and role["employment_type"] not in job_types:
         reasons.append("unknown_employment_type" if role["employment_type"] == "Unknown" else "employment_type_excluded")
-    desired = str(setting(search_config, "search_location", "") or "").casefold()
-    if desired:
-        locations = " ".join(role["locations"]).casefold()
-        if "bay area" in desired or "san francisco" in desired:
-            located = any(city in locations for city in BAY_AREA_CITIES)
-            us_remote = role["workplace_type"] == "Remote" and bool(re.search(r"\b(?:united states|usa|us|u\.s\.|north america|worldwide|global|california)\b", locations))
-            matched = located or us_remote
-        else:
-            # Location matching is conservative outside the explicitly configured Bay Area.
-            terms = [term.strip() for term in desired.split(",") if term.strip()]
-            matched = bool(locations and terms and terms[0] in locations)
-            if role["workplace_type"] == "Remote" and terms:
-                country = terms[-1] if len(terms) > 1 else terms[0]
-                matched = matched or country in locations or bool(re.search(r"\b(?:worldwide|global)\b", locations))
-        if not matched:
-            reasons.append("unknown_location" if not locations or locations.strip() in {"remote", "hybrid"} else "location_excluded")
+    reasons.extend(location_reasons(role["locations"], role["workplace_type"], setting(search_config, "search_location", "")))
     companies = setting(search_config, "companies", []) or []
     names = [role["company"]["name"]]
     aliases = role["company"].get("aliases", [])
