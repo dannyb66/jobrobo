@@ -15,6 +15,10 @@
 - Keep LinkedIn collection separate from application state, revalidate selected job IDs before applying, and retain the final review pause and verified-resume requirement.
 - Report inaccessible sources and incomplete career checks explicitly while preserving previously observed records.
 
+### Fixed
+
+- Cap confirmed submissions across every query and nonstop cycle in one command with `max_applications_per_run = 1` by default, including pipeline application modes; keep capped runs resumable and retain review and verified-resume checks.
+
 ## [0.1.1.0] - 2026-10-13
 
 ### Fixed

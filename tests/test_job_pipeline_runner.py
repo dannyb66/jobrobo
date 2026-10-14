@@ -595,7 +595,13 @@ class BackendApplicationResumeTests(unittest.TestCase):
     def test_repeated_limit_one_advances_selected_ids_using_same_manifest(self):
         self.exercise_apply_resume(limit=1, interrupt_after_first=False)
 
-    def exercise_apply_resume(self, *, limit, interrupt_after_first):
+    def test_submission_cap_stops_apply_then_resumes_remaining_saved_candidate(self):
+        self.exercise_apply_resume(limit=10, interrupt_after_first=False, application_cap=1)
+
+    def test_combined_search_and_apply_honors_submission_cap_then_resumes(self):
+        self.exercise_apply_resume(limit=10, interrupt_after_first=False, application_cap=1, mode="search-and-apply")
+
+    def exercise_apply_resume(self, *, limit, interrupt_after_first, application_cap=None, mode="apply"):
         from types import SimpleNamespace
         import os
         import runAiBot
@@ -637,8 +643,9 @@ class BackendApplicationResumeTests(unittest.TestCase):
             "profile_name": spec.profile_name, "profile_version": spec.profile_version,
             "search_run_id": "original-discovery-run",
         } for job_id in ("123", "456")]
+        inputs = StageResult.create("verified_roles", "roles", "verification-run", [role]) if mode == "search-and-apply" else StageResult.create("linkedin_jobs", "selected", "discovery-run", selected)
         request = LinkedInRunRequest(
-            "apply", [StageResult.create("linkedin_jobs", "selected", "discovery-run", selected).to_dict()],
+            mode, [inputs.to_dict()],
             "applications", limit=limit, db_path=str(runner.runner.directory / "pipeline.sqlite3"),
         )
         interrupted = False
@@ -661,7 +668,13 @@ class BackendApplicationResumeTests(unittest.TestCase):
             "validate_config": Mock(), "apply_to_jobs": namespace["apply_to_jobs"],
             "use_AI": False, "aiClient": None,
         }
-        with patch.object(search, "switch_number", 2), patch.multiple(runAiBot, create=True, **runtime_patches):
+        if mode == "search-and-apply":
+            def collect(specs, *, result_sink, **options):
+                for job in selected:
+                    result_sink(job)
+                return selected, []
+            runtime_patches["collect_linkedin_jobs"] = collect
+        with patch.object(search, "switch_number", 2), patch.object(search, "max_applications_per_run", application_cap), patch.multiple(runAiBot, create=True, **runtime_patches):
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 first = runAiBot.run_pipeline(request)
             state_directory = runner.runner.directory / "state"
@@ -674,7 +687,11 @@ class BackendApplicationResumeTests(unittest.TestCase):
                 self.assertTrue(any(error["code"] == "KeyboardInterrupt" for error in first.errors))
             else:
                 self.assertEqual(first.errors, [])
-                self.assertEqual(original["stop_reason"], "work_limit")
+                self.assertEqual(original["stop_reason"], "application_limit_reached" if application_cap is not None else "work_limit")
+            if application_cap is not None:
+                self.assertEqual(original["invocation_applied_count"], 1)
+                self.assertEqual(original["invocation_application_limit"], application_cap)
+                self.assertEqual({record["job_id"] for record in first.records}, {"123"})
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 resumed = runAiBot.run_pipeline(request)
             self.assertEqual(len(list(state_directory.glob("*.json"))), 1)

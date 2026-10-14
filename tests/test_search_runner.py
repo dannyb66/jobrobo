@@ -128,6 +128,7 @@ class SearchRunnerTests(unittest.TestCase):
             "file_name": str(self.directory / "applied.csv"),
             "failed_file_name": str(self.directory / "failed.csv"),
             "active_manifest": None, "active_search": None, "active_page": 1,
+            "active_application_budget": None,
             "append_history": append_history, "search_metadata": search_metadata,
             "load_applied_job_ids": load_applied_job_ids,
             "SearchManifest": SearchManifest,
@@ -176,10 +177,18 @@ class SearchRunnerTests(unittest.TestCase):
         self.namespace["active_manifest"] = manifest
         return manifest
 
-    def execute(self, manifest):
+    def execute(self, manifest, application_budget=None):
         self.namespace["active_manifest"] = manifest
-        self.namespace["execute_search_plan"](manifest)
-        manifest.finish()
+        previous_budget = self.namespace["active_application_budget"]
+        self.namespace["active_application_budget"] = application_budget
+        try:
+            if application_budget is None:
+                self.namespace["execute_search_plan"](manifest)
+            else:
+                self.namespace["execute_search_plan"](manifest, application_budget=application_budget)
+            manifest.finish()
+        finally:
+            self.namespace["active_application_budget"] = previous_budget
 
     def rows(self, name="applied.csv"):
         with (self.directory / name).open(newline="") as handle:
@@ -477,6 +486,185 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual(moves, [unselected])
         self.assertFalse(any("easy_apply_only" in warning or "under_10_applicants" in warning for warning in warnings))
         namespace["set_search_location"].assert_called_once()
+
+    def test_application_cap_stops_before_next_query_after_first_confirmed_submission(self):
+        from modules.application_budget import ApplicationBudget
+
+        first, second = spec("first"), spec("second")
+        manifest = self.manifest([first, second], {"first": [["1"]], "second": [["2"]]})
+        budget = ApplicationBudget(1)
+        self.execute(manifest, budget)
+        self.assertEqual(self.visited, ["1"])
+        self.assertEqual(self.browser.started, ["first"])
+        self.assertEqual(self.events.count("Submit application"), 1)
+        self.assertEqual(budget.applied_ids, {"1"})
+        self.assertTrue(budget.reached)
+        self.assertEqual(manifest.query("first")["status"], "complete")
+        self.assertEqual(manifest.query("first")["stop_reason"], "quota_met")
+        self.assertEqual(manifest.query("second")["status"], "pending")
+        self.assertEqual(manifest.data["status"], "interrupted")
+        self.assertEqual(manifest.data["stop_reason"], "application_limit_reached")
+
+    def test_application_cap_overrides_high_manual_quota_before_next_job_or_page(self):
+        from modules.application_budget import ApplicationBudget
+
+        search = spec("manual-large-quota", 4)
+        manifest = self.manifest([search], {search.query_id: [["1", "2"], ["3", "4"]]})
+        budget = ApplicationBudget(1)
+        self.execute(manifest, budget)
+        self.assertEqual(self.visited, ["1"])
+        self.assertEqual(self.browser.turns, [])
+        self.assertEqual(manifest.query(search.query_id)["applied_count"], 1)
+        self.assertNotEqual(manifest.query(search.query_id)["status"], "complete")
+        self.assertEqual(manifest.data["stop_reason"], "application_limit_reached")
+
+    def test_reached_shared_budget_does_not_begin_another_query(self):
+        from modules.application_budget import ApplicationBudget
+
+        budget = ApplicationBudget(1)
+        budget.record("previous-cycle-job")
+        search = spec("next-cycle")
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        self.execute(manifest, budget)
+        self.assertEqual(self.browser.started, [])
+        self.assertEqual(self.visited, [])
+        self.assertEqual(manifest.query(search.query_id)["status"], "pending")
+        self.assertIsNone(manifest.data["current_query_id"])
+        self.assertEqual(manifest.data["stop_reason"], "application_limit_reached")
+
+    def test_failed_skipped_and_external_jobs_do_not_consume_confirmed_application_cap(self):
+        from modules.application_budget import ApplicationBudget
+
+        first, second = spec("mixed", 2), spec("unstarted")
+        manifest = self.manifest([first, second], {"mixed": [["1", "2", "3", "4", "5"]], "unstarted": [["6"]]})
+        self.namespace["get_job_description"] = lambda: (
+            ("Excluded", 1, True, "Description gate", "Bad words") if self.visited[-1] == "1"
+            else ("A suitable job", 1, False, "", ""))
+        self.namespace["pyautogui"].confirm = lambda *args: "Discard Application" if self.visited[-1] == "2" else "Submit Application"
+        self.namespace["try_xp"] = lambda *args: self.visited[-1] != "3"
+        self.namespace["external_apply"] = lambda *args: (False, "https://example.test/apply", 1)
+        budget = ApplicationBudget(1)
+        self.execute(manifest, budget)
+        self.assertEqual(self.visited, ["1", "2", "3", "4"])
+        self.assertEqual(budget.applied_ids, {"4"})
+        self.assertEqual(self.events.count("Submit application"), 1)
+        self.assertEqual({key: row["status"] for key, row in manifest.query("mixed")["jobs"].items()},
+                         {"1": "skipped", "2": "failed", "3": "collected", "4": "applied"})
+        self.assertEqual(manifest.query("mixed")["collected_count"], 1)
+        self.assertEqual(manifest.query("mixed")["applied_count"], 1)
+        self.assertEqual(manifest.query("unstarted")["status"], "pending")
+
+    def test_post_submit_ui_failure_still_counts_once_and_stops_command(self):
+        from modules.application_budget import ApplicationBudget
+
+        first, second = spec("first"), spec("second")
+        manifest = self.manifest([first, second], {"first": [["1"]], "second": [["2"]]})
+
+        def click(target, label, *args, **kwargs):
+            if label == "Done":
+                raise RuntimeError("Confirmation UI changed after confirmed submission")
+            return self.click(target, label, *args, **kwargs)
+
+        self.namespace["wait_span_click"] = click
+        budget = ApplicationBudget(1)
+        self.execute(manifest, budget)
+        self.assertEqual(self.visited, ["1"])
+        self.assertEqual(self.events.count("Submit application"), 1)
+        self.assertEqual(budget.applied_ids, {"1"})
+        self.assertEqual(manifest.query("first")["jobs"]["1"]["status"], "applied")
+        self.assertEqual(manifest.query("second")["status"], "pending")
+
+    def test_post_submit_csv_failure_still_counts_once_and_stops_command(self):
+        from modules.application_budget import ApplicationBudget
+
+        first, second = spec("first"), spec("second")
+        manifest = self.manifest([first, second], {"first": [["1"]], "second": [["2"]]})
+        self.namespace["append_history"] = Mock(side_effect=PermissionError("History is temporarily locked"))
+        budget = ApplicationBudget(1)
+        self.execute(manifest, budget)
+        self.assertEqual(self.visited, ["1"])
+        self.assertEqual(self.events.count("Submit application"), 1)
+        self.assertEqual(budget.applied_ids, {"1"})
+        self.assertEqual(manifest.query("first")["jobs"]["1"]["status"], "applied")
+        self.assertEqual(manifest.query("second")["status"], "pending")
+        self.assertFalse((self.directory / "applied.csv").exists())
+
+    def test_transient_applied_checkpoint_save_failure_cannot_bypass_command_cap(self):
+        from modules.application_budget import ApplicationBudget
+
+        first, second = spec("first"), spec("second")
+        manifest = self.manifest([first, second], {"first": [["1"]], "second": [["2"]]})
+        original_save = manifest.save
+        failed_once = []
+
+        def transient_failure():
+            confirmed = manifest.query("first")["jobs"].get("1", {}).get("status") == "applied"
+            if confirmed and not failed_once:
+                failed_once.append(True)
+                raise OSError("Applied checkpoint could not be written once")
+            original_save()
+
+        manifest.save = transient_failure
+        budget = ApplicationBudget(1)
+        self.execute(manifest, budget)
+        self.assertEqual(failed_once, [True])
+        self.assertEqual(self.visited, ["1"])
+        self.assertEqual(self.events.count("Submit application"), 1)
+        self.assertEqual(budget.count, 1)
+        self.assertEqual(budget.applied_ids, {"1"})
+        self.assertEqual(manifest.query("first")["jobs"]["1"]["status"], "applied")
+        self.assertEqual(manifest.query("second")["status"], "pending")
+        self.assertEqual(manifest.data["invocation_applied_count"], 1)
+        self.assertEqual(manifest.data["stop_reason"], "application_limit_reached")
+
+    def test_fresh_invocation_budget_resumes_higher_quota_and_skips_prior_applications(self):
+        from modules.application_budget import ApplicationBudget
+
+        first, second = spec("first", 3), spec("second")
+        searches = [first, second]
+        manifest = self.manifest(searches, {"first": [["1", "2", "3"]], "second": [["1", "4"]]})
+        first_budget = ApplicationBudget(1)
+        self.execute(manifest, first_budget)
+        original_run = manifest.data["run_id"]
+        for expected_id in ("2", "3", "4"):
+            resumed = SearchManifest.find_resume(self.directory / "state", plan_fingerprint(searches))
+            self.assertIsNotNone(resumed)
+            self.assertEqual(resumed.data["run_id"], original_run)
+            budget = ApplicationBudget(1)
+            self.execute(resumed, budget)
+            self.assertEqual(budget.applied_ids, {expected_id})
+            manifest = resumed
+        self.assertEqual(self.visited, ["1", "2", "3", "4"])
+        self.assertEqual(self.events.count("Submit application"), 4)
+        self.assertEqual(load_applied_job_ids(self.directory / "applied.csv"), {"1", "2", "3", "4"})
+        self.assertEqual(manifest.query("first")["applied_count"], 3)
+        self.assertEqual(manifest.query("second")["applied_count"], 1)
+        self.assertEqual(manifest.data["status"], "complete")
+
+    def test_uncertain_submission_blocks_capped_command_without_counting_as_confirmed(self):
+        from modules.application_budget import ApplicationBudget
+
+        uncertain, other = spec("uncertain"), spec("other")
+        manifest = self.manifest([uncertain, other], {"uncertain": [["1", "3"]], "other": [["2"]]})
+
+        def click(target, label, *args, **kwargs):
+            if label == "Submit application" and self.visited[-1] == "1":
+                self.events.append(label)
+                raise RuntimeError("Submit outcome is uncertain")
+            return self.click(target, label, *args, **kwargs)
+
+        self.namespace["wait_span_click"] = click
+        budget = ApplicationBudget(1)
+        self.execute(manifest, budget)
+        self.assertEqual(self.visited, ["1"])
+        self.assertEqual(budget.applied_ids, set())
+        self.assertEqual(manifest.query("uncertain")["jobs"]["1"]["status"], "submitting")
+        self.assertEqual(manifest.query("uncertain")["applied_count"], 0)
+        self.assertEqual(manifest.query("other")["status"], "pending")
+        self.assertEqual(manifest.data["stop_reason"], "submission_uncertain")
+        resumed = SearchManifest.find_resume(self.directory / "state", plan_fingerprint([uncertain, other]))
+        self.execute(resumed, ApplicationBudget(1))
+        self.assertEqual(self.visited, ["1"])
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from modules.search_state import SearchManifest, plan_fingerprint
 from modules.search_history import append_history, load_applied_job_ids, search_metadata, file_lock
 from modules.linkedin_search import start_search, apply_configured_filters, AI_INPUT_XPATH
 from modules.ai.search_refinement import make_refiner
+from modules.application_budget import ApplicationBudget
 
 _runtime_loaded = False
 _apply_credentials_loaded = False
@@ -21,6 +22,7 @@ _browser_background = None
 active_manifest = active_search = None
 active_page = 1
 active_result_sink = None
+active_application_budget = None
 current_pipeline_blocked_ids = set()
 aiClient = None
 
@@ -293,6 +295,13 @@ def wait_for_search_results(previous):
 
 def checkpoint_job(job_id, status, reason=None):
     if active_manifest and active_search:
+        budget = globals().get("active_application_budget")
+        if budget is not None:
+            if status == "applied":
+                # Confirmation already happened remotely. A failed disk write
+                # must never reopen a submission slot in this invocation.
+                budget.record(job_id)
+            active_manifest.data["invocation_applied_count"] = budget.count
         active_manifest.record_job(active_search, job_id, status, reason, active_page)
         if globals().get("active_result_sink"):
             active_result_sink(application_outcome(active_manifest, active_search, job_id))
@@ -984,15 +993,18 @@ def collect_linkedin_jobs(specs, *, limit=25, result_sink=None, checkpoints=None
 
 
 # Function to apply to jobs
-def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_limit=None) -> None:
+def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_limit=None, application_budget=None) -> None:
     applied_jobs = get_applied_job_ids()
     rejected_jobs = set()
     blacklisted_companies = set()
     processed_this_run = 0
-    global active_search, active_page, current_city, failed_count, skip_count, easy_applied_count, external_jobs_count, tabs_count, pause_before_submit, pause_at_failed_question, useNewResume
+    global active_search, active_page, current_city, failed_count, skip_count, easy_applied_count, external_jobs_count, tabs_count, pause_before_submit, pause_at_failed_question, useNewResume, active_application_budget
+    active_application_budget = application_budget
     current_city = current_city.strip()
 
     for spec in manifest.queries():
+        if application_budget is not None and application_budget.stop_if_reached(manifest):
+            return
         if spec.pipeline_context and globals().get("current_pipeline_run_id"):
             spec.pipeline_context["pipeline_run_id"] = current_pipeline_run_id
             manifest.query(spec.query_id)["spec"]["pipeline_context"] = spec.pipeline_context
@@ -1033,6 +1045,8 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                     job_listings = list(selected_jobs.get(spec.query_id, []))
 
                 for job in job_listings:
+                    if application_budget is not None and application_budget.stop_if_reached(manifest, spec):
+                        return
                     if keep_screen_awake: pyautogui.press('shiftright')
                     if manifest.quota_met(spec) or manifest.has_uncertain_submission(spec): break
                     raw_job_id = str(job.get('linkedin_id', '')) if isinstance(job, dict) else job.get_dom_attribute('data-occludable-job-id')
@@ -1273,6 +1287,8 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
 
 
 
+                if application_budget is not None and application_budget.stop_if_reached(manifest, spec):
+                    return
                 if manifest.quota_met(spec) or manifest.has_uncertain_submission(spec):
                     break
                 # Switching to next page
@@ -1309,9 +1325,9 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                 critical_error_log("In Applier", e)
 
 
-def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs=None, result_sink=None, job_limit=None):
+def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs=None, result_sink=None, job_limit=None, application_budget=None):
     from modules.search_planner import role_priority
-    global active_manifest, active_search, active_result_sink
+    global active_manifest, active_search, active_result_sink, active_application_budget
     # globals includes active date/sort cycling; filters still originate only in config/search.py.
     config = dict(globals(), search_terms=list(legacy_terms))
     profile = {key: value for key, value in vars(search_profile).items() if not key.startswith("_")}
@@ -1340,13 +1356,28 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
             manifest = SearchManifest.create(profile["search_state_dir"], specs, configuration_id)
         active_manifest = manifest
         active_result_sink = result_sink
-        print_lg(f"Search run: {manifest.data['run_id']} ({manifest.path})")
+        previous_budget = globals().get("active_application_budget")
+        active_application_budget = application_budget
         try:
-            if selected_jobs is None and result_sink is None and job_limit is None:
+            if application_budget is not None:
+                manifest.data["invocation_application_limit"] = application_budget.limit
+                manifest.data["invocation_applied_count"] = application_budget.count
+                manifest.save()
+            print_lg(f"Search run: {manifest.data['run_id']} ({manifest.path})")
+            if selected_jobs is None and result_sink is None and job_limit is None and application_budget is None:
                 execute_search_plan(manifest)
             else:
-                execute_search_plan(manifest, selected_jobs=selected_jobs, result_sink=result_sink, job_limit=job_limit)
+                options = dict(selected_jobs=selected_jobs, result_sink=result_sink, job_limit=job_limit)
+                if application_budget is not None:
+                    options["application_budget"] = application_budget
+                execute_search_plan(manifest, **options)
+            stop_reason = manifest.data.get("stop_reason")
             manifest.finish()
+            if stop_reason in {"application_limit_reached", "submission_uncertain"}:
+                manifest.data["stop_reason"] = stop_reason
+                manifest.save()
+                if application_budget is not None:
+                    print_lg(f"Stopping: {stop_reason}; confirmed submissions this invocation: {application_budget.count}, cap: {application_budget.limit}")
             return manifest
         except BaseException as error:
             manifest.interrupt(type(error).__name__)
@@ -1354,16 +1385,18 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
         finally:
             active_manifest = active_search = None
             active_result_sink = None
+            active_application_budget = previous_budget
 
 
-def run(total_runs: int) -> int:
-    if dailyEasyApplyLimitReached:
+def run(total_runs: int, *, application_budget=None) -> int:
+    if dailyEasyApplyLimitReached or application_budget is not None and application_budget.stopped:
         return total_runs
     print_lg("\n########################################################################################################################\n")
     print_lg(f"Date and Time: {datetime.now()}")
     print_lg(f"Cycle number: {total_runs}")
     print_lg(f"Currently looking for jobs posted within '{date_posted}' and sorting them by '{sort_by}'")
-    apply_to_jobs(search_terms)
+    options = {} if application_budget is None else {"application_budget": application_budget}
+    apply_to_jobs(search_terms, **options)
     print_lg("########################################################################################################################\n")
     # if not dailyEasyApplyLimitReached:
     #     print_lg("Sleeping for 10 min...")
@@ -1380,6 +1413,7 @@ linkedIn_tab = False
 
 def main() -> None:
     load_runtime()
+    application_budget = ApplicationBudget(globals().get("max_applications_per_run", 1))
     initialize_browser()
     try:
         global linkedIn_tab, tabs_count, useNewResume, aiClient
@@ -1414,8 +1448,8 @@ def main() -> None:
 
         # Start applying to jobs
         driver.switch_to.window(linkedIn_tab)
-        total_runs = run(total_runs)
-        while(run_non_stop):
+        total_runs = run(total_runs, application_budget=application_budget)
+        while run_non_stop and not application_budget.stopped:
             if cycle_date_posted:
                 date_options = ["Any time", "Past month", "Past week", "Past 24 hours"]
                 global date_posted
@@ -1423,9 +1457,9 @@ def main() -> None:
             if alternate_sortby:
                 global sort_by
                 sort_by = "Most recent" if sort_by == "Most relevant" else "Most relevant"
-                total_runs = run(total_runs)
+                total_runs = run(total_runs, application_budget=application_budget)
                 sort_by = "Most recent" if sort_by == "Most relevant" else "Most relevant"
-            total_runs = run(total_runs)
+            total_runs = run(total_runs, application_budget=application_budget)
             if dailyEasyApplyLimitReached:
                 break
         
@@ -1437,6 +1471,7 @@ def main() -> None:
     finally:
         print_lg("\n\nTotal runs:                     {}".format(total_runs))
         print_lg("Jobs Easy Applied:              {}".format(easy_applied_count))
+        print_lg(f"Confirmed this invocation:      {application_budget.count} (cap: {application_budget.limit})")
         print_lg("External job links collected:   {}".format(external_jobs_count))
         print_lg("                              ----------")
         print_lg("Total applied or collected:     {}".format(easy_applied_count + external_jobs_count))
@@ -1498,6 +1533,7 @@ def run_pipeline(request):
             raise ValueError(f"No {expected} available; supply --input or populate the named set first")
         parent_ids = list(dict.fromkeys(f"{artifact.stage}:{artifact.set_name}" for artifact in artifacts)) or [expected + ":" + request.set_name]
         config, profile = mapping(search_config), mapping(search_profile)
+        application_budget = ApplicationBudget(config.get("max_applications_per_run", 1)) if request.mode != "search" else None
         # Existing newer closure evidence wins over descriptions embedded in old exports.
         if request.mode == "apply":
             for job in inputs:
@@ -1508,7 +1544,7 @@ def run_pipeline(request):
             selection = None
         for spec in specs:
             spec.pipeline_context["set_name"] = request.set_name
-        run_id = store.begin_run(output_stage, request.set_name, parent_ids, {"mode": request.mode, "limit": request.limit, "filters": config, "profile": profile})
+        run_id = store.begin_run(output_stage, request.set_name, parent_ids, {"mode": request.mode, "limit": request.limit, "max_applications_per_run": application_budget.limit if application_budget is not None else None, "filters": config, "profile": profile})
         delta, scan_delta = [], []
         current_pipeline_run_id = run_id
         current_pipeline_blocked_ids = set()
@@ -1585,10 +1621,10 @@ def run_pipeline(request):
                     if request.mode != "search" and specs:
                         if use_AI:
                             aiClient = ai_create_openai_client()
-                        manifest = apply_to_jobs([], prepared_specs=specs, selected_jobs=selection, result_sink=save_outcome, job_limit=request.limit)
+                        manifest = apply_to_jobs([], prepared_specs=specs, selected_jobs=selection, result_sink=save_outcome, job_limit=request.limit, application_budget=application_budget)
                         if manifest and manifest.data["status"] != "complete":
                             remaining_work = True
-                            if manifest.data.get("stop_reason") != "work_limit":
+                            if manifest.data.get("stop_reason") not in {"work_limit", "application_limit_reached"}:
                                 errors.append({"code": "application_interrupted", "message": manifest.data.get("stop_reason") or "An incomplete query requires resume or submission verification", "search_run_id": manifest.data["run_id"]})
             status = "partial" if errors or remaining_work else "complete"
         except KeyboardInterrupt:

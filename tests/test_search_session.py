@@ -7,8 +7,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+from modules.application_budget import ApplicationBudget
 from modules.ai.search_refinement import make_refiner
 from modules.search_history import file_lock
 from modules.search_planner import GATE_FIELDS, INTENT_FIELDS, build_search_plan
@@ -60,6 +61,7 @@ class SearchSessionTests(unittest.TestCase):
             "print_lg": self.warnings.append,
             "execute_search_plan": self.complete,
             "active_manifest": None, "active_search": None,
+            "active_application_budget": None,
         })
         self.apply_to_jobs = session_wrapper(self.namespace)
 
@@ -242,6 +244,192 @@ class SearchSessionTests(unittest.TestCase):
         self.assertEqual(self.persisted(), [])
         self.assertEqual(self.manifests, [])
         self.refiner_factory.assert_not_called()
+
+    def test_wrapper_forwards_one_budget_records_metadata_and_restores_previous_budget(self):
+        from test_search_runner import extract_functions
+
+        extract_functions(self.namespace, "checkpoint_job")
+        previous = ApplicationBudget(None)
+        budget = ApplicationBudget(1)
+        self.namespace["active_application_budget"] = previous
+        received = []
+
+        def capped_execution(manifest, **options):
+            received.append(options["application_budget"])
+            search = manifest.queries()[0]
+            manifest.begin_query(search)
+            self.namespace["active_search"], self.namespace["active_page"] = search, 1
+            self.namespace["checkpoint_job"]("123", "applied", "Submission confirmed")
+            budget.stop_if_reached(manifest, search)
+
+        self.namespace["execute_search_plan"] = capped_execution
+        manifest = self.apply_to_jobs([], application_budget=budget)
+        self.assertEqual(received, [budget])
+        self.assertIs(self.namespace["active_application_budget"], previous)
+        self.assertEqual(previous.applied_ids, set())
+        self.assertEqual(budget.applied_ids, {"123"})
+        self.assertEqual(manifest.data["invocation_application_limit"], 1)
+        self.assertEqual(manifest.data["invocation_applied_count"], 1)
+        self.assertEqual(manifest.data["stop_reason"], "application_limit_reached")
+        self.assertEqual(manifest.data["status"], "interrupted")
+
+    def test_wrapper_restores_previous_budget_on_interruption_and_releases_lock(self):
+        previous, budget = ApplicationBudget(None), ApplicationBudget(1)
+        self.namespace["active_application_budget"] = previous
+
+        def interrupted(manifest, **options):
+            self.assertIs(options["application_budget"], budget)
+            self.assertIs(self.namespace["active_application_budget"], budget)
+            raise KeyboardInterrupt()
+
+        self.namespace["execute_search_plan"] = interrupted
+        with self.assertRaises(KeyboardInterrupt):
+            self.apply_to_jobs([], application_budget=budget)
+        self.assertIs(self.namespace["active_application_budget"], previous)
+        self.assertIsNone(self.namespace["active_manifest"])
+        with file_lock(self.state_directory / ".runner.lock"):
+            self.assertEqual(self.persisted()[0]["stop_reason"], "KeyboardInterrupt")
+
+    def test_initial_budget_metadata_save_failure_restores_context_and_releases_lock(self):
+        previous, budget = ApplicationBudget(None), ApplicationBudget(1)
+        self.namespace["active_application_budget"] = previous
+        self.namespace["active_result_sink"] = None
+        execute = Mock()
+        self.namespace["execute_search_plan"] = execute
+        original_save = SearchManifest.save
+        failed_once = []
+
+        def transient_metadata_failure(manifest):
+            if "invocation_application_limit" in manifest.data and not failed_once:
+                failed_once.append(True)
+                raise OSError("Initial invocation budget metadata could not be saved once")
+            original_save(manifest)
+
+        with patch.object(SearchManifest, "save", transient_metadata_failure):
+            with self.assertRaises(OSError):
+                self.apply_to_jobs([], application_budget=budget)
+        self.assertEqual(failed_once, [True])
+        execute.assert_not_called()
+        self.assertIs(self.namespace["active_application_budget"], previous)
+        self.assertIsNone(self.namespace["active_manifest"])
+        self.assertIsNone(self.namespace["active_search"])
+        self.assertIsNone(self.namespace["active_result_sink"])
+        self.assertEqual(budget.applied_ids, set())
+        with file_lock(self.state_directory / ".runner.lock"):
+            self.assertEqual(self.persisted()[0]["stop_reason"], "OSError")
+
+    def test_fresh_budget_and_changed_cap_resume_same_session_without_recounting_history(self):
+        from test_search_runner import extract_functions
+
+        extract_functions(self.namespace, "checkpoint_job")
+
+        def first_invocation(manifest, **options):
+            search = manifest.queries()[0]
+            manifest.begin_query(search)
+            self.namespace["active_search"], self.namespace["active_page"] = search, 1
+            self.namespace["checkpoint_job"]("123", "applied", "First invocation submission")
+            options["application_budget"].stop_if_reached(manifest, search)
+
+        self.namespace["execute_search_plan"] = first_invocation
+        first_budget = ApplicationBudget(1)
+        first = self.apply_to_jobs([], application_budget=first_budget)
+
+        def resumed_invocation(manifest, **options):
+            search = manifest.queries()[0]
+            self.assertEqual(manifest.query(search.query_id)["jobs"]["123"]["status"], "applied")
+            self.assertEqual(options["application_budget"].applied_ids, set())
+            manifest.begin_query(search)
+            self.namespace["active_search"], self.namespace["active_page"] = search, 1
+            self.namespace["checkpoint_job"]("456", "applied", "Second invocation submission")
+            for current in manifest.queries():
+                manifest.finish_query(current, "results_exhausted")
+
+        self.namespace["execute_search_plan"] = resumed_invocation
+        second_budget = ApplicationBudget(2)
+        second = self.apply_to_jobs([], application_budget=second_budget)
+        self.assertEqual(first.data["run_id"], second.data["run_id"])
+        self.assertEqual(first.data["configuration_id"], second.data["configuration_id"])
+        self.assertEqual(first_budget.applied_ids, {"123"})
+        self.assertEqual(second_budget.applied_ids, {"456"})
+        self.assertEqual(second.data["invocation_application_limit"], 2)
+        self.assertEqual(second.data["invocation_applied_count"], 1)
+        self.assertEqual(second.data["status"], "complete")
+        self.assertEqual(len(self.persisted()), 1)
+
+    def _main_namespace(self, apply_callback, limit=1):
+        from datetime import datetime
+        from test_search_runner import extract_functions
+
+        self.namespace.update({
+            "ApplicationBudget": ApplicationBudget, "max_applications_per_run": limit,
+            "dailyEasyApplyLimitReached": False, "run_non_stop": True,
+            "cycle_date_posted": False, "alternate_sortby": True,
+            "search_terms": ["Staff Engineer"], "datetime": datetime,
+            "load_runtime": Mock(), "initialize_browser": Mock(), "validate_config": Mock(),
+            "default_resume_path": str(Path(self.temporary.name) / "resume.pdf"),
+            "driver": SimpleNamespace(window_handles=["tab"], current_window_handle="tab", get=Mock(),
+                                      switch_to=SimpleNamespace(window=Mock())),
+            "is_logged_in_LN": lambda: True, "login_LN": Mock(),
+            "linkedIn_tab": None, "tabs_count": 1, "useNewResume": False,
+            "pyautogui": SimpleNamespace(alert=Mock()), "aiClient": None,
+            "ai_close_openai_client": Mock(), "buffer": Mock(), "print_lg": Mock(),
+            "easy_applied_count": 0, "external_jobs_count": 0, "failed_count": 0, "skip_count": 0,
+            "randomly_answered_questions": set(), "choice": lambda choices: "test quote",
+            "NoSuchWindowException": type("MissingWindow", (Exception,), {}), "critical_error_log": Mock(),
+            "apply_to_jobs": apply_callback,
+        })
+        extract_functions(self.namespace, "run", "main")
+        return self.namespace["main"]
+
+    def test_main_shares_configured_cap_across_sort_and_nonstop_cycles(self):
+        budgets = []
+
+        def apply_cycle(terms, *, application_budget):
+            budgets.append(application_budget)
+            application_budget.record(str(len(budgets)))
+
+        self._main_namespace(apply_cycle, limit=2)()
+        self.assertEqual(len(budgets), 2)
+        self.assertIs(budgets[0], budgets[1])
+        self.assertEqual(budgets[0].limit, 2)
+        self.assertEqual(budgets[0].applied_ids, {"1", "2"})
+        self.namespace["critical_error_log"].assert_not_called()
+
+    def test_main_default_command_cap_is_one_even_with_nonstop_enabled(self):
+        budgets = []
+
+        def apply_cycle(terms, *, application_budget):
+            budgets.append(application_budget)
+            application_budget.record("123")
+
+        main = self._main_namespace(apply_cycle)
+        self.namespace.pop("max_applications_per_run")
+        main()
+        self.assertEqual(len(budgets), 1)
+        self.assertEqual(budgets[0].limit, 1)
+        self.assertEqual(budgets[0].applied_ids, {"123"})
+        self.namespace["critical_error_log"].assert_not_called()
+
+    def test_main_stops_nonstop_cycles_when_capped_submission_is_uncertain(self):
+        from test_search_runner import spec
+
+        budgets = []
+
+        def apply_cycle(terms, *, application_budget):
+            budgets.append(application_budget)
+            search = spec("uncertain")
+            manifest = SearchManifest.create(self.state_directory, [search])
+            manifest.begin_query(search)
+            manifest.record_job(search, "123", "submitting", "Confirmation unavailable")
+            application_budget.stop_if_reached(manifest, search)
+
+        self._main_namespace(apply_cycle, limit=1)()
+        self.assertEqual(len(budgets), 1)
+        self.assertEqual(budgets[0].applied_ids, set())
+        self.assertFalse(budgets[0].reached)
+        self.assertTrue(budgets[0].stopped)
+        self.assertEqual(self.persisted()[0]["stop_reason"], "submission_uncertain")
+        self.namespace["critical_error_log"].assert_not_called()
 
 
 if __name__ == "__main__":

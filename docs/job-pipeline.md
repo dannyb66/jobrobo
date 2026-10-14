@@ -47,7 +47,7 @@ python -m job_pipeline apply linkedin \
   --output data/job_pipeline/reviewed-applications.json
 ```
 
-Application mode revisits the selected job IDs and revalidates company, role, and configured eligibility before entering the existing Easy Apply flow. It retains resume verification and enables a visible final review pause. It does not fill an application quota with unrelated search results. Existing per-search application quotas still apply; `--limit` is an upper bound on selected work, not a promise of that many submissions.
+Application mode revisits the selected job IDs and revalidates company, role, and configured eligibility before entering the existing Easy Apply flow. It retains resume verification and enables a visible final review pause. It does not fill an application quota with unrelated search results. Existing per-search application quotas still apply; `--limit` is an upper bound on selected candidate work, not a promise of that many submissions. The default `max_applications_per_run = 1` in `config/search.py` also limits the whole command to one confirmed submission, so `--limit 5` can still submit at most one application.
 
 For a combined LinkedIn search and application run, provide a verified-role set:
 
@@ -115,7 +115,7 @@ Edit [`config/job_pipeline.py`](../config/job_pipeline.py) to change stage budge
 
 The existing `db_path`, `default_set`, `sources`, and `source_config` remain supported. `source_config` stores per-source adapter options such as permitted public URLs. `default_limit = 25` remains the LinkedIn default and supplies a stage budget for older configuration files that lack the corresponding new field.
 
-Explicit CLI flags override configuration. Discovery budget precedence is `--limit`, then `discovery_source_limits[source]`, then `discovery_limit_per_source`. Omitting `--limit` preserves source-specific budgets. `--target-companies N` overrides the cumulative target; `--target-companies 0` disables it for that run. Raising or disabling a reached target allows discovery to continue; a refresh does not remove existing companies from the set.
+Explicit discovery and verification CLI flags override their stage configuration. Discovery budget precedence is `--limit`, then `discovery_source_limits[source]`, then `discovery_limit_per_source`. Omitting `--limit` preserves source-specific budgets. `--target-companies N` overrides the cumulative target; `--target-companies 0` disables it for that run. Raising or disabling a reached target allows discovery to continue; a refresh does not remove existing companies from the set.
 
 `--refresh`/`--no-refresh` and `--render-public`/`--no-render-public` override their stage defaults. Verification additionally accepts `--prioritize-established`/`--no-prioritize-established`. For example:
 
@@ -174,6 +174,8 @@ An application retains its source company and verified-role identity, selected L
 
 Pipeline applications set `pause_before_submit = True` before entering the existing application flow, retaining a visible final review even when background settings normally disable pauses. Verified-resume requirements and the user-configured `use_AI_for_resume` value are honored. Reviewing exports does not submit applications; the `apply` and combined `run` commands can submit after their application checks and review pause. Bare legacy bot runs retain their existing configuration behavior.
 
+`max_applications_per_run` in `config/search.py` caps confirmed submissions across all queries in one command, including explicit `apply` and combined modes from either frontend. Its default is `1`; use a positive integer to change it or `None` to disable it. Failed or skipped applications and collected external application links do not consume this budget. `switch_number` remains a per-query application/external-link collection quota. `--limit` remains a candidate-work ceiling and does not override the submission cap. Search-only mode is unaffected. Bare bot runs share one submission budget across any nonstop cycles.
+
 `chrome_profile_path` in `config/settings.py` optionally selects a dedicated Chrome user-data directory; an empty value uses the existing default-profile lookup. Search can use the configured background mode. Pipeline application runs use a visible browser, recreating a cached headless or invalid session when needed.
 
 ## Saved state and resume
@@ -183,6 +185,10 @@ The default SQLite database stores stage entities, source observations, named-se
 Each stage result contains the cumulative set and a separate delta of records added or changed in that run. A run that adds no new records still returns the previously saved set. Errors remain visible alongside partial progress.
 
 LinkedIn resume identity uses the effective inputs and configuration, not the frontend command spelling or JSON output filename. Switching from `python -m job_pipeline` to `runAiBot.py --mode ...` can continue the same matching work when both use the same database, stage, set, inputs, and configuration. Search collection state and application manifests remain separate.
+
+Reaching the submission cap stops the application manifest with `application_limit_reached` and leaves unfinished work resumable. A subsequent invocation starts a new command budget and resumes remaining work while retaining per-query counts and skipping protected job IDs.
+
+With a submission cap enabled, an uncertain submission pauses further applications until its LinkedIn outcome is verified; it does not count as a confirmed submission.
 
 Preserve the database and existing search/application manifests to retain resume and duplicate protection. Successful applications and uncertain submissions remain protected across entrypoints; an interrupted submission requires inspection on LinkedIn before a manual retry. A collection-only checkpoint can resume scanning without treating collected jobs as applied.
 

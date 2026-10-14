@@ -114,7 +114,7 @@ class SharedBackendTests(unittest.TestCase):
                 self.assertEqual(selected_outcome["status"], outcome)
 
     def test_successful_outcome_remains_durable_if_interrupted_after_callback(self):
-        def apply(terms, *, prepared_specs, selected_jobs, result_sink, job_limit=None):
+        def apply(terms, *, prepared_specs, selected_jobs, result_sink, job_limit=None, application_budget=None):
             candidate = next(iter(selected_jobs.values()))[0]
             result_sink({**candidate, "status": "applied", "reason": "Submitted before interruption"})
             raise KeyboardInterrupt()
