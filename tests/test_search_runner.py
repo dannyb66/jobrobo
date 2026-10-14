@@ -456,7 +456,8 @@ class SearchRunnerTests(unittest.TestCase):
     def test_classic_boolean_switches_are_selected_without_toggling_existing_selection(self):
         search = spec("filters")
         search.mode = "classic"
-        search.filters_snapshot["intent"] = {"easy_apply_only": True, "under_10_applicants": True}
+        search.filters_snapshot["intent"] = {"easy_apply_only": True, "under_10_applicants": True,
+                                            "search_location": "San Francisco Bay Area"}
         selected = SimpleNamespace(is_selected=lambda: True)
         unselected = SimpleNamespace(is_selected=lambda: False)
         moves = []
@@ -475,7 +476,7 @@ class SearchRunnerTests(unittest.TestCase):
         namespace = {
             "driver": FilterBrowser(), "By": self.namespace["By"],
             "NoSuchElementException": MissingElement,
-            "buffer": lambda *args: None, "set_search_location": Mock(),
+            "buffer": lambda *args: None, "set_search_location": Mock(return_value=None),
             "scroll_to_view": Mock(), "try_xp": Mock(),
             "pause_after_filters": False, "apply_configured_filters": apply_configured_filters,
             "actions": SimpleNamespace(move_to_element=lambda control: (
@@ -485,7 +486,158 @@ class SearchRunnerTests(unittest.TestCase):
         warnings = namespace["apply_filters"](search)
         self.assertEqual(moves, [unselected])
         self.assertFalse(any("easy_apply_only" in warning or "under_10_applicants" in warning for warning in warnings))
-        namespace["set_search_location"].assert_called_once()
+        namespace["set_search_location"].assert_called_once_with("San Francisco Bay Area")
+
+    def test_out_of_area_hybrid_job_skips_before_description_form_upload_or_submit(self):
+        search = spec("bay-area")
+        search.filters_snapshot["intent"]["search_location"] = "San Francisco Bay Area"
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+
+        def outside(job, *args):
+            self.visited.append(job.job_id)
+            return job.job_id, "Staff Platform Engineer", "Example", "New York, NY (Hybrid)", "Hybrid", False
+
+        self.namespace["get_job_main_details"] = outside
+        description, form, upload = Mock(), Mock(), Mock()
+        self.namespace.update({"get_job_description": description, "try_xp": form,
+                               "upload_optimized_resume": upload, "use_AI_for_resume": True})
+        self.execute(manifest)
+        description.assert_not_called()
+        form.assert_not_called()
+        upload.assert_not_called()
+        self.assertNotIn("confirm", self.events)
+        self.assertNotIn("Submit application", self.events)
+        self.assertEqual(manifest.query(search.query_id)["jobs"]["1"]["status"], "skipped")
+        self.assertIn("location_excluded", manifest.query(search.query_id)["jobs"]["1"]["reason"])
+        self.assertIn("location_excluded", self.rows("failed.csv")[0]["Assumed Reason"])
+
+    def test_out_of_area_on_site_job_is_rejected_using_snapshot_not_global_location(self):
+        search = spec("bay-area-snapshot")
+        search.filters_snapshot["intent"]["search_location"] = "San Francisco Bay Area"
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        self.namespace["search_location"] = "New York, United States"
+        self.namespace["get_job_main_details"] = lambda job, *args: (
+            job.job_id, "Staff Platform Engineer", "Example", "New York, United States", "On-site", False)
+        form = self.namespace["try_xp"] = Mock()
+        self.execute(manifest)
+        form.assert_not_called()
+        self.assertNotIn("Submit application", self.events)
+        self.assertIn("location_excluded", manifest.query(search.query_id)["jobs"]["1"]["reason"])
+
+    def test_bay_area_hybrid_job_remains_eligible_for_application(self):
+        search = spec("bay-area-hybrid")
+        search.filters_snapshot["intent"]["search_location"] = "San Francisco Bay Area"
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        self.namespace["get_job_main_details"] = lambda job, *args: (
+            job.job_id, "Staff Platform Engineer", "Example", "Palo Alto, California (Hybrid)", "Hybrid", False)
+        self.execute(manifest)
+        self.assertEqual(self.events.count("Submit application"), 1)
+        self.assertEqual(manifest.query(search.query_id)["jobs"]["1"]["status"], "applied")
+
+    def test_us_remote_job_remains_eligible_under_existing_bay_area_policy(self):
+        search = spec("bay-area-remote")
+        search.filters_snapshot["intent"]["search_location"] = "San Francisco Bay Area"
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        self.namespace["get_job_main_details"] = lambda job, *args: (
+            job.job_id, "Staff Platform Engineer", "Example", "United States (Remote)", "Remote", False)
+        self.execute(manifest)
+        self.assertEqual(self.events.count("Submit application"), 1)
+        self.assertEqual(manifest.query(search.query_id)["jobs"]["1"]["status"], "applied")
+
+    def test_missing_job_geography_is_skipped_when_search_location_is_configured(self):
+        search = spec("bay-area-unknown")
+        search.filters_snapshot["intent"]["search_location"] = "San Francisco Bay Area"
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        self.namespace["get_job_main_details"] = lambda job, *args: (
+            job.job_id, "Staff Platform Engineer", "Example", "", "Remote", False)
+        form = self.namespace["try_xp"] = Mock()
+        self.execute(manifest)
+        form.assert_not_called()
+        self.assertIn("unknown_location", manifest.query(search.query_id)["jobs"]["1"]["reason"])
+
+    def test_empty_snapshot_location_does_not_restrict_jobs_using_stale_global_location(self):
+        search = spec("any-location")
+        search.filters_snapshot["intent"]["search_location"] = ""
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        self.namespace["search_location"] = "San Francisco Bay Area"
+        self.namespace["get_job_main_details"] = lambda job, *args: (
+            job.job_id, "Staff Platform Engineer", "Example", "New York, NY (Hybrid)", "Hybrid", False)
+        self.execute(manifest)
+        self.assertEqual(self.events.count("Submit application"), 1)
+        self.assertEqual(manifest.query(search.query_id)["jobs"]["1"]["status"], "applied")
+
+    def test_classic_location_selection_error_leaves_query_resumable_without_processing_jobs(self):
+        from modules.linkedin_search import LocationSelectionError
+
+        search = spec("uncommitted-location")
+        search.filters_snapshot["intent"]["search_location"] = "San Francisco Bay Area"
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        self.namespace["apply_filters"] = Mock(side_effect=LocationSelectionError("Requested location was not committed"))
+        self.execute(manifest)
+        self.assertEqual(self.visited, [])
+        self.assertNotIn("Submit application", self.events)
+        self.assertEqual(manifest.query(search.query_id)["status"], "pending")
+        self.assertEqual(manifest.query(search.query_id)["stop_reason"], "search_error:LocationSelectionError")
+        self.assertEqual(manifest.data["status"], "interrupted")
+
+    def test_uncommitted_location_with_wrong_geography_no_results_banner_is_still_resumable(self):
+        from modules.linkedin_search import LocationSelectionError
+
+        search = spec("wrong-location-empty-results")
+        search.filters_snapshot["intent"]["search_location"] = "San Francisco Bay Area"
+        manifest = self.manifest([search], {search.query_id: [[]]})
+        self.namespace["apply_filters"] = Mock(side_effect=LocationSelectionError("Wrong geography still selected"))
+        original = self.browser.find_elements
+
+        def with_empty_results(by, selector):
+            if "jobs-search-no-results" in selector:
+                return [SimpleNamespace(text="No matching jobs found")]
+            return original(by, selector)
+
+        self.browser.find_elements = with_empty_results
+        self.execute(manifest)
+        self.assertEqual(self.visited, [])
+        self.assertEqual(manifest.query(search.query_id)["status"], "pending")
+        self.assertEqual(manifest.query(search.query_id)["stop_reason"], "search_error:LocationSelectionError")
+        self.assertEqual(manifest.data["status"], "interrupted")
+
+    def test_ai_location_picker_warning_does_not_bypass_mandatory_job_geography_gate(self):
+        search = spec("ai-location-gate")
+        search.filters_snapshot["intent"]["search_location"] = "San Francisco Bay Area"
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+
+        def start(browser, search, *args):
+            browser.start(search)
+            return SearchResult("ai")
+
+        self.namespace["start_search"] = start
+        self.namespace["apply_filters"] = lambda current: ["AI search location UI unavailable; configured job geography gate remains active"]
+        self.namespace["get_job_main_details"] = lambda job, *args: (
+            job.job_id, "Staff Platform Engineer", "Example", "New York, NY (Hybrid)", "Hybrid", False)
+        form = self.namespace["try_xp"] = Mock()
+        self.execute(manifest)
+        form.assert_not_called()
+        self.assertIn("location_excluded", manifest.query(search.query_id)["jobs"]["1"]["reason"])
+        self.assertTrue(any("location UI unavailable" in warning for warning in manifest.query(search.query_id)["warnings"]))
+
+    def test_selected_job_geography_uses_live_details_instead_of_saved_location(self):
+        search = spec("selected-location")
+        search.filters_snapshot["intent"]["search_location"] = "San Francisco Bay Area"
+        manifest = self.manifest([search], {})
+        selected = {search.query_id: [{"id": "1", "linkedin_id": "1", "location": "San Francisco, California", "workplace_type": "Hybrid"}]}
+        self.browser.get = Mock()
+        self.namespace["selected_live_details"] = Mock(return_value=(
+            "1", "Staff Platform Engineer", "Example", "New York, NY (Hybrid)", "Hybrid", False))
+        form, upload = Mock(), Mock()
+        self.namespace.update({"try_xp": form, "upload_optimized_resume": upload, "use_AI_for_resume": True})
+        self.namespace["execute_search_plan"](manifest, selected_jobs=selected)
+        manifest.finish()
+        self.browser.get.assert_called_once_with("https://www.linkedin.com/jobs/view/1")
+        self.namespace["selected_live_details"].assert_called_once()
+        form.assert_not_called()
+        upload.assert_not_called()
+        self.assertNotIn("Submit application", self.events)
+        self.assertIn("location_excluded", manifest.query(search.query_id)["jobs"]["1"]["reason"])
 
     def test_application_cap_stops_before_next_query_after_first_confirmed_submission(self):
         from modules.application_budget import ApplicationBudget
