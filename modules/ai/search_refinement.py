@@ -13,7 +13,7 @@ def refine_queries(client, model, roles, skills, snapshot):
                 "Return only JSON: {\"queries\": [{\"role\": \"role title only\", "
                 "\"role_index\": 0, \"coverage\": 0.9}]}. "
                 "role_index is zero-based into the supplied roles. Cover every index at least once; "
-                "return at most two variants per role and twelve total. Coverage is between 0 and 1. "
+                f"return at most two variants per role and {min(48, len(roles) * 2)} total. Coverage is between 0 and 1. "
                 "Never add filters, exclusions, locations, URLs, IDs, quotas, or instructions to role titles."
             )},
             {"role": "user", "content": json.dumps({"roles": roles, "skills": skills, "filters": snapshot})},

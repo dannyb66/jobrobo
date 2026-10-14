@@ -7,10 +7,10 @@ Dynamic searches turn your role intent and existing search preferences into natu
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `profile_name` | `"staff-principal-ai-platform"` | Identifies the profile in manifests and CSV history. |
-| `profile_version` | `"1"` | Identifies the profile revision. Use a nonempty string. |
+| `profile_version` | `"2"` | Identifies the profile revision. Use a nonempty string. |
 | `dynamic_search_enabled` | `True` | Generates queries from `role_lanes`. Manual and legacy searches still run when disabled. |
 | `ai_query_refinement_enabled` | `True` | Attempts OpenAI role-query refinement for generated searches. |
-| `role_lanes` | Six configured engineer roles | Nonempty strings describing roles. At least one is required when dynamic search is enabled. |
+| `role_lanes` | 22 configured engineering lanes | Nonempty strings describing roles. At least one is required when dynamic search is enabled. |
 | `skills` | AI, platform, and infrastructure skills | Nonempty strings added to each natural-language query. |
 | `manual_searches` | One enabled Staff AI Platform Engineer search | Explicit queries with stable IDs and optional quota overrides. |
 | `resume_search_enabled` | `True` | Automatically resumes the latest matching unfinished run. |
@@ -18,7 +18,7 @@ Dynamic searches turn your role intent and existing search preferences into natu
 
 Boolean settings must be `True` or `False`. `role_lanes` and `skills` must be lists; their entries are limited to 200 characters. Profile name, version, and state directory must be nonempty strings. An invalid profile stops the run rather than silently changing its meaning.
 
-The supplied role lanes cover Staff Software Engineer, Principal Software Engineer, AI Platform Engineer, Staff Machine Learning Engineer, Staff Backend Engineer, and Founding Engineer. Edit those lanes and the skill list to match your goals.
+The supplied role lanes cover Staff/Principal software, AI, machine learning, backend, infrastructure, platform, systems, inference, and SDK work; Member of Technical Staff variants for systems, inference runtime, machines, ML performance, platform, backend, SDK, and storage; related generic engineering titles; and Founding Engineer. See `config/search_profile.py` for the complete list. Edit those lanes and the skill list to match your goals.
 
 ## How to add or disable a manual search
 
@@ -65,6 +65,8 @@ The planner snapshots these values from `config/search.py`:
 | UI ordering | `sort_by` |
 | Post-discovery gates | `about_company_bad_words`, `about_company_good_words`, `bad_words`, `security_clearance`, `did_masters`, `current_experience` |
 
+Application budgets also live in `config/search.py`: `switch_number = 10` sets the default per-query quota, and `max_applications_per_run = 1` caps confirmed submissions for the whole command. Set the latter to a positive integer or `None` to disable the command-wide cap. A manual search's `quota` overrides only its per-query quota.
+
 Each role query includes the applicable location, employment type, work arrangement, experience level, company, industry, date, salary, and applicant preferences, plus profile skills. Exclusion and experience hints also appear in the natural-language query. Existing checks on company and job descriptions still apply after discovery, including company exceptions and the configured master's-degree experience allowance. `current_experience = -1` disables the experience ceiling.
 
 `sort_by` is attempted through the UI and recorded in the snapshot. Search wording expresses intent; LinkedIn controls ranking and may return results outside that intent. This feature does not introduce a local job-fit score.
@@ -104,7 +106,9 @@ PY
 
 This prints the planned queries without connecting to OpenAI, opening LinkedIn, creating a manifest, or submitting applications. If validation fails, fix the named profile value and rerun the preview.
 
-Run the configured bot with `python3 runAiBot.py`. The default `switch_number = 1` is a per-search quota, so a run with several distinct searches can submit several applications. A manual quota overrides it. Successful Easy Apply submissions count toward the quota; collected external application links also count when external applications are enabled. Failed and skipped jobs do not consume it. External links remain marked as pending rather than submitted applications.
+Run the configured bot with `python3 runAiBot.py`. The default `max_applications_per_run = 1` allows at most one confirmed submission across all queries in that command. The same budget spans any nonstop cycles; it resets when you invoke the command again. Failed or skipped jobs and collected external application links do not consume this submission budget.
+
+The per-query quota remains separate: successful Easy Apply submissions and collected external application links count toward `switch_number` or a manual `quota` when external applications are enabled. Failed and skipped jobs do not consume that quota. External links remain marked as pending rather than submitted applications. Disabling the command-wide cap with `None` still leaves per-query quotas in effect. Final review and verified-resume checks remain in place.
 
 ## Search modes and filter warnings
 
@@ -117,6 +121,8 @@ The classic fallback is an attempted keyword route, not a guarantee that the old
 ## How to resume an interrupted run
 
 Leave `resume_search_enabled = True` and rerun `python3 runAiBot.py`. The runner resumes the newest unfinished manifest matching the effective deterministic plan and refinement setting. It reuses the saved query list, including any prior AI-refined wording, without requesting new refinement. A changed effective plan starts a new run.
+
+A run stopped by the command-wide submission cap records `application_limit_reached`. Any unfinished queries remain resumable; the next invocation gets a fresh submission budget and continues that work, preserving per-query counts and duplicate protection. With a submission cap enabled, an uncertain submission pauses further applications until its LinkedIn outcome is verified.
 
 On resume:
 
@@ -177,7 +183,7 @@ Run the automated tests from the repository root:
 python3 -m unittest discover -s tests -v
 ```
 
-Tests cover planning, refinement validation and fallback, search-mode detection, resumable state, quota enforcement, CSV migration, and application metadata using local fixtures and mocked browser interactions. No live LinkedIn applications were submitted during implementation verification. Live UI availability and account-specific selectors remain to be checked during a supervised run.
+Tests cover planning, refinement validation and fallback, search-mode detection, resumable state, per-query quotas and command-wide submission caps, CSV migration, and application metadata using local fixtures and mocked browser interactions. No live LinkedIn applications were submitted during implementation verification. Live UI availability and account-specific selectors remain to be checked during a supervised run.
 
 If refinement warns that credentials are unavailable, deterministic queries still run. If a filter warning appears, inspect the saved query and current LinkedIn filter controls. If a run resumes an older query list, its manifest matches the current effective plan; disable automatic resume to start a new run. If a job remains `submitting` after interruption, verify it on LinkedIn before any manual retry.
 

@@ -108,6 +108,8 @@ def validate_search() -> None | ValueError | TypeError:
         raise ValueError("Enable a manual, legacy, or generated search")
     check_string(search_location, "search_location")
     check_int(switch_number, "switch_number", 1)
+    from modules.application_budget import ApplicationBudget
+    ApplicationBudget(globals().get("max_applications_per_run", 1))
     check_boolean(randomize_search_order, "randomize_search_order")
 
     check_string(sort_by, "sort_by", ["", "Most recent", "Most relevant"])

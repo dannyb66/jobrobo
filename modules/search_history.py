@@ -17,6 +17,7 @@ SEARCH_FIELDS = [
     "Search Run ID", "Search Query ID", "Search Query", "Search Mode",
     "Search Profile", "Search Source",
 ]
+PIPELINE_FIELDS = ["Pipeline Set", "Pipeline Run ID", "Company ID", "Career Job IDs", "Verification Run IDs"]
 
 
 @contextmanager
@@ -45,15 +46,20 @@ def file_lock(path):
 def search_metadata(manifest=None, spec=None):
     if manifest is None or spec is None:
         return dict.fromkeys(SEARCH_FIELDS, "")
-    return dict(zip(SEARCH_FIELDS, [
+    result = dict(zip(SEARCH_FIELDS, [
         manifest.data["run_id"], spec.query_id, spec.classic_query if spec.mode == "classic" else spec.query_text, spec.mode,
         f"{spec.profile_name}@{spec.profile_version}", spec.source,
     ]))
+    if spec.pipeline_context:
+        context = spec.pipeline_context
+        result.update(dict(zip(PIPELINE_FIELDS, [context.get("set_name", ""), context.get("pipeline_run_id", ""), context.get("company_id", ""),
+                                              ",".join(context.get("career_job_ids", [])), ",".join(context.get("verification_run_ids", []))])))
+    return result
 
 
 def append_history(path, fieldnames, row):
     path = Path(path)
-    fields = list(dict.fromkeys([*fieldnames, *SEARCH_FIELDS]))
+    fields = list(dict.fromkeys([*fieldnames, *SEARCH_FIELDS, *(PIPELINE_FIELDS if any(key in row for key in PIPELINE_FIELDS) else [])]))
     with file_lock(str(path) + ".lock"):
         existing = []
         if path.exists() and path.stat().st_size:

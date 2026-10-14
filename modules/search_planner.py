@@ -1,7 +1,7 @@
 """Pure search planning: no browser, credentials, or resume dependencies."""
 
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import hashlib
 import json
 import re
@@ -27,6 +27,13 @@ def normalize_query(query):
 def stable_id(source, text):
     digest = hashlib.sha256(normalize_query(text).encode()).hexdigest()[:16]
     return f"{source}:{digest}"
+
+
+def role_priority(title):
+    if re.search(r"\bfounding\b", title, re.I):
+        return 2
+    leveled = re.sub(r"\bmember(?: of)? technical staff\b", "", title, flags=re.I)
+    return 0 if re.search(r"\b(staff|principal)\b", leveled, re.I) else 1
 
 
 def _get(config, name, default=None):
@@ -100,6 +107,7 @@ class SearchSpec:
     filters_snapshot: dict
     quota: int
     classic_query: str
+    pipeline_context: dict = field(default_factory=dict)
 
     def to_dict(self):
         return asdict(self)
@@ -159,7 +167,7 @@ def validate_refinement(response, roles):
     if not isinstance(response, dict) or set(response) != {"queries"}:
         raise ValueError("Expected only a queries object")
     rows = response["queries"]
-    if not isinstance(rows, list) or not 1 <= len(rows) <= min(12, len(roles) * 2):
+    if not isinstance(rows, list) or not 1 <= len(rows) <= min(48, len(roles) * 2):
         raise ValueError("Invalid number of refined query lanes")
     seen, covered, variants = set(), set(), {}
     result = []
@@ -247,4 +255,5 @@ def build_search_plan(profile, config, refine=None, warn=lambda message: None):
             warn(f"Dynamic generation failed ({type(error).__name__}); continuing manual and legacy searches.")
     if not specs:
         raise ValueError("Configure at least one enabled manual, legacy, or generated search")
+    specs.sort(key=lambda spec: role_priority(spec.classic_query))
     return specs

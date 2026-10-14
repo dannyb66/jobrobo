@@ -7,6 +7,7 @@ logs/search_runs/
 *.csv.lock
 **/__pycache__/
 
+data/job_pipeline/
 
 # Generated runtime files and local development artifacts
 __pycache__/

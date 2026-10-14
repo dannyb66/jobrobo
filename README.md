@@ -14,6 +14,7 @@ Click on above image to watch the demo or use this link https://youtu.be/gMbB1fW
 - [Current workflow](#current-workflow)
 - [Repository map](#repository-map)
 - [Run commands](#run-commands)
+- [Job discovery pipeline](#job-discovery-pipeline)
 - [Configure](#-how-to-configure)
 - [Resume ATS optimizer](#resume-ats-optimizer)
 - [Detailed documentation](docs/README.md)
@@ -135,6 +136,23 @@ print(output_path)
 ```
 
 Use `optimization_mode="skills"` to update Skills only, `"bullets"` to update Skills and bullets, or `"full"` to also replace recognized professional-experience titles with the target title. `full` does not rewrite the summary or validate title equivalence. Use a distinct local job ID and inspect the returned PDF and report before an application run.
+
+## Job discovery pipeline
+
+The pipeline separates company discovery, verification against official careers pages, LinkedIn collection, and selected-job application. Each stage saves cumulative records in SQLite and can export a portable, versioned JSON set for the next stage.
+
+```bash
+python -m job_pipeline discover companies --set ai-companies --limit 25
+python -m job_pipeline verify careers --input ai-companies --set hiring-roles --limit 25
+python -m job_pipeline search linkedin --input hiring-roles --set linkedin-candidates --limit 25
+python -m job_pipeline apply linkedin --input linkedin-candidates --set reviewed-applications --limit 1
+```
+
+`search linkedin` only collects jobs and never opens application forms or submits applications. `apply linkedin` revisits the selected IDs, revalidates them, and uses the existing Easy Apply flow with a visible final review pause, including background configurations. `run linkedin` combines search and application. The default database is `data/job_pipeline/pipeline.sqlite3`; repeat `--input` to merge compatible sets, use `--output` to export a stage, and use `--db` to select a database.
+
+The same LinkedIn backend is available through `python runAiBot.py --mode search`, `--mode apply`, or `--mode search-and-apply`, with the same input, set, export, limit, and database options. `python runAiBot.py` preserves the existing bot workflow. Importing either frontend or displaying pipeline help does not start Chrome or load credentials.
+
+See the [job pipeline guide](docs/job-pipeline.md) for input contracts, official-careers verification, role priorities, resume behavior, and source-access limitations. Application verification uses mocks; no live applications are submitted by the automated tests.
 
 ## ⚙️ How to install
 1. [Python 3.10](https://www.python.org/) or above. Visit https://www.python.org/downloads/ to download and install Python, or for windows you could visit Microsoft Store and search for "Python". **Please make sure Python is added to Path in System Environment Variables**.

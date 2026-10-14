@@ -62,7 +62,9 @@ class ChromeProfileTest(unittest.TestCase):
             "config.questions": types.SimpleNamespace(default_resume_path="resume.pdf"),
             "modules.helpers": helpers,
         }), patch("selenium.webdriver.Chrome", return_value=driver) as constructor:
-            runpy.run_path(str(ROOT / "modules/open_chrome.py"))
+            namespace = runpy.run_path(str(ROOT / "modules/open_chrome.py"))
+            constructor.assert_not_called()
+            namespace["create_browser"]()
         helpers.critical_error_log.assert_not_called()
         driver.maximize_window.assert_called_once()
         return constructor.call_args.kwargs["options"].arguments, helpers
