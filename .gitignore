@@ -6,3 +6,15 @@ logs/search_runs/
 *.csv.bak
 *.csv.lock
 **/__pycache__/
+
+
+# Generated runtime files and local development artifacts
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+venv/
+/backups/
+/docstest/
+/logs/
+/all excels/*_applications_history.csv
