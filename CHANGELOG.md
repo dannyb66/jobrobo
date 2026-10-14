@@ -14,6 +14,13 @@
 - Keep LinkedIn collection separate from application state, revalidate selected job IDs before applying, and retain the final review pause and verified-resume requirement.
 - Report inaccessible sources and incomplete career checks explicitly while preserving previously observed records.
 
+## [0.1.1.0] - 2026-10-13
+
+### Fixed
+
+- Preserve clickable website and email links when rebuilding an optimized resume from PDF input; reject rewrites when existing links cannot be retained.
+- Require generated resume PDFs and DOCX companion fallbacks to preserve external link targets and usable click areas before upload, and report missing links for diagnosis.
+
 ## [0.1.0.0] - 2026-10-13
 
 ### Added

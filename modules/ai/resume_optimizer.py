@@ -24,6 +24,7 @@ from docx import Document
 from dotenv import load_dotenv
 from modules.config_loader import load_runtime_config, resource_path
 from modules.ai.openai_key_loader import load_openai_key
+from modules.resume_links import hyperlink_report, linked_paragraph_text, read_pdf_links
 # from config.settings import replace_job_title, rewrite_bullets
 
 
@@ -661,6 +662,7 @@ class ResumeOptimizer:
 
     def save_optimized_pdf(self, resume_path: str, optimized_skills: List[str], format_info: dict, output_path: str):
         try:
+            source_links = read_pdf_links(resume_path, include_text=True)
             # Step 1: Use pdfplumber to extract structured text
             with pdfplumber.open(resume_path) as pdf:
                 full_text_lines = []
@@ -723,7 +725,10 @@ class ResumeOptimizer:
 
             for para in "\n".join(full_text_lines).split('\n\n'):
                 for line in para.strip().splitlines():
-                    story.append(Paragraph(line.strip(), styles["Normal"]))
+                    story.append(Paragraph(linked_paragraph_text(line.strip(), source_links), styles["Normal"]))
+
+            if source_links:
+                raise ValueError("PDF links could not be mapped to the rewritten text; use DOCX input.")
 
             doc.build(story)
 
@@ -735,6 +740,7 @@ class ResumeOptimizer:
 
         except Exception as e:
             print(f"❌ Error saving optimized PDF resume: {e}")
+            raise
 
     def read_docx_resume(self, resume_path: str) -> Tuple[Document, List[str]]:
         """Read a DOCX resume and extract the skills section."""
@@ -1364,6 +1370,9 @@ class ResumeOptimizer:
                 details["docx_pdf_token_coverage"] = round(coverage, 4)
             checks["no_new_orphaned_headings"] = not (set(layout["orphaned_headings"]) - set(source_layout.get("orphaned_headings", [])))
             details.update({"source_layout": source_layout, "optimized_layout": layout})
+            links = hyperlink_report(source_docx, optimized_docx, source_pdf, optimized_pdf)
+            checks["hyperlinks_preserved"] = links["passed"]
+            details["hyperlinks"] = links
             if layout["max_bullet_lines"] > source_layout.get("max_bullet_lines", 0) and source_layout:
                 warnings.append("Some bullets wrap to more lines than the source; inspect the rendered PDF.")
             if source_layout and source_layout["page_count"] != expected_pages:
@@ -1373,7 +1382,8 @@ class ResumeOptimizer:
         required = ("page_count", "all_pages_have_text", "no_horizontal_clipping", "no_vertical_clipping",
                     "bullets_fit_page", "section_order_preserved", "section_count_stable", "bullet_count_stable",
                     "margins_similar", "font_sizes_similar", "no_empty_rendered_pages", "rendered_headings_present",
-                    "no_new_orphaned_headings", "docx_pdf_content_consistent", "rendered_section_order_preserved")
+                    "no_new_orphaned_headings", "docx_pdf_content_consistent", "rendered_section_order_preserved",
+                    "hyperlinks_preserved")
         passed = all(checks.get(name, False) for name in required)
         checks["passed"] = passed
         return {"passed": passed, "checks": checks, "warnings": warnings, "details": details}
