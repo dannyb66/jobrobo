@@ -642,6 +642,61 @@ class ModernFilterReplayTests(unittest.TestCase):
         self.assertEqual(parse_qs(urlsplit(self.browser.current_url).query)["f_WT"], ["3"])
         self.assertFalse(any(label == "Filter by Remote" for _, label, _ in self.browser.clicks))
 
+    def test_single_hybrid_or_onsite_native_clears_preselected_remote_pill(self):
+        for arrangement in ("Hybrid", "On-site"):
+            with self.subTest(arrangement=arrangement):
+                self.browser = FilterBrowser()
+                original_type = self.browser.type_into
+
+                def preselected(node, value):
+                    original_type(node, value)
+                    if "\ue007" in value and node.get("componentkey") == "semanticSearchBox":
+                        self.browser.root.xpath("//*[@aria-label='Filter by Remote']")[0].set("aria-checked", "true")
+                        self.browser.set_params(f_WT="2")
+
+                self.browser.type_into = preselected
+                result = self.prepare(make_spec(on_site=[arrangement]))
+                self.assertEqual(result.filter_report["on_site"]["status"], "unavailable")
+                self.assertEqual(self.browser.root.xpath("//*[@aria-label='Filter by Remote']")[0].get("aria-checked"), "false")
+                self.assertNotIn("f_WT", parse_qs(urlsplit(self.browser.current_url).query))
+                self.assertEqual(sum(label == "Filter by Remote" for _, label, _ in self.browser.clicks), 1)
+
+    def test_single_hybrid_or_onsite_replay_rejects_preselected_remote_pill(self):
+        for arrangement in ("Hybrid", "On-site"):
+            with self.subTest(arrangement=arrangement):
+                self.browser = FilterBrowser()
+                selected = make_spec(on_site=[arrangement])
+                self.prepare(selected)
+                self.browser.root.xpath("//*[@aria-label='Filter by Remote']")[0].set("aria-checked", "true")
+                result = self.prepare(selected)
+                self.assertEqual(result.transport, "native")
+                self.assertEqual(result.diagnostics()["replay_rejected"]["stage"], "filter_validation")
+                self.assertEqual(self.browser.root.xpath("//*[@aria-label='Filter by Remote']")[0].get("aria-checked"), "false")
+
+    def test_workplace_dropdown_before_active_remote_pill_cannot_hide_narrowing(self):
+        trigger = self.browser.root.xpath("//*[@aria-label='On-site/remote']")[0]
+        trigger.set("aria-label", "Workplace type")
+        trigger.text = "Workplace type"
+        dropdown = trigger.getparent()
+        remote_pill = self.browser.root.xpath("//*[@aria-label='Filter by Remote']/..")[0]
+        container = dropdown.getparent()
+        container.remove(dropdown)
+        container.insert(container.index(remote_pill), dropdown)
+        original_type = self.browser.type_into
+
+        def preselected(node, value):
+            original_type(node, value)
+            if "\ue007" in value and node.get("componentkey") == "semanticSearchBox":
+                self.browser.root.xpath("//*[@aria-label='Filter by Remote']")[0].set("aria-checked", "true")
+                self.browser.set_params(f_WT="2")
+
+        self.browser.type_into = preselected
+        result = self.prepare(make_spec(on_site=["Hybrid"]))
+        self.assertEqual(result.filter_report["on_site"]["status"], "verified")
+        self.assertEqual(self.browser.root.xpath("//*[@aria-label='Filter by Remote']")[0].get("aria-checked"), "false")
+        self.assertEqual(parse_qs(urlsplit(self.browser.current_url).query)["f_WT"], ["3"])
+        self.assertEqual(sum(label == "Filter by Remote" for _, label, _ in self.browser.clicks), 1)
+
     def test_replay_selected_remote_only_is_rejected_for_remote_or_hybrid_intent(self):
         self.prepare()
         self.browser.root.xpath("//*[@aria-label='Filter by Remote']")[0].set("aria-checked", "true")

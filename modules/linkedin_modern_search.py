@@ -313,6 +313,13 @@ def _facet(driver, key, desired=()):
         labels = [re.sub(r"^Filter by\s+", "", label, flags=re.I) for label in labels]
         if any(_location_normalize(label) in names for label in labels):
             matches.append(facet)
+    if key == "on_site" and set(desired) == {"Remote"}:
+        # Prefer the actual Remote pill when a separate workplace dropdown is
+        # also present, so the narrowing guard observes the independent toggle.
+        for facet in matches:
+            label = re.sub(r"^Filter by\s+", "", _attribute(facet, "aria-label"), flags=re.I)
+            if _is_pill(facet) and any(_location_normalize(value) == "remote" for value in (label, _text(facet))):
+                return facet
     return matches[0] if matches else None
 
 
@@ -503,6 +510,16 @@ def _set_location(driver, desired, *, timeout=30, wait=None):
 
 def _apply_filters(driver, intent, *, verify_only=False, expected=None, timeout=30, wait=None, owners=None):
     report, verified, warnings = {}, [], []
+    arrangements = _values(intent.get("on_site"))
+    if arrangements and set(arrangements) != {"Remote"}:
+        remote = _facet(driver, "on_site", ["Remote"])
+        if remote is not None and _is_pill(remote) and _selected(remote) is True:
+            if verify_only:
+                raise SearchUIError("Remote-only filter narrows configured work arrangements", stage="filter_validation", details={"filter": "on_site"})
+            _click_target(remote).click()
+            _wait(driver, lambda *_: _selected(_facet(driver, "on_site", ["Remote"])) is False, timeout, wait)
+            query = (parse_qs(urlparse(_url(driver)).query).get("keywords") or [_prompt_text(driver)])[0]
+            _settle(driver, query, timeout=timeout, wait=wait)
     wanted_keys = list(expected) if expected is not None else list(intent)
     for key in wanted_keys:
         value = intent.get(key)
@@ -511,12 +528,6 @@ def _apply_filters(driver, intent, *, verify_only=False, expected=None, timeout=
         desired = _values(value)
         if key == "on_site" and len(desired) > 1:
             # A Remote-only toggle would discard configured Hybrid results.
-            remote = _facet(driver, "on_site", ["Remote"])
-            if remote is not None and _is_pill(remote) and _selected(remote) is True:
-                if verify_only:
-                    raise SearchUIError("Remote-only filter narrows configured work arrangements", stage="filter_validation", details={"filter": "on_site"})
-                _click_target(remote).click()
-                _wait(driver, lambda *_: _selected(_facet(driver, "on_site", ["Remote"])) is False, timeout, wait)
             report[key] = {"status": "prompt_only", "requested": desired}
             warnings.append("Work arrangement remains in the prompt; Remote and Hybrid are not narrowed to Remote only")
             continue
@@ -536,7 +547,8 @@ def _apply_filters(driver, intent, *, verify_only=False, expected=None, timeout=
 
 
 def _verify_work_arrangement(driver, intent):
-    if len(_values(intent.get("on_site"))) > 1:
+    arrangements = _values(intent.get("on_site"))
+    if arrangements and set(arrangements) != {"Remote"}:
         remote = _facet(driver, "on_site", ["Remote"])
         if remote is not None and _is_pill(remote) and _selected(remote) is True:
             raise SearchUIError("Remote-only filter narrows configured work arrangements", stage="filter_validation", details={"filter": "on_site"})

@@ -78,7 +78,11 @@ def _url_job_id(url):
     if parsed.hostname not in {"linkedin.com", "www.linkedin.com"}:
         return None
     match = re.search(r"/jobs/view/(?:[^/]*-)?(\d+)/?", parsed.path)
-    return match.group(1) if match else (parse_qs(parsed.query).get("currentJobId") or [None])[0]
+    if match:
+        return match.group(1)
+    if parsed.path.rstrip("/") in {"/jobs/search-results", "/jobs/search"}:
+        return (parse_qs(parsed.query).get("currentJobId") or [None])[0]
+    return None
 
 
 def modern_details_root(driver, expected_job_id=None):
@@ -178,7 +182,7 @@ def read_modern_details(driver, expected_job_id=None):
         raise ValueError("Modern job header is incomplete or ambiguous")
     title, metadata = paragraphs[1:3]
     location = metadata.split("·", 1)[0].strip()
-    chips = [_text(anchor) for anchor in root.find_elements("css selector", "a[href*='/jobs/view/']")
+    chips = [_text(anchor) for anchor in root.find_elements("css selector", "a[href]")
              if _url_job_id(anchor.get_attribute("href") or "") == job_id]
     style = next((value for value in ("Remote", "Hybrid", "On-site") if value in chips), "Unknown")
     employment = next((value for value in ("Full-time", "Part-time", "Contract", "Temporary", "Internship") if value in chips), "Unknown")

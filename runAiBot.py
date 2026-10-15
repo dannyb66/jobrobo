@@ -1039,7 +1039,7 @@ def collect_linkedin_jobs(specs, *, limit=25, result_sink=None, checkpoints=None
                     break
                 if not next_search_page(driver, page or 1):
                     break
-                wait_for_search_results(listings)
+                wait_for_search_results([])
             if checkpoint_sink:
                 checkpoint_sink(spec.query_id, {"fingerprint": fingerprint, "processed_ids": sorted(processed), "last_page": page or 1, "complete": len(records) < limit, "stop_reason": "results_exhausted" if len(records) < limit else "scan_limit"})
         except Exception as error:
@@ -1371,7 +1371,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                     print_lg(f"\n>-> Didn't find Page {(current_page or 1)+1}. Probably at the end page of results!\n")
                     break
                 print_lg(f"\n>-> Now on Page {(current_page or 1)+1} \n")
-                wait_for_search_results(job_listings)
+                wait_for_search_results([])
 
             if manifest.has_uncertain_submission(spec):
                 row = manifest.query(spec.query_id)

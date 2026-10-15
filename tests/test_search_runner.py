@@ -240,6 +240,32 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertNotIn("Easy Apply", self.events)
         self.assertNotIn("Submit application", self.events)
 
+    def test_verified_classic_pagination_with_retained_cards_does_not_require_staleness_again(self):
+        search = spec("classic-retained-pagination", quota=3)
+        manifest = self.manifest([search], {search.query_id: [["1"], ["1", "2"]]})
+        retained = {"1": Job("1"), "2": Job("2")}
+        scans, wait_inputs = [], []
+
+        def cards(browser):
+            page = [retained[job_id] for job_id in browser.pages[browser.query_id][browser.page]]
+            scans.append(page)
+            return page
+
+        def wait_results(previous):
+            wait_inputs.append(list(previous))
+            if previous:
+                raise RuntimeError("Legacy cards were retained after a verified page transition")
+
+        self.namespace["get_search_cards"] = cards
+        self.namespace["wait_for_search_results"] = wait_results
+        self.execute(manifest)
+        self.assertEqual(self.visited, ["1", "2"])
+        self.assertIs(scans[0][0], scans[1][0])
+        self.assertTrue(wait_inputs)
+        self.assertTrue(all(previous == [] for previous in wait_inputs))
+        self.assertEqual(self.events.count("Submit application"), 2)
+        self.assertEqual(manifest.query(search.query_id)["stop_reason"], "results_exhausted")
+
     def test_prepared_modern_search_records_verified_transport_before_application(self):
         search = spec("modern-prepared")
         manifest = self.manifest([search], {search.query_id: [["1", "1", "2"]]})

@@ -57,7 +57,7 @@ class DetailBrowser:
             "[id^='JobDetails_AboutTheCompany_']": [self.company],
             "[aria-label^='Company,']": [self.label],
             "p": [Node("Example"), Node("Staff Platform Engineer"), Node(location + " · 1 week ago · Over 100 applicants"), Node("Promoted by hirer")],
-            "a[href*='/jobs/view/']": [Node(value, attrs={"href": self.current_url}) for value in ("Hybrid", "Full-time")],
+            "a[href]": [Node(value, attrs={"href": self.current_url}) for value in ("Hybrid", "Full-time")],
             EASY_APPLY: [self.apply],
         })
         self.job.children["ancestor::*[.//*[starts-with(@aria-label,'Company,')]][1]"] = [self.root]
@@ -176,10 +176,30 @@ class ModernDetailReaderTests(unittest.TestCase):
             modern_details_ready(self.browser, "123")
 
     def test_similar_job_chips_cannot_supply_selected_jobs_missing_metadata(self):
-        self.browser.root.children["a[href*='/jobs/view/']"] = [Node("Remote", attrs={"href": "https://www.linkedin.com/jobs/view/999/"})]
-        details = read_modern_details(self.browser)
-        self.assertEqual(details["workplace_type"], "Unknown")
-        self.assertEqual(details["employment_type"], "Unknown")
+        for href in ("https://www.linkedin.com/jobs/view/999/",
+                     "https://www.linkedin.com/jobs/search-results/?currentJobId=999",
+                     "https://www.linkedin.com/jobs/search/?currentJobId=999"):
+            with self.subTest(href=href):
+                self.browser.root.children["a[href]"] = [Node(value, attrs={"href": href}) for value in ("Remote", "Full-time")]
+                details = read_modern_details(self.browser)
+                self.assertEqual(details["workplace_type"], "Unknown")
+                self.assertEqual(details["employment_type"], "Unknown")
+
+    def test_same_job_search_route_badges_supply_workplace_and_employment(self):
+        for route in ("search-results", "search"):
+            with self.subTest(route=route):
+                link = "https://www.linkedin.com/jobs/" + route + "/?keywords=platform&currentJobId=123"
+                self.browser.root.children["a[href]"] = [Node(value, attrs={"href": link}) for value in ("Remote", "Full-time")]
+                details = read_modern_details(self.browser, "123")
+                self.assertEqual((details["workplace_type"], details["employment_type"]), ("Remote", "Full-time"))
+
+    def test_offsite_or_unrelated_routes_cannot_supply_badge_evidence(self):
+        self.browser.root.children["a[href]"] = [
+            Node("Remote", attrs={"href": "https://example.com/jobs/search-results/?currentJobId=123"}),
+            Node("Full-time", attrs={"href": "https://www.linkedin.com/feed/?currentJobId=123"}),
+        ]
+        details = read_modern_details(self.browser, "123")
+        self.assertEqual((details["workplace_type"], details["employment_type"]), ("Unknown", "Unknown"))
 
     def test_easy_apply_reader_is_scoped_enabled_and_never_clicks(self):
         self.assertIs(modern_easy_apply_button(self.browser, "123"), self.browser.apply)
@@ -330,6 +350,15 @@ class ObservedModernDetailDOMTests(unittest.TestCase):
         browser = DetailDOMBrowser()
         browser.root.xpath("//*[@componentkey]")[0].set("componentkey", "auto-binding-fixture-999")
         self.assertFalse(modern_details_ready(browser, "123"))
+        self.assertEqual(browser.clicks, [])
+
+    def test_same_job_search_pane_badge_links_are_read_from_actual_dom(self):
+        browser = DetailDOMBrowser()
+        browser.current_url = "https://www.linkedin.com/jobs/search-results/?keywords=platform&currentJobId=123"
+        for anchor in browser.root.xpath("//a[contains(@href,'/jobs/view/123/')]"):
+            anchor.set("href", browser.current_url)
+        details = read_modern_details(browser, "123")
+        self.assertEqual((details["workplace_type"], details["employment_type"]), ("Hybrid", "Full-time"))
         self.assertEqual(browser.clicks, [])
 
     def test_stripping_all_view_markers_keeps_semantic_detail_readers_scoped(self):
