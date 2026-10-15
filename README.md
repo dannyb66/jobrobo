@@ -99,6 +99,7 @@ python -m pip install -r requirements.txt
 Run the automated checks before changing the live application configuration:
 
 ```bash
+python -m pip install -r requirements-dev.txt
 python -m py_compile modules/ai/resume_optimizer.py modules/config_loader.py JobRobo.py
 python -m json.tool config/resume_optimizer_defaults.json >/dev/null
 python -m unittest discover -s tests -v
@@ -190,6 +191,7 @@ See the [job pipeline guide](docs/job-pipeline.md) for input contracts, official
 | `config/search.py:search_terms` | LinkedIn search queries. | `['Senior Software Engineer']` |
 | `config/search.py:search_location` | Location entered into LinkedIn search. | `'California, United States'` |
 | `config/search.py:switch_number` | Applications processed before moving to the next search. | `1` for a smoke test |
+| `config/search.py:max_applications_per_run` | Confirmed submissions across the whole command. | `1`; `None` disables the command-wide cap |
 | `config/settings.py:run_in_background` | Whether Chrome is visible. | `False` while debugging |
 | `config/settings.py:safe_mode` | Opens a clean Guest-style browser profile when normal Chrome startup fails. | `True` for startup troubleshooting |
 | `config/settings.py:chrome_profile_path` | Dedicated Chrome user-data directory used by JobRobo. | Defaults to `~/.jobrobo/chrome-profile`; an empty value uses the same default |
@@ -384,11 +386,11 @@ longer document: the bot's upload path is intended to use a verified PDF.
 
 Searches combine enabled manual queries from `config/search_profile.py`, existing `search_terms`, and queries generated from your role lanes and skills. Each query uses the current location, filters, and exclusion settings in `config/search.py`. The existing San Francisco Bay Area, full-time, remote/hybrid preferences and Staff/Principal search terms are preserved. Duplicate queries keep the first definition, with manual searches taking precedence.
 
-`dynamic_search_enabled = True` and `ai_query_refinement_enabled = True` are enabled by default. Search refinement uses OpenAI independently of resume optimization and `use_AI`; missing credentials or invalid responses fall back to deterministic role queries. `use_AI_for_resume = True` is configured for the next run. `switch_number = 1` sets the default per-search smoke quota, and `pause_before_submit = True` remains enabled.
+`dynamic_search_enabled = True` and `ai_query_refinement_enabled = True` are enabled by default. Search refinement uses OpenAI independently of resume optimization and `use_AI`; missing credentials or invalid responses fall back to deterministic role queries. `use_AI_for_resume = True` is configured for the next run. The configured `switch_number = 10` is a per-search quota, overridden by `quota = 1` for the supplied manual search; `max_applications_per_run = 1` caps confirmed submissions across the command. `pause_before_submit = True` remains enabled.
 
 The runner attempts LinkedIn's natural-language search, records the actual search mode and any fallback or filter warnings, and saves query checkpoints under `logs/search_runs/`. A matching interrupted run resumes automatically; completed searches and previously submitted jobs are skipped. Submission checkpoints across all saved runs also protect fresh runs when CSV logging failed; uncertain submissions remain skipped for manual inspection. Applied and failed CSV records include the run, query, mode, profile, and source. Existing CSV rows are preserved during header migration.
 
-See the [configuration, resume behavior, and verification guide](docs/dynamic-search.md) for manual-search examples, safe query previews, and the limits of the classic keyword fallback. Implementation verification uses automated tests; no live applications were submitted for verification.
+See the [configuration, resume behavior, and verification guide](docs/dynamic-search.md) for manual-search examples, safe query previews, read-only search diagnostics, verified modern filters, and the limits of the classic keyword fallback. Implementation verification uses automated tests; no live applications were submitted for verification.
 
 [back to index](#-content)
 
@@ -752,7 +754,7 @@ https://discord.gg/fFp7uUzWCY
 - **X/Twitter**: https://x.com/deepakcool3
 
 
-#### ℹ️ Version: [0.1.2.0](VERSION)
+#### ℹ️ Version: [0.1.3.0](VERSION)
 
 ---
 
