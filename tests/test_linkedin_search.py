@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import Mock
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlencode
 
 from modules.linkedin_search import AI_INPUT_XPATH, CLASSIC_INPUT_XPATH, SearchUIError, apply_configured_filters, start_search
 from modules.search_planner import SearchSpec
@@ -48,13 +48,23 @@ class SearchUITests(unittest.TestCase):
         field = self.field()
         field.get_attribute.return_value = spec().query_text
         browser = self.browser([field])
-        browser.current_url = "https://www.linkedin.com/jobs/search/?keywords=already-loaded"
+        browser.current_url = "https://www.linkedin.com/jobs/search/?" + urlencode({"keywords": spec().query_text})
         results = Mock()
         result = start_search(browser, spec(), Mock(), results)
         self.assertEqual(result.mode, "ai")
         results.assert_called_once_with([])
         field.clear.assert_not_called()
         field.send_keys.assert_not_called()
+
+    def test_matching_legacy_input_with_different_committed_query_resubmits(self):
+        field = self.field()
+        field.get_attribute.return_value = spec().query_text
+        browser = self.browser([field])
+        browser.current_url = "https://www.linkedin.com/jobs/search/?keywords=already-loaded"
+        result = start_search(browser, spec(), Mock(), Mock())
+        self.assertEqual(result.mode, "ai")
+        field.clear.assert_called_once()
+        self.assertEqual(field.send_keys.call_args_list[0].args, (spec().query_text,))
 
     def test_missing_or_hidden_search_controls_fail_without_guessed_keyword_urls(self):
         for fields in ([], [self.field(False)]):

@@ -7,7 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from modules.linkedin_search import SearchResult, apply_configured_filters
 from modules.search_history import append_history, load_applied_job_ids, search_metadata
@@ -869,6 +869,56 @@ class SearchRunnerTests(unittest.TestCase):
         resumed = SearchManifest.find_resume(self.directory / "state", plan_fingerprint([uncertain, other]))
         self.execute(resumed, ApplicationBudget(1))
         self.assertEqual(self.visited, ["1"])
+
+
+class SearchResultsTransitionTests(unittest.TestCase):
+    def setUp(self):
+        self.events = []
+        self.previous = SimpleNamespace(detached=False)
+
+        def stale_condition(element):
+            def condition(driver):
+                self.events.append("old_cards_detached" if element.detached else "old_cards_retained")
+                return element.detached
+            return condition
+
+        self.staleness = Mock(side_effect=stale_condition)
+
+        def ready(driver):
+            self.events.append("results_ready")
+            return "jobs"
+
+        def until(condition):
+            for _ in range(3):
+                result = condition(self.namespace["driver"])
+                if result:
+                    return result
+                self.previous.detached = True
+            raise AssertionError("Search result transition never completed")
+
+        self.namespace = {"driver": SimpleNamespace(), "EC": SimpleNamespace(staleness_of=self.staleness),
+                          "WebDriverWait": lambda *args: SimpleNamespace(until=until),
+                          "search_results_ready": ready}
+        extract_functions(self.namespace, "wait_for_search_results")
+
+    def test_classic_new_query_waits_for_previous_cards_before_accepting_ready_list(self):
+        with patch("modules.linkedin_modern_search.detect_modern_ui", return_value=False):
+            self.namespace["wait_for_search_results"]([self.previous])
+        self.staleness.assert_called_once_with(self.previous)
+        self.assertEqual(self.events, ["old_cards_retained", "old_cards_detached", "results_ready"])
+
+    def test_modern_reused_cards_wait_for_ready_state_without_requiring_staleness(self):
+        with patch("modules.linkedin_modern_search.detect_modern_ui", return_value=True):
+            self.namespace["wait_for_search_results"]([self.previous])
+        self.staleness.assert_not_called()
+        self.assertEqual(self.events, ["results_ready"])
+        self.assertFalse(self.previous.detached)
+
+    def test_identical_classic_query_with_no_previous_cards_does_not_wait_for_staleness(self):
+        with patch("modules.linkedin_modern_search.detect_modern_ui", return_value=False):
+            self.namespace["wait_for_search_results"]([])
+        self.staleness.assert_not_called()
+        self.assertEqual(self.events, ["results_ready"])
 
 
 if __name__ == "__main__":

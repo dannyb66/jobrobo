@@ -199,8 +199,8 @@ class FilterBrowser(DOMBrowser):
                 picker.xpath(".//*[@aria-label]")[0].set("aria-label", "Location " + node.text_content())
                 picker.xpath(".//p")[0].text = node.text_content()
                 self.root.xpath("//*[@id='location-popup']")[0].set("hidden", "")
-        elif role == "button" and label in {"Date posted", "Past month", "Job type", "Employment type", "On-site/remote"}:
-            menu_id = {"Date posted": "date-menu", "Past month": "date-menu", "Job type": "job-menu", "Employment type": "job-menu", "On-site/remote": "work-menu"}[label]
+        elif role == "button" and label in {"Date posted", "Past month", "Job type", "Employment type", "On-site/remote", "Workplace type"}:
+            menu_id = {"Date posted": "date-menu", "Past month": "date-menu", "Job type": "job-menu", "Employment type": "job-menu", "On-site/remote": "work-menu", "Workplace type": "work-menu"}[label]
             menu = self.root.xpath("//*[@id=$menu]", menu=menu_id)[0]
             if menu.get("hidden") is None:
                 menu.set("hidden", "")
@@ -269,6 +269,38 @@ class StalePromptBrowser(FilterBrowser):
         if node.tag == "a" and node.text_content().strip() == "Show results" and node.getparent().get("id") == "job-menu":
             self.prompt_stale = True
             self.locates_at_transition = self.prompt_locates
+
+
+class StaleLocationAnchor(DOMElement):
+    def click(self):
+        from selenium.common.exceptions import StaleElementReferenceException
+        self.browser.anchor_click_attempts += 1
+        if not self.browser.detached_anchor_once:
+            self.browser.detached_anchor_once = True
+            if self.browser.commit_before_stale:
+                super().click()
+            raise StaleElementReferenceException("Location suggestion was replaced during click")
+        super().click()
+
+
+class StaleLocationBrowser(FilterBrowser):
+    def __init__(self, commit_before_stale=False):
+        super().__init__()
+        self.commit_before_stale = commit_before_stale
+        self.detached_anchor_once = False
+        self.anchor_click_attempts = 0
+        self.anchor_locates = 0
+
+    def query(self, root, by, selector):
+        elements = super().query(root, by, selector)
+        result = []
+        for element in elements:
+            if element.node.tag == "a" and parse_qs(urlsplit(element.node.get("href", "")).query).get("geoId") == ["90000084"]:
+                self.anchor_locates += 1
+                result.append(StaleLocationAnchor(self, element.node))
+            else:
+                result.append(element)
+        return result
 
 
 def immediate(predicate):
@@ -450,6 +482,30 @@ class ModernFilterReplayTests(unittest.TestCase):
         self.assertIn("job_type", result.verified_filters)
         self.assertEqual(parse_qs(urlsplit(self.browser.current_url).query)["f_SAL"], ["f_SA_id_226001:272015"])
 
+    def test_stale_exact_location_anchor_is_refound_before_clicking(self):
+        self.browser = StaleLocationBrowser()
+        result = self.prepare()
+        self.assertEqual(self.browser.anchor_click_attempts, 2)
+        self.assertGreaterEqual(self.browser.anchor_locates, 2)
+        self.assertEqual(result.location_confirmation["geography"]["geoId"], ["90000084"])
+        actual_clicks = [event for event in self.browser.clicks if event[2] == "job-search-location-tyah-result"]
+        self.assertEqual(len(actual_clicks), 1)
+
+    def test_location_stale_after_successful_commit_does_not_click_again(self):
+        self.browser = StaleLocationBrowser(commit_before_stale=True)
+        result = self.prepare()
+        self.assertEqual(self.browser.anchor_click_attempts, 1)
+        self.assertEqual(result.location_confirmation["selected_label"], "San Francisco Bay Area")
+        self.assertEqual(parse_qs(urlsplit(self.browser.current_url).query)["geoId"], ["90000084"])
+
+    def test_wrong_country_location_suggestion_is_never_clicked(self):
+        from modules.linkedin_search import SearchUIError
+        self.browser.root.xpath("//a[contains(@href,'geoId=90000084')]")[0].text = "San Francisco Bay Area, India"
+        with self.assertRaises(SearchUIError) as caught:
+            self.prepare()
+        self.assertEqual(caught.exception.stage, "location")
+        self.assertFalse(any(event[2] == "job-search-location-tyah-result" for event in self.browser.clicks))
+
     def test_auth_redirect_during_filter_hydration_is_not_retried_as_stale(self):
         from modules.linkedin_search import SearchUIError
         original_click = self.browser.click
@@ -566,6 +622,25 @@ class ModernFilterReplayTests(unittest.TestCase):
         self.assertEqual(self.browser.root.xpath("//*[@aria-label='Filter by Remote']")[0].get("aria-checked"), "false")
         self.assertNotIn("f_WT", parse_qs(urlsplit(self.browser.current_url).query))
         self.assertEqual(result.filter_report["on_site"]["status"], "prompt_only")
+
+    def test_hybrid_and_onsite_only_do_not_treat_remote_pill_as_workplace_dropdown(self):
+        for arrangement in ("Hybrid", "On-site"):
+            with self.subTest(arrangement=arrangement):
+                self.browser = FilterBrowser()
+                result = self.prepare(make_spec(on_site=[arrangement]))
+                self.assertEqual(result.filter_report["on_site"]["status"], "unavailable")
+                self.assertEqual(result.filter_report["on_site"]["requested"], [arrangement])
+                self.assertFalse(any(label == "Filter by Remote" for _, label, _ in self.browser.clicks))
+                self.assertNotIn("f_WT", parse_qs(urlsplit(self.browser.current_url).query))
+
+    def test_supported_workplace_dropdown_can_select_hybrid_without_remote_pill(self):
+        trigger = self.browser.root.xpath("//*[@aria-label='On-site/remote']")[0]
+        trigger.set("aria-label", "Workplace type")
+        trigger.text = "Workplace type"
+        result = self.prepare(make_spec(on_site=["Hybrid"]))
+        self.assertEqual(result.filter_report["on_site"]["status"], "verified")
+        self.assertEqual(parse_qs(urlsplit(self.browser.current_url).query)["f_WT"], ["3"])
+        self.assertFalse(any(label == "Filter by Remote" for _, label, _ in self.browser.clicks))
 
     def test_replay_selected_remote_only_is_rejected_for_remote_or_hybrid_intent(self):
         self.prepare()
@@ -712,6 +787,30 @@ class ModernPaginationTests(unittest.TestCase):
         with self.assertRaises(SearchUIError) as caught:
             next_search_page(self.browser(), 1, wait=immediate, timeout=.1)
         self.assertEqual(caught.exception.stage, "pagination")
+
+    def test_classic_page_commit_does_not_require_modern_prompt_or_facets(self):
+        from modules.linkedin_modern_search import next_search_page, get_search_pagination
+        browser = DOMBrowser('<html><body><main><input id="jobs-search-box-keyword-fixture" value="Engineer">'
+                             '<li data-occludable-job-id="321"><a href="/jobs/view/321">Engineer</a></li>'
+                             '<div aria-label="Pagination"><button aria-label="Page 1" aria-current="page">1</button>'
+                             '<button aria-label="Page 2">2</button></div></main></body></html>')
+        browser.current_url = "https://www.linkedin.com/jobs/search/?keywords=Engineer"
+        polls = []
+
+        def delayed(predicate):
+            for _ in range(5):
+                polls.append(1)
+                if len(polls) == 2:
+                    browser.root.xpath("//*[@aria-label='Page 1']")[0].attrib.pop("aria-current", None)
+                    browser.root.xpath("//*[@aria-label='Page 2']")[0].set("aria-current", "page")
+                result = predicate(None)
+                if result:
+                    return result
+            raise AssertionError("Classic selected page never committed")
+
+        self.assertTrue(next_search_page(browser, 1, wait=delayed, timeout=.1))
+        self.assertEqual(get_search_pagination(browser)[1], 2)
+        self.assertEqual(len(polls), 2)
 
 
 if __name__ == "__main__":

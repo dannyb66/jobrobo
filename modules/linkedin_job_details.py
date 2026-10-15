@@ -5,12 +5,60 @@ expandable DOM, including paragraphs hidden by the visual collapsed preview.
 """
 
 import re
+from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlparse
 
 
 DETAIL_ROOT = "[data-view-name='job-detail-page']"
 DETAIL_SECTION = "[id^='JobDetails_AboutTheJob_']"
 EASY_APPLY = "button[aria-label='Easy Apply to this job']"
+
+
+class _DescriptionText(HTMLParser):
+    """Read every text node while preserving ordinary HTML block boundaries."""
+
+    blocks = {"p", "div", "section", "article", "li", "ul", "ol", "table", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "dl", "dt", "dd"}
+    voids = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts, self.ignored_depth = [], 0
+
+    def handle_starttag(self, tag, attrs):
+        if self.ignored_depth:
+            if tag not in self.voids:
+                self.ignored_depth += 1
+            return
+        attributes = dict(attrs)
+        if tag in {"script", "style"} or tag == "button" and attributes.get("data-testid") == "expandable-text-button":
+            self.ignored_depth = 1
+            return
+        if tag in self.blocks or tag in {"br", "hr"}:
+            self.parts.append("\n")
+        elif tag in {"td", "th"}:
+            self.parts.append(" ")
+
+    def handle_endtag(self, tag):
+        if self.ignored_depth:
+            if tag not in self.voids:
+                self.ignored_depth -= 1
+            return
+        if tag in self.blocks:
+            self.parts.append("\n")
+        elif tag in {"td", "th"}:
+            self.parts.append(" ")
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag not in self.voids:
+            self.handle_endtag(tag)
+
+    def handle_data(self, data):
+        if not self.ignored_depth:
+            self.parts.append(data)
+
+    def text(self):
+        return "\n".join(line for line in (" ".join(value.split()) for value in "".join(self.parts).splitlines()) if line)
 
 
 def _visible(element):
@@ -77,9 +125,13 @@ def read_modern_description(driver, expected_job_id=None):
     boxes = sections[0].find_elements("css selector", "[data-testid='expandable-text-box']")
     if len(boxes) != 1:
         raise ValueError("Full modern job description is unavailable")
-    paragraphs = boxes[0].find_elements("css selector", "p")
-    description = "\n".join(_text(paragraph, full=True) for paragraph in paragraphs).strip()
-    if not paragraphs:
+    markup = boxes[0].get_attribute("innerHTML")
+    if isinstance(markup, str) and markup.strip():
+        parser = _DescriptionText()
+        parser.feed(markup)
+        parser.close()
+        description = parser.text()
+    else:
         description = re.sub(r"\s*…\s*more\s*$", "", _text(boxes[0], full=True), flags=re.I).strip()
     if not description:
         raise ValueError("Full modern job description is empty")

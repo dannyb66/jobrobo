@@ -324,7 +324,8 @@ def start_search(driver, spec, wait_for_search, wait_for_results=None, *, timeou
         variant, fallback = "legacy_classic", "Natural-language search control unavailable; using visible native keyword input"
     current = getattr(driver, "current_url", "")
     current = current if isinstance(current, str) else ""
-    if "/jobs/search" not in current or _location_attribute(prompt, "value") != query:
+    if ("/jobs/search" not in current or _location_attribute(prompt, "value") != query
+            or parse_qs(urlparse(current).query).get("keywords") != [query]):
         previous = get_search_cards(driver)
         modern.fill_text(prompt, query)
         prompt.send_keys("\ue007")

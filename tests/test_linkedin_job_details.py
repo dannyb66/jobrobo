@@ -44,7 +44,7 @@ class DetailBrowser:
         self.current_url = "https://www.linkedin.com/jobs/view/" + job_id + "/"
         self.has_view_marker = True
         self.hidden_exclusion = Node("", attrs={"textContent": "US Citizen required. Security clearance required."})
-        self.box = Node("Build production infrastructure… more", attrs={"textContent": "Build production infrastructure. US Citizen required. … more"}, children={
+        self.box = Node("Build production infrastructure… more", attrs={"textContent": "Build production infrastructure. US Citizen required. Security clearance required. … more"}, children={
             "p": [Node("Build production infrastructure.", attrs={"textContent": "Build production infrastructure."}), self.hidden_exclusion],
         })
         self.job = Node(attrs={"id": "JobDetails_AboutTheJob_" + job_id}, children={"[data-testid='expandable-text-box']": [self.box]})
@@ -99,6 +99,21 @@ class ModernDetailReaderTests(unittest.TestCase):
         company, root = read_modern_company(self.browser, "123")
         self.assertIn("Staffing and Recruiting", company)
         self.assertIs(root, self.browser.root)
+
+    def test_full_description_preserves_all_list_table_and_hidden_block_text(self):
+        self.browser.box.attrs["innerHTML"] = """<p>Build infrastructure.</p>
+            <ul><li style="display:none">US Citizen required.</li><li>Security <strong>clearance</strong> required.</li></ul>
+            <table><tr><td>Experience</td><td>10 years required</td></tr></table>
+            <div>Develop reliable platforms.</div><p>Master&#39;s degree preferred.</p>
+            <button data-testid="expandable-text-button"><span>… more</span></button>"""
+        description = read_modern_description(self.browser, "123")
+        self.assertIn("US Citizen required.", description)
+        self.assertIn("Security clearance required.", description)
+        self.assertIn("Experience 10 years required", description)
+        self.assertIn("Develop reliable platforms.", description)
+        self.assertIn("Master's degree preferred.", description)
+        self.assertNotIn("more", description)
+        self.assertIn("infrastructure.\nUS Citizen", description)
 
     def test_stale_job_id_and_ambiguous_panes_fail_before_reading_or_applying(self):
         for reader in (read_modern_details, read_modern_description, read_modern_company, modern_easy_apply_button):
@@ -329,6 +344,36 @@ class ObservedModernDetailDOMTests(unittest.TestCase):
         self.assertIsNotNone(modern_easy_apply_button(browser, "123"))
         self.assertFalse(modern_details_ready(browser, "999"))
         self.assertEqual(browser.clicks, [])
+
+    def test_requirements_in_hidden_lists_outside_paragraphs_reach_existing_exclusion_gates(self):
+        for stripped in (False, True):
+            with self.subTest(stripped=stripped):
+                browser = DetailDOMBrowser()
+                box = browser.root.xpath("//*[@data-testid='expandable-text-box']")[0]
+                for child in list(box):
+                    box.remove(child)
+                box.append(etree.fromstring("""<div><p>Build infrastructure.</p>
+                  <ul><li style="display:none">US Citizen required.</li><li>Security clearance required.</li></ul>
+                  <table><tr><td>Experience</td><td>10 years required</td></tr></table>
+                  <button data-testid="expandable-text-button">… more</button></div>"""))
+                for index, node in enumerate(browser.root.iter()):
+                    node.set("data-fixture-id", str(index))
+                    if stripped:
+                        node.attrib.pop("data-view-name", None)
+                namespace = dict(driver=browser, bad_words=["US Citizen"], security_clearance=False,
+                                 did_masters=True, current_experience=-1, extract_years_of_experience=lambda *_: 10,
+                                 print_lg=Mock())
+                extract_functions(namespace, "get_job_description")
+                description, _, skip, reason, _ = namespace["get_job_description"]()
+                self.assertIn("US Citizen required.", description)
+                self.assertIn("Security clearance required.", description)
+                self.assertIn("Experience 10 years required", description)
+                self.assertNotIn("more", description)
+                self.assertTrue(skip)
+                self.assertEqual(reason, "Found a Bad Word in About Job")
+                namespace["bad_words"] = []
+                self.assertEqual(namespace["get_job_description"]()[3], "Asking for Security clearance")
+                self.assertEqual(browser.clicks, [])
 
 
 if __name__ == "__main__":

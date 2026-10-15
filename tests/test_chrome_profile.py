@@ -46,6 +46,11 @@ class ChromeProfileTest(unittest.TestCase):
             self.assertIsNone(module.find_default_profile_directory())
 
     def start_browser(self, profile, safe=False, fallback=None):
+        import selenium
+        # Load the child before patch.dict snapshots sys.modules. Otherwise an
+        # existing selenium package can retain an orphaned webdriver attribute
+        # after the snapshot removes its newly imported child module.
+        webdriver = importlib.import_module("selenium.webdriver")
         settings = types.SimpleNamespace(
             run_in_background=False, stealth_mode=False, disable_extensions=False,
             safe_mode=safe, chrome_profile_path=profile, file_name="applied.csv",
@@ -61,10 +66,11 @@ class ChromeProfileTest(unittest.TestCase):
             "config.settings": settings,
             "config.questions": types.SimpleNamespace(default_resume_path="resume.pdf"),
             "modules.helpers": helpers,
-        }), patch("selenium.webdriver.Chrome", return_value=driver) as constructor:
+        }), patch.object(selenium, "webdriver", webdriver), patch.object(webdriver, "Chrome", return_value=driver) as constructor:
             namespace = runpy.run_path(str(ROOT / "modules/open_chrome.py"))
             constructor.assert_not_called()
             namespace["create_browser"]()
+            constructor.assert_called_once()
         helpers.critical_error_log.assert_not_called()
         driver.maximize_window.assert_called_once()
         return constructor.call_args.kwargs["options"].arguments, helpers
@@ -100,6 +106,14 @@ class ChromeProfileTest(unittest.TestCase):
         self.assertFalse((self.home / "unused profile").exists())
         self.assertFalse(any(arg.startswith("--user-data-dir=") for arg in arguments))
         helpers.find_default_profile_directory.assert_not_called()
+
+    def test_orphaned_webdriver_package_attribute_cannot_bypass_browser_mock(self):
+        import selenium
+        importlib.import_module("selenium.webdriver")
+        orphan = types.SimpleNamespace(Chrome=Mock(side_effect=AssertionError("Unpatched webdriver constructor")))
+        with patch.object(selenium, "webdriver", orphan):
+            self.start_browser("~/isolated mock profile")
+        orphan.Chrome.assert_not_called()
 
 
 if __name__ == "__main__":

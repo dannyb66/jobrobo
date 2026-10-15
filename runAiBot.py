@@ -291,6 +291,9 @@ def wait_for_search_results(previous):
     # Modern LinkedIn reuses card nodes across queries; DOM staleness is not a
     # reliable completion signal. The adapter verifies the submitted query and
     # filters, then waits for a recognized list or an explicit empty state.
+    from modules.linkedin_modern_search import detect_modern_ui
+    if previous and not detect_modern_ui(driver):
+        WebDriverWait(driver, 15).until(EC.staleness_of(previous[0]))
     WebDriverWait(driver, 15).until(search_results_ready)
 
 

@@ -11,7 +11,7 @@ import re
 import sys
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
-from .linkedin_search import AI_INPUT_XPATH, SearchResult, SearchUIError, LocationSelectionError, _location_matches, _location_normalize
+from .linkedin_search import AI_INPUT_XPATH, CLASSIC_INPUT_XPATH, SearchResult, SearchUIError, LocationSelectionError, _location_matches, _location_normalize
 
 
 PROMPT_XPATH = "//*[self::input or self::textarea or @contenteditable='true'][@data-view-name='job-search-tyah' or @componentkey='semanticSearchBox']"
@@ -304,6 +304,10 @@ def _facet(driver, key, desired=()):
     for facet in _find(driver, FACET_XPATH):
         if not _visible(facet):
             continue
+        if key == "on_site" and set(desired) != {"Remote"} and _is_pill(facet):
+            # The modern Remote-only pill is not a Hybrid/On-site menu.
+            # Unsupported arrangements stay in the prompt without narrowing.
+            continue
         labels = [_text(facet), _attribute(facet, "aria-label")]
         labels.extend(_attribute(child, "aria-label") for child in _find(facet, ".//*[@aria-label]"))
         labels = [re.sub(r"^Filter by\s+", "", label, flags=re.I) for label in labels]
@@ -458,22 +462,39 @@ def _set_location(driver, desired, *, timeout=30, wait=None):
         picker.click()
         editor = _wait(driver, lambda *_: _first(_find(driver, LOCATION_EDITOR_XPATH)), timeout, wait)
         fill_text(editor, desired)
-        def suggestion(*_):
+        expected_geo, clicked = None, False
+        def commit_suggestion(*_):
+            nonlocal expected_geo, clicked
+            check_access(driver)
+            committed = verify_modern_location(driver, desired)
+            if committed and (clicked or expected_geo):
+                if not expected_geo or committed["geography"].get("geoId") == expected_geo:
+                    return committed
+            if clicked:
+                return False
             options = [option for option in _find(driver, "//a[contains(@href,'geoId=')] | //*[@role='option']")
                        if _visible(option) and _location_matches(_text(option), desired)]
             exact = [option for option in options if _location_normalize(_text(option)) == _location_normalize(desired)]
             options = exact or options
             if len(options) > 1:
                 raise LocationSelectionError("Multiple matching LinkedIn location suggestions")
-            return options[0] if options else False
-        option = _wait(driver, suggestion, timeout, wait)
-        href = _attribute(option, "href")
-        if href:
-            destination = urlparse(urljoin(_url(driver), href))
-            if destination.hostname not in {"linkedin.com", "www.linkedin.com"} or not destination.path.startswith("/jobs/"):
-                raise LocationSelectionError("Location suggestion leaves the LinkedIn jobs interface")
-        option.click()
-        return _wait(driver, lambda *_: verify_modern_location(driver, desired), timeout, wait)
+            if not options:
+                return False
+            option = options[0]
+            href = _attribute(option, "href")
+            if href:
+                destination = urlparse(urljoin(_url(driver), href))
+                if destination.hostname not in {"linkedin.com", "www.linkedin.com"} or not destination.path.startswith("/jobs/"):
+                    raise LocationSelectionError("Location suggestion leaves the LinkedIn jobs interface")
+                expected_geo = parse_qs(destination.query).get("geoId")
+            # A refreshed suggestion can detach between locating and clicking.
+            # _wait retries only Selenium staleness, re-finding the exact label
+            # and checking its destination each time. A committed selection is
+            # recognized on the next poll without clicking a second time.
+            option.click()
+            clicked = True
+            return False
+        return _wait(driver, commit_suggestion, timeout, wait)
     except SearchUIError:
         raise
     except Exception as error:
@@ -672,7 +693,9 @@ def next_search_page(driver, page, *, timeout=30, wait=None):
         return bool(moved and search_results_ready(driver))
     try:
         _wait(driver, committed, timeout, wait)
-        if detect_modern_ui(driver):
+        legacy_classic = (_first(_find(driver, CLASSIC_INPUT_XPATH)) is not None
+                          and _first(_find(driver, PROMPT_XPATH)) is None)
+        if detect_modern_ui(driver) and not legacy_classic:
             query = (before.get("keywords") or [_prompt_text(driver)])[0]
             _settle(driver, query, timeout=timeout, wait=wait)
     except SearchUIError:
