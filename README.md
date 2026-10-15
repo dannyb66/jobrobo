@@ -138,6 +138,55 @@ print(output_path)
 
 Use `optimization_mode="skills"` to update Skills only, `"bullets"` to update Skills and bullets, or `"full"` to also replace recognized professional-experience titles with the target title. `full` does not rewrite the summary or validate title equivalence. Use a distinct local job ID and inspect the returned PDF and report before an application run.
 
+## Search and apply on LinkedIn without stage inputs
+
+The configured bot searches LinkedIn directly from `config/search.py` and
+`config/search_profile.py`, then processes matching jobs in the same session.
+It does **not** require `verified_roles.json`, `linkedin_jobs.json`, a named
+pipeline set, or the discovery pipeline below.
+
+From the repository root, first inspect the configured search without entering
+application forms:
+
+```bash
+python runAiBot.py --diagnose-search --limit 5 --output /tmp/jobrobo-search-check.json
+```
+
+After reviewing filters, profile answers and resume selection, start a fresh
+configured search followed by application processing:
+
+```bash
+python runAiBot.py --configured-search-and-apply --fresh
+```
+
+This second command can fill/upload application data and reach submission.
+Keep `pause_before_submit = True`, `pause_at_failed_question = True` in
+`config/questions.py` and `run_in_background = False` in `config/settings.py`
+while reviewing applications. Confirm each employer, answers and attachment.
+Never treat a provisional first-option answer as a verified fact.
+
+`--fresh` creates a new search manifest for this invocation; existing submission
+history, duplicate protection and uncertain-submission checkpoints are preserved.
+It temporarily disables unfinished-search resume without editing saved config.
+Without `--fresh`, the explicit configured command honors
+`resume_search_enabled`. The original `python runAiBot.py` shortcut still works.
+
+Filters and the overall submission cap come from `config/search.py`:
+`search_location`, `date_posted`, `job_type`, `experience_level`, `on_site`,
+`easy_apply_only`, and `max_applications_per_run` (default one).
+Use the exact `San Francisco Bay Area` location when selecting that native
+suggestion. Remote/Hybrid intent and unavailable filter controls must be checked
+in the actual results; a requested filter is not proof it was applied.
+With `easy_apply_only = True`, company navigation is blocked even on result
+layouts without pagination. Otherwise company Apply links can be collected;
+an external link is not an application success.
+
+The configured command accepts only `--fresh`; it does not accept pipeline
+`--mode`, `--input`, `--set`, `--db`, `--refresh`, `--output`, or `--limit` flags.
+The diagnostic's `--limit` limits collected metadata, not confirmed submissions.
+See the [configured LinkedIn run guide](docs/linkedin-configured-run.md) for
+configuration, resume behavior, stopping and verification limits.
+
 ## Job discovery pipeline
 
 The pipeline separates company discovery, verification against official careers pages, LinkedIn collection, and selected-job application. Each stage saves cumulative records in SQLite and can export a portable, versioned JSON set for the next stage.
@@ -754,7 +803,7 @@ https://discord.gg/fFp7uUzWCY
 - **X/Twitter**: https://x.com/deepakcool3
 
 
-#### ℹ️ Version: [0.1.3.0](VERSION)
+#### ℹ️ Version: [0.1.4.0](VERSION)
 
 ---
 

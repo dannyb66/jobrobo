@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.4.0] - 2026-10-15
+
+### Added
+
+- Run configured LinkedIn search and application processing with `--configured-search-and-apply --fresh`, without discovery-stage input artifacts; retain existing submission history and duplicate protection.
+- Document the direct configured workflow separately from the staged job pipeline.
+
+### Fixed
+
+- Respect Easy Apply-only policy when result pages omit pagination, and recognize modern company Apply anchors scoped to the current job.
+- Re-detect modern results after the landing prompt hydrates, so native location and filter verification use the correct adapter.
+- Replace ordinary preferred first-name fields exactly after blur, preventing controlled-input concatenation while preserving legal-name and surname fields.
+
 ## Unreleased
 
 ### Added
