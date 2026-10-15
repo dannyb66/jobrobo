@@ -108,19 +108,34 @@ PY
 
 This prints the planned queries without connecting to OpenAI, opening LinkedIn, creating a manifest, or submitting applications. If validation fails, fix the named profile value and rerun the preview.
 
+To inspect the signed-in search experience without applying, run:
+
+```bash
+python3 runAiBot.py --diagnose-search --limit 5 \
+  --output logs/search-diagnostic.json
+```
+
+The diagnostic uses a configured query, opens LinkedIn, and collects up to five job-card records and search screenshots. Its report includes query transport, the detected UI variant, location confirmation, filter outcomes, sanitized result URLs, and job metadata. It does not open application forms, upload resumes, submit applications, or create application/collection ledgers. It closes the browser it creates. Only `--limit` and `--output` can accompany `--diagnose-search`; pipeline inputs and modes are unnecessary. The diagnostic limit defaults to five.
+
 Run the configured bot with `python3 runAiBot.py`. The default `max_applications_per_run = 1` allows at most one confirmed submission across all queries in that command. The same budget spans any nonstop cycles; it resets when you invoke the command again. Failed or skipped jobs and collected external application links do not consume this submission budget.
 
 The per-query quota remains separate: successful Easy Apply submissions and collected external application links count toward `switch_number` or a manual `quota` when external applications are enabled. Failed and skipped jobs do not consume that quota. External links remain marked as pending rather than submitted applications. Disabling the command-wide cap with `None` still leaves per-query quotas in effect. Final review and verified-resume checks remain in place.
 
 ## Search modes and filter warnings
 
-For each query, the runner looks for a visible natural-language search control on LinkedIn's jobs page or search-results page. It submits the rendered query there when available. If the control is absent or fails, it attempts the classic keyword route using `classic_query`.
+For each query, the runner detects the current LinkedIn search interface. In the modern experience, it submits the rendered natural-language query through the visible prompt and applies supported inline filters below the search. Modern cards and pagination feed the existing application flow. Search completion uses recognized results or an explicit empty state; it does not require card elements to become stale, because LinkedIn can reuse them across searches.
 
-The manifest records actual mode (`ai` or `classic`), executed query text, fallback reason, and unavailable or failed filter warnings. The runner attempts each configured filter independently, including sorting. Most missing controls produce warnings and allow the query to continue; classic search requires a verified location selection.
+After a native search verifies its rendered filters and location, the adapter can reuse the observed URL state for later queries in the same browser session. Each replay must verify the new query, filters, location, and results again. A rejected replay is discarded and rebuilt through the native controls. These session recipes use observed parameters; they do not hardcode geography IDs or assume that a URL alone proves filter selection.
 
-Classic search selects the matching location autocomplete option and verifies the committed geographic URL and location label. Typed text alone does not establish the search location. If the selection cannot be verified, the query fails instead of continuing with LinkedIn's default geography. In natural-language mode, a missing location control produces a warning and the location remains expressed in the query. Every job still passes the location check before application, regardless of search mode or LinkedIn's result ranking.
+The classic keyword route is used only when a native classic interface is positively detected. A modern-search failure is recorded for diagnosis instead of assuming that a constructed classic URL restores the older UI. Search diagnostics distinguish the submitted query, transport, detected interface, location confirmation, and verified, unavailable, or failed filters alongside actual mode (`ai` or `classic`), fallback reason, and warnings.
 
-The classic fallback is an attempted keyword route, not a guarantee that the old LinkedIn UI is available. LinkedIn reports that it is gradually retiring classic search and restoring some filters to the AI experience. See [LinkedIn's AI-powered job search help](https://www.linkedin.com/help/linkedin/answer/a6889044/) for current availability. Mode detection uses visible UI controls; selector behavior must be verified against the account's current interface.
+Location confirmation follows the detected interface. Classic search selects the matching autocomplete option and verifies its committed geography and label. Modern search verifies rendered location confirmation; typed text alone is insufficient. The configured Easy Apply requirement must also be verified before application work proceeds. Every job still passes the existing location check before application, regardless of search mode or result ranking.
+
+Other unavailable controls leave their intent in the natural-language query and produce a warning; existing description and eligibility checks remain active. Most-recent ordering is best effort when its control is absent. Remote and Hybrid retain their configured OR meaning: the runner does not select a Remote-only control that would remove requested hybrid jobs. Contextual suggestion chips are not automatically treated as configured filters.
+
+Modern job details are tied to the selected job ID before company, location, and description checks run. The readers use scoped job/company sections and the full description DOM, including text hidden by a collapsed preview, so exclusion terms below the visible excerpt remain checked. Missing modern description evidence stops that job before the application form. The existing resume, review, quota, and submission checks follow these readers.
+
+LinkedIn documents Date posted, Company, Experience level, Employment type, Remote, Easy Apply, In my network, and Under 10 applicants as available results-page filters. Its current help lists sorting and Hybrid/On-site as forthcoming and classic search as being retired. Suggested chips below the search bar adapt to each query. See [LinkedIn's AI-powered job search help](https://www.linkedin.com/help/linkedin/answer/a6889044/). Account-specific controls are detected at runtime; public help does not establish their DOM or URL contracts.
 
 ## How to resume an interrupted run
 
@@ -184,10 +199,11 @@ Applied-job IDs are loaded by the `Job ID` header rather than a column position,
 Run the automated tests from the repository root:
 
 ```bash
+python3 -m pip install -r requirements-dev.txt
 python3 -m unittest discover -s tests -v
 ```
 
-Tests cover planning, refinement validation and fallback, search-mode detection, committed location selection and job-location gates, resumable state, per-query quotas and command-wide submission caps, CSV migration, and application metadata using local fixtures and mocked browser interactions. No live LinkedIn applications were submitted during implementation verification. Live UI availability and account-specific selectors remain to be checked during a supervised run.
+Tests cover planning, refinement validation and fallback, modern prompt/filter transport, committed location selection, job-location gates, full modern detail readers, resumable state, per-query quotas and command-wide submission caps, CSV migration, and application metadata using local fixtures and mocked browser interactions. Search diagnostics verify the signed-in search and card interface; they do not verify live application forms. No live LinkedIn applications were submitted during implementation verification.
 
 If refinement warns that credentials are unavailable, deterministic queries still run. If a filter warning appears, inspect the saved query and current LinkedIn filter controls. If a run resumes an older query list, its manifest matches the current effective plan; disable automatic resume to start a new run. If a job remains `submitting` after interruption, verify it on LinkedIn before any manual retry.
 

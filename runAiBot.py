@@ -11,7 +11,11 @@ from config import search_profile
 from modules.search_planner import build_search_plan
 from modules.search_state import SearchManifest, plan_fingerprint
 from modules.search_history import append_history, load_applied_job_ids, search_metadata, file_lock
-from modules.linkedin_search import start_search, apply_configured_filters, AI_INPUT_XPATH
+from modules.linkedin_search import (
+    start_search, prepare_search, apply_configured_filters, AI_INPUT_XPATH,
+    get_search_cards, search_card_id, read_search_card, search_results_ready,
+    get_search_pagination, next_search_page,
+)
 from modules.ai.search_refinement import make_refiner
 from modules.application_budget import ApplicationBudget
 
@@ -277,18 +281,17 @@ def apply_filters(spec) -> list[str]:
 
 
 def wait_for_search():
-    WebDriverWait(driver, 10).until(lambda browser: browser.find_elements(
-        By.XPATH, AI_INPUT_XPATH + ' | //input[contains(@aria-label, "Search") or contains(@id, "jobs-search-box-keyword")] | //li[@data-occludable-job-id]'
-    ))
+    from modules.linkedin_modern_search import find_prompt
+    WebDriverWait(driver, 10).until(lambda browser: find_prompt(browser) is not None
+                                  or search_results_ready(browser)
+                                  or browser.find_elements(By.XPATH, '//input[contains(@id, "jobs-search-box-keyword")]'))
 
 
 def wait_for_search_results(previous):
-    # An AI field can remain visible throughout submission; wait for old cards to leave.
-    if previous:
-        WebDriverWait(driver, 15).until(EC.staleness_of(previous[0]))
-    WebDriverWait(driver, 15).until(lambda browser: browser.find_elements(
-        By.XPATH, '//li[@data-occludable-job-id] | //*[contains(@class, "jobs-search-no-results") or contains(normalize-space(.), "No matching jobs found") and not(*)]'
-    ))
+    # Modern LinkedIn reuses card nodes across queries; DOM staleness is not a
+    # reliable completion signal. The adapter verifies the submitted query and
+    # filters, then waits for a recognized list or an explicit empty state.
+    WebDriverWait(driver, 15).until(search_results_ready)
 
 
 def checkpoint_job(job_id, status, reason=None):
@@ -310,16 +313,7 @@ def get_page_info() -> tuple[WebElement | None, int | None]:
     '''
     Function to get pagination element and current page number
     '''
-    try:
-        pagination_element = try_find_by_classes(driver, ["jobs-search-pagination__pages", "artdeco-pagination", "artdeco-pagination__pages"])
-        scroll_to_view(driver, pagination_element)
-        current_page = int(pagination_element.find_element(By.XPATH, "//button[contains(@class, 'active')]").text)
-    except Exception as e:
-        print_lg("Failed to find Pagination element, hence couldn't scroll till end!")
-        pagination_element = None
-        current_page = None
-        print_lg(e)
-    return pagination_element, current_page
+    return get_search_pagination(driver)
 
 
 
@@ -334,6 +328,30 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
     * work_style: Work style of this job (Remote, On-site, Hybrid)
     * skip: A boolean flag to skip this job
     '''
+    if not job.get_dom_attribute('data-occludable-job-id'):
+        details = read_search_card(job)
+        job_id, title, company = details['id'], details['title'], details['company']
+        work_location, work_style = details['location'], details['workplace_type']
+        if not job_id or not title or not company:
+            raise ValueError("Modern job card lacks a verifiable ID, title, or employer")
+        skip = company in blacklisted_companies or job_id in rejected_jobs
+        if not skip:
+            anchor = details.get('title_element')
+            if anchor is None:
+                anchors = job.find_elements(By.CSS_SELECTOR, "a[href*='/jobs/view/']")
+                anchor = next((element for element in anchors
+                               if str(search_card_id(element)) == str(job_id)), None)
+            if anchor is None:
+                raise ValueError("Modern job card has no matching LinkedIn job link")
+            scroll_to_view(driver, anchor, True)
+            anchor.click()
+            from modules.linkedin_job_details import modern_details_ready
+            live = WebDriverWait(driver, 15).until(lambda browser: modern_details_ready(browser, job_id))
+            title, company = live['title'], live['company']
+            work_location, work_style = live['location'], live['workplace_type']
+            skip = company in blacklisted_companies or job_id in rejected_jobs
+        buffer(click_gap)
+        return job_id, title, company, work_location, work_style, skip
     job_details_button = job.find_element(By.TAG_NAME, 'a')  # job.find_element(By.CLASS_NAME, "job-card-list__title")  # Problem in India
     scroll_to_view(driver, job_details_button, True)
     job_id = job.get_dom_attribute('data-occludable-job-id')
@@ -386,10 +404,14 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
 
 # Function to check for Blacklisted words in About Company
 def check_blacklist(rejected_jobs: set, job_id: str, company: str, blacklisted_companies: set) -> tuple[set, set, WebElement] | ValueError:
-    jobs_top_card = try_find_by_classes(driver, ["job-details-jobs-unified-top-card__primary-description-container","job-details-jobs-unified-top-card__primary-description","jobs-unified-top-card__primary-description","jobs-details__main-content"])
-    about_company_org = find_by_class(driver, "jobs-company__box")
-    scroll_to_view(driver, about_company_org)
-    about_company_org = about_company_org.text
+    from modules.linkedin_job_details import modern_details_root, read_modern_company
+    if modern_details_root(driver, job_id) is not None:
+        about_company_org, jobs_top_card = read_modern_company(driver, job_id)
+    else:
+        jobs_top_card = try_find_by_classes(driver, ["job-details-jobs-unified-top-card__primary-description-container","job-details-jobs-unified-top-card__primary-description","jobs-unified-top-card__primary-description","jobs-details__main-content"])
+        about_company_org = find_by_class(driver, "jobs-company__box")
+        scroll_to_view(driver, about_company_org)
+        about_company_org = about_company_org.text
     about_company = about_company_org.lower()
     skip_checking = False
     for word in about_company_good_words:
@@ -438,13 +460,20 @@ def get_job_description(
     - `skipReason: str | None`
     - `skipMessage: str | None`
     '''
+    modern = False
+    jobDescription = "Unknown"
+    experience_required = "Unknown"
+    skip = False
+    skipReason = skipMessage = None
     try:
         ##> ------ Dheeraj Deshwal : dheeraj9811 Email:dheeraj20194@iiitd.ac.in/dheerajdeshwal9811@gmail.com - Feature ------
         jobDescription = "Unknown"
         ##<
         experience_required = "Unknown"
         found_masters = 0
-        jobDescription = find_by_class(driver, "jobs-box__html-content").text
+        from modules.linkedin_job_details import read_modern_description
+        modern = bool(driver.find_elements("css selector", "[data-view-name='job-detail-page'], [id^='JobDetails_AboutTheJob_']"))
+        jobDescription = read_modern_description(driver) if modern else find_by_class(driver, "jobs-box__html-content").text
         jobDescriptionLow = jobDescription.lower()
         skip = False
         skipReason = None
@@ -469,13 +498,14 @@ def get_job_description(
                 skipReason = "Required experience is high"
                 skip = True
     except Exception as e:
-        if jobDescription == "Unknown":    print_lg("Unable to extract job description!")
+        if modern:
+            skip, skipReason, skipMessage = True, "Full modern job description unavailable", str(e)
+        elif jobDescription == "Unknown":    print_lg("Unable to extract job description!")
         else:
             experience_required = "Error in extraction"
             print_lg("Unable to extract years of experience required!")
             # print_lg(e)
-    finally:
-        return jobDescription, experience_required, skip, skipReason, skipMessage
+    return jobDescription, experience_required, skip, skipReason, skipMessage
         
 
 
@@ -874,6 +904,20 @@ def selected_live_details(record, spec):
     live_id = path_id.group(1) if path_id else (parse_qs(url.query).get("currentJobId") or [None])[0]
     if url.hostname not in {"www.linkedin.com", "linkedin.com"} or live_id != job_id:
         raise ValueError("Selected LinkedIn ID could not be verified after navigation")
+    if driver.find_elements(By.CSS_SELECTOR, "[data-view-name='job-detail-page'], [id^='JobDetails_AboutTheJob_']"):
+        from modules.linkedin_job_details import modern_details_ready
+        live = WebDriverWait(driver, 15).until(lambda browser: modern_details_ready(browser, job_id))
+        company = live["company"]
+        posted = calculate_date_posted(live["posted_text"]) if live["posted_text"] else None
+        record["_live_details"] = {
+            "workplace_type": live["workplace_type"], "employment_type": live["employment_type"],
+            "locations": [live["location"]],
+            "published_at": posted.astimezone(timezone.utc).isoformat() if posted else None,
+        }
+        allowed = spec.filters_snapshot["intent"].get("on_site") or []
+        skip = (not company_matches(spec.pipeline_context["company"], company, live["company_url"])
+                or bool(allowed and live["workplace_type"] not in allowed))
+        return job_id, live["title"], company, live["location"], live["workplace_type"], skip
     title_node = WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
     anchors = driver.find_elements(By.CSS_SELECTOR, ".job-details-jobs-unified-top-card__company-name a, .jobs-unified-top-card__company-name a")
     if not anchors:
@@ -913,6 +957,7 @@ def application_outcome(manifest, spec, job_id):
         search_mode=row.get("search_mode") or spec.mode, search_source=spec.source,
         search_run_id=manifest.data["run_id"], search_spec=spec.to_dict(),
         fallback_reason=row.get("fallback_reason"), warnings=list(row.get("warnings", [])),
+        search_diagnostics=deepcopy(row.get("search_diagnostics", {})),
         profile_name=spec.profile_name, profile_version=spec.profile_version,
     )
 
@@ -933,19 +978,18 @@ def collect_linkedin_jobs(specs, *, limit=25, result_sink=None, checkpoints=None
         processed = set(checkpoint.get("processed_ids", [])) if not refresh and checkpoint.get("fingerprint") == fingerprint else set()
         accepted, page = 0, 1
         try:
-            result = start_search(driver, spec, wait_for_search, wait_for_search_results)
+            result = prepare_search(driver, spec, wait_for_search, wait_for_search_results, apply_filters)
             spec.mode = result.mode
-            warnings = list(result.warnings) + apply_filters(spec)
+            warnings = list(result.warnings)
             while len(records) < limit:
-                listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")
+                listings = get_search_cards(driver)
                 if not listings:
-                    empty = driver.find_elements(By.XPATH, '//*[contains(@class, "jobs-search-no-results") or contains(normalize-space(.), "No matching jobs found") and not(*)]')
-                    if not empty:
+                    if search_results_ready(driver) != "empty":
                         raise ValueError("LinkedIn result cards unavailable; scan is incomplete")
                     break
                 pagination, page = get_page_info()
                 for card in listings:
-                    job_id = str(card.get_dom_attribute("data-occludable-job-id") or "")
+                    job_id = str(search_card_id(card) or "")
                     if not job_id.isdigit() or job_id in seen or job_id in processed:
                         continue
                     job_id, title, company, location, style, skip_card = get_job_main_details(card, set(), set(), read_only=True)
@@ -973,6 +1017,7 @@ def collect_linkedin_jobs(specs, *, limit=25, result_sink=None, checkpoints=None
                             search_mode=result.mode, search_source=spec.source, search_spec=spec.to_dict(),
                             profile_name=spec.profile_name, profile_version=spec.profile_version,
                             fallback_reason=result.fallback_reason, warnings=warnings,
+                            search_diagnostics=result.diagnostics(),
                             discovered_at=utc_now(), match_relationship="company_engineering_family",
                             eligibility_basis="company_identity_role_family_and_description",
                             unverified_preferences=["employment_type", "posted_date", "live_location"],
@@ -989,16 +1034,17 @@ def collect_linkedin_jobs(specs, *, limit=25, result_sink=None, checkpoints=None
                         break
                 if len(records) >= limit or pagination is None:
                     break
-                next_page = pagination.find_elements(By.XPATH, f"//button[@aria-label='Page {(page or 1) + 1}']")
-                if not next_page:
+                if not next_search_page(driver, page or 1):
                     break
-                previous = listings
-                next_page[0].click()
-                wait_for_search_results(previous)
+                wait_for_search_results(listings)
             if checkpoint_sink:
                 checkpoint_sink(spec.query_id, {"fingerprint": fingerprint, "processed_ids": sorted(processed), "last_page": page or 1, "complete": len(records) < limit, "stop_reason": "results_exhausted" if len(records) < limit else "scan_limit"})
         except Exception as error:
-            errors.append({"query_id": spec.query_id, "code": type(error).__name__, "message": str(error), "retryable": True})
+            error_record = {"query_id": spec.query_id, "code": type(error).__name__, "message": str(error), "retryable": True}
+            diagnostics = getattr(error, "diagnostics", None)
+            if diagnostics is not None:
+                error_record["search_diagnostics"] = diagnostics() if callable(diagnostics) else diagnostics
+            errors.append(error_record)
     return records, errors
 
 
@@ -1033,23 +1079,25 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
             continue
         try:
             if selected_jobs is None:
-                result = start_search(driver, spec, wait_for_search, wait_for_search_results)
+                result = prepare_search(driver, spec, wait_for_search, wait_for_search_results, apply_filters)
             else:
                 from modules.linkedin_search import SearchResult
                 result = SearchResult(spec.mode)
-            manifest.record_mode(spec, result.mode, result.fallback_reason, result.warnings)
+            manifest.record_mode(spec, result.mode, result.fallback_reason, result.warnings,
+                                 diagnostics=result.diagnostics())
             print_lg(f'Now searching [{spec.query_id}, {spec.mode}]: {spec.query_text}')
-            warnings = apply_filters(spec) if selected_jobs is None else []
-            manifest.record_mode(spec, result.mode, result.fallback_reason, warnings)
+            warnings = list(result.warnings)
             for warning in warnings:
                 print_lg(warning)
             while not manifest.quota_met(spec) and not manifest.has_uncertain_submission(spec):
                 if selected_jobs is None:
-                    wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
+                    wait_for_search_results([])
                     pagination_element, current_page = get_page_info()
                     active_page = current_page or 1
                     buffer(3)
-                    job_listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")
+                    job_listings = get_search_cards(driver)
+                    if not job_listings and search_results_ready(driver) != "empty":
+                        raise ValueError("LinkedIn result cards unavailable; scan is incomplete")
                 else:
                     pagination_element, current_page, active_page = None, 1, 1
                     job_listings = list(selected_jobs.get(spec.query_id, []))
@@ -1059,7 +1107,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                         return
                     if keep_screen_awake: pyautogui.press('shiftright')
                     if manifest.quota_met(spec) or manifest.has_uncertain_submission(spec): break
-                    raw_job_id = str(job.get('linkedin_id', '')) if isinstance(job, dict) else job.get_dom_attribute('data-occludable-job-id')
+                    raw_job_id = str(job.get('linkedin_id', '')) if isinstance(job, dict) else search_card_id(job)
                     if not raw_job_id:
                         continue
                     if raw_job_id in manifest.processed_ids():
@@ -1203,7 +1251,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
 
                     uploaded = False
                     # Case 1: Easy Apply Button
-                    if try_xp(driver, ".//button[contains(@class,'jobs-apply-button') and contains(@class, 'artdeco-button--3') and contains(@aria-label, 'Easy')]"):
+                    if try_xp(driver, ".//button[contains(@class,'jobs-apply-button') and contains(@class, 'artdeco-button--3') and contains(@aria-label, 'Easy')] | //*[@data-view-name='job-detail-page']//button[@aria-label='Easy Apply to this job'] | //*[@id='JobDetails_AboutTheJob_" + job_id + "']/ancestor::*[.//*[starts-with(@aria-label,'Company,')]][1]//button[@aria-label='Easy Apply to this job']"):
                         try: 
                             try:
                                 errored = ""
@@ -1316,12 +1364,11 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                 if pagination_element == None:
                     print_lg("Couldn't find pagination element, probably at the end page of results!")
                     break
-                try:
-                    pagination_element.find_element(By.XPATH, f"//button[@aria-label='Page {current_page+1}']").click()
-                    print_lg(f"\n>-> Now on Page {current_page+1} \n")
-                except NoSuchElementException:
-                    print_lg(f"\n>-> Didn't find Page {current_page+1}. Probably at the end page of results!\n")
+                if not next_search_page(driver, current_page or 1):
+                    print_lg(f"\n>-> Didn't find Page {(current_page or 1)+1}. Probably at the end page of results!\n")
                     break
+                print_lg(f"\n>-> Now on Page {(current_page or 1)+1} \n")
+                wait_for_search_results(job_listings)
 
             if manifest.has_uncertain_submission(spec):
                 row = manifest.query(spec.query_id)
@@ -1334,11 +1381,16 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                     result_sink(application_outcome(manifest, spec, job_id))
         except Exception as e:
             from modules.linkedin_search import LocationSelectionError
-            if isinstance(e, LocationSelectionError):
+            diagnostics = getattr(e, "diagnostics", None)
+            if diagnostics is not None:
+                manifest.record_mode(spec, spec.mode, warnings=[str(e)],
+                                     diagnostics=diagnostics() if callable(diagnostics) else diagnostics)
+            if isinstance(e, LocationSelectionError) or diagnostics is not None:
                 empty = []
-                manifest.query(spec.query_id)["warnings"].append(f"Configured search location was not confirmed: {e}")
+                if isinstance(e, LocationSelectionError):
+                    manifest.query(spec.query_id)["warnings"].append(f"Configured search location was not confirmed: {e}")
             else:
-                empty = driver.find_elements(By.XPATH, '//*[contains(@class, "jobs-search-no-results") or contains(normalize-space(.), "No matching jobs found") and not(*)]')
+                empty = search_results_ready(driver) == "empty"
             if empty:
                 manifest.finish_query(spec, "results_exhausted")
             else:
@@ -1681,22 +1733,37 @@ def cli_main(argv=None):
     import sys
     from config import job_pipeline as config
     from job_pipeline import _positive
-    from modules.job_pipeline.models import LinkedInRunRequest, StageResult, write_artifact
-    from modules.job_pipeline.service import load_inputs
-    from modules.job_pipeline.store import PipelineStore
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:
         run_bot()
         return 0
-    parser = argparse.ArgumentParser(description="Legacy bot or the shared persisted LinkedIn pipeline.")
+    parser = argparse.ArgumentParser(description="Legacy bot or the shared persisted LinkedIn pipeline.", allow_abbrev=False)
     parser.add_argument("--mode", choices=("search", "apply", "search-and-apply"), default="search")
+    parser.add_argument("--diagnose-search", action="store_true",
+                        help="Read-only configured-search diagnostic; collect card metadata without applying")
     parser.add_argument("--input", action="append", default=[], metavar="JSON_OR_SET")
     parser.add_argument("--set", dest="set_name", default=config.default_set)
     parser.add_argument("--output", dest="output_path")
-    parser.add_argument("--limit", type=_positive, default=config.default_limit)
+    parser.add_argument("--limit", type=_positive, default=None)
     parser.add_argument("--db", dest="db_path", default=config.db_path)
     parser.add_argument("--refresh", action="store_true")
     args = parser.parse_args(argv)
+    if args.diagnose_search:
+        incompatible = {"--mode", "--input", "--set", "--db", "--refresh"}
+        if any(argument.partition("=")[0] in incompatible for argument in argv):
+            parser.error("--diagnose-search accepts only --limit and --output")
+        from modules.search_diagnostics import run_diagnostic
+        try:
+            result = run_diagnostic(sys.modules[__name__], limit=args.limit or 5, output_path=args.output_path)
+        except (ValueError, OSError) as error:
+            print(f"runAiBot: {error}", file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 1 if result.get("errors") else 0
+    from modules.job_pipeline.models import LinkedInRunRequest, StageResult, write_artifact
+    from modules.job_pipeline.service import load_inputs
+    from modules.job_pipeline.store import PipelineStore
+    args.limit = args.limit or config.default_limit
     if args.mode == "apply" and args.refresh:
         parser.error("--refresh is available for search modes only; application history is retained")
     try:

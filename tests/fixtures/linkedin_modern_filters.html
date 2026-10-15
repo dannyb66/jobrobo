@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- Semantic reconstruction of observed public search controls, without account data. -->
+<html lang="en-US"><body><main>
+<input data-view-name="job-search-tyah" componentkey="semanticSearchBox" placeholder="Describe the job you want" value="old">
+<div role="button" data-view-name="job-search-location-picker" aria-expanded="false">
+ <div aria-label="Location United States"><p>United States</p></div>
+</div>
+<div id="location-popup" hidden><div contenteditable="true" role="textbox" aria-label="Location"></div>
+ <a data-view-name="job-search-location-tyah-result" href="/jobs/search-results/?geoId=103644278">United States</a>
+ <a data-view-name="job-search-location-tyah-result" href="/jobs/search-results/?geoId=90000084">San Francisco Bay Area</a>
+ <a data-view-name="job-search-location-tyah-result" href="/jobs/search-results/?geoId=102277331">San Francisco, California</a>
+</div>
+<div data-view-name="job-search-facet-dropdown"><div role="button" aria-label="Date posted">Date posted</div></div>
+<div id="date-menu" hidden>
+ <div role="radio" aria-label="Any time" aria-checked="true"><input type="radio"><p>Any time</p></div>
+ <div role="radio" aria-label="Past month" aria-checked="false"><input type="radio"><p>Past month</p></div>
+ <a data-view-name="search-filter-top-bar-menu-submit" href="/jobs/search-results/">Show results</a>
+</div>
+<div data-view-name="job-search-facet-dropdown"><div role="button" aria-label="Job type">Job type</div></div>
+<div id="job-menu" hidden>
+ <div role="checkbox" aria-label="Full-time" aria-checked="false"><input type="checkbox"><p>Full-time</p></div>
+ <div role="checkbox" aria-label="Part-time" aria-checked="true"><input type="checkbox"><p>Part-time</p></div>
+ <a data-view-name="search-filter-top-bar-menu-submit" href="/jobs/search-results/">Show results</a>
+</div>
+<div data-view-name="job-search-facet-pill"><div role="checkbox" aria-label="Filter by Easy Apply" aria-checked="false"><input type="checkbox"><p>Easy Apply</p></div></div>
+<div data-view-name="job-search-facet-pill"><div role="radio" aria-label="Filter by Remote" aria-checked="false"><input type="radio"><p>Remote</p></div></div>
+<div data-view-name="job-search-facet-dropdown"><div role="button" aria-label="On-site/remote">On-site/remote</div></div>
+<div id="work-menu" hidden>
+ <div role="checkbox" aria-label="Remote" aria-checked="false"><input type="checkbox"><p>Remote</p></div>
+ <div role="checkbox" aria-label="Hybrid" aria-checked="false"><input type="checkbox"><p>Hybrid</p></div>
+ <div role="checkbox" aria-label="On-site" aria-checked="true"><input type="checkbox"><p>On-site</p></div>
+ <a data-view-name="search-filter-top-bar-menu-submit" href="/jobs/search-results/">Show results</a>
+</div>
+<div data-view-name="job-search-job-card"><div role="button" componentkey="job-card-component-ref-123"><p>Staff AI Engineer</p><p>Example</p><p>San Francisco Bay Area (Hybrid)</p></div></div>
+</main></body></html>

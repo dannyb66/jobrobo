@@ -1,6 +1,7 @@
 """LinkedIn search UI adapter. Selectors are capability checks, not API flags."""
 
 from dataclasses import dataclass, field
+from copy import deepcopy
 import re
 import unicodedata
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -8,9 +9,11 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 # Match explicit natural-language search labels, never the generic classic keyword box.
 AI_INPUT_XPATH = (
-    "//*[self::input or self::textarea][not(@disabled) and ("
+    "//*[self::input or self::textarea or @contenteditable='true'][not(@disabled) and ("
     "contains(translate(@placeholder, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'describe') or "
     "contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'describe') or "
+    "contains(translate(@placeholder, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'description') or "
+    "contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'natural language') or "
     "contains(translate(@placeholder, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'ai-powered') or "
     "contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'ai-powered')"
     ")]"
@@ -42,6 +45,15 @@ RESULT_LOCATION_XPATH = (
 
 class LocationSelectionError(ValueError):
     """Configured LinkedIn geography could not be verified in the results UI."""
+
+
+class SearchUIError(ValueError):
+    def __init__(self, message, *, stage="search", details=None):
+        super().__init__(message)
+        self.stage, self.details = stage, details or {}
+
+    def diagnostics(self):
+        return {"stage": self.stage, **deepcopy(self.details)}
 
 
 def _location_normalize(value):
@@ -269,47 +281,108 @@ class SearchResult:
     mode: str
     fallback_reason: str = None
     warnings: list = field(default_factory=list)
+    ui_variant: str = "legacy"
+    transport: str = "native"
+    verified_filters: list = field(default_factory=list)
+    filter_report: dict = field(default_factory=dict)
+    location_confirmation: dict = None
+    results_state: str = None
+    executed_query: str = None
+    notes: dict = field(default_factory=dict)
+
+    def diagnostics(self):
+        return deepcopy(dict(ui_variant=self.ui_variant, transport=self.transport,
+                             verified_filters=self.verified_filters, filter_report=self.filter_report,
+                             location_confirmation=self.location_confirmation, results_state=self.results_state,
+                             executed_query=self.executed_query, **self.notes))
 
 
-def start_search(driver, spec, wait_for_search, wait_for_results=None):
-    """Submit via the AI UI when exposed; otherwise use the classic keyword route."""
-    fallback = None
-    try:
+CLASSIC_INPUT_XPATH = "//input[contains(@id, 'jobs-search-box-keyword') and not(@disabled)]"
+
+
+def start_search(driver, spec, wait_for_search, wait_for_results=None, *, timeout=30, wait=None):
+    """Use detected native controls; never invent a classic keyword URL."""
+    from . import linkedin_modern_search as modern
+    modern.check_access(driver)
+    if not modern.find_prompt(driver) and not any(_location_visible(item) for item in driver.find_elements("xpath", CLASSIC_INPUT_XPATH)):
         driver.get("https://www.linkedin.com/jobs/")
+        modern.check_access(driver)
         wait_for_search()
-        fields = driver.find_elements("xpath", AI_INPUT_XPATH)
-        field = next((item for item in fields if item.is_displayed() and item.is_enabled()), None)
-        if field is None:
-            # Some accounts expose the AI field only on the results page.
-            driver.get("https://www.linkedin.com/jobs/search/?" + urlencode({"keywords": spec.query_text}))
-            wait_for_search()
-            fields = driver.find_elements("xpath", AI_INPUT_XPATH)
-            field = next((item for item in fields if item.is_displayed() and item.is_enabled()), None)
-        if field is None:
-            fallback = "Natural-language search control unavailable"
-        else:
-            current_url = getattr(driver, "current_url", "")
-            if (isinstance(current_url, str) and "/jobs/search/" in current_url
-                    and field.get_attribute("value") == spec.query_text):
-                # The results URL already submitted this query. Re-submitting identical
-                # text may reuse the same cards, so waiting for them to go stale is wrong.
-                if wait_for_results:
-                    wait_for_results([])
-                return SearchResult("ai")
-            previous = driver.find_elements("xpath", "//li[@data-occludable-job-id]")
-            field.clear()
-            field.send_keys(spec.query_text)
-            field.send_keys("\ue007")  # Selenium ENTER
-            if wait_for_results:
-                wait_for_results(previous)
-            else:
-                wait_for_search()
-            return SearchResult("ai")
-    except Exception as error:
-        fallback = f"Natural-language search failed ({type(error).__name__})"
-    driver.get("https://www.linkedin.com/jobs/search/?" + urlencode({"keywords": spec.classic_query}))
-    wait_for_search()
-    return SearchResult("classic", fallback)
+    if modern.detect_modern_ui(driver):
+        return modern.start_modern_search(driver, spec, wait_for_results=wait_for_results, timeout=timeout, wait=wait)
+    fields = driver.find_elements("xpath", AI_INPUT_XPATH)
+    prompt = next((item for item in fields if _location_visible(item)), None)
+    if prompt is not None:
+        query, mode = spec.query_text, "ai"
+        variant, fallback = "legacy_prompt", None
+    else:
+        fields = driver.find_elements("xpath", CLASSIC_INPUT_XPATH)
+        prompt = next((item for item in fields if _location_visible(item)), None)
+        if prompt is None:
+            raise SearchUIError("No supported hydrated LinkedIn jobs search control", stage="discover_ui")
+        query, mode = spec.classic_query, "classic"
+        variant, fallback = "legacy_classic", "Natural-language search control unavailable; using visible native keyword input"
+    current = getattr(driver, "current_url", "")
+    current = current if isinstance(current, str) else ""
+    if "/jobs/search" not in current or _location_attribute(prompt, "value") != query:
+        previous = get_search_cards(driver)
+        modern.fill_text(prompt, query)
+        prompt.send_keys("\ue007")
+    else:
+        previous = []
+    if wait_for_results:
+        wait_for_results(previous)
+    else:
+        wait_for_search()
+    modern.check_access(driver)
+    return SearchResult(mode, fallback, ui_variant=variant, executed_query=query)
+
+
+def prepare_search(driver, spec, wait_for_search, wait_for_results, classic_filter_callback, *, timeout=30, wait=None):
+    """Return a search whose query, modern filters, and location are verified."""
+    from . import linkedin_modern_search as modern
+    modern.check_access(driver)
+    if modern.get_recipe_cache(driver) or modern.detect_modern_ui(driver):
+        return modern.prepare_modern_search(driver, spec, wait_for_search=wait_for_search,
+                                            wait_for_results=wait_for_results, timeout=timeout, wait=wait)
+    result = start_search(driver, spec, wait_for_search, wait_for_results, timeout=timeout, wait=wait)
+    if result.ui_variant == "modern_prompt":
+        return modern.finish_modern_search(driver, spec, result, wait_for_results=wait_for_results, timeout=timeout, wait=wait)
+    spec.mode = result.mode
+    if classic_filter_callback:
+        result.warnings.extend(classic_filter_callback(spec) or [])
+    result.results_state = modern.search_results_ready(driver) or None
+    return result
+
+
+def get_search_cards(driver):
+    from .linkedin_modern_search import get_search_cards as implementation
+    return implementation(driver)
+
+
+def search_card_id(card):
+    from .linkedin_modern_search import search_card_id as implementation
+    return implementation(card)
+
+
+def read_search_card(card):
+    from .linkedin_modern_search import read_search_card as implementation
+    return implementation(card)
+
+
+def search_results_ready(driver):
+    from .linkedin_modern_search import search_results_ready as implementation
+    return implementation(driver)
+
+
+def get_search_pagination(driver):
+    from .linkedin_modern_search import get_search_pagination as implementation
+    return implementation(driver)
+
+
+def next_search_page(driver, page):
+    from .linkedin_modern_search import next_search_page as implementation
+    return implementation(driver, page)
 
 
 def apply_configured_filters(config, select_option):

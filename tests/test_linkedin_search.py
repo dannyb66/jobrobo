@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import Mock
 from urllib.parse import parse_qs, urlparse
 
-from modules.linkedin_search import AI_INPUT_XPATH, apply_configured_filters, start_search
+from modules.linkedin_search import AI_INPUT_XPATH, CLASSIC_INPUT_XPATH, SearchUIError, apply_configured_filters, start_search
 from modules.search_planner import SearchSpec
 
 
@@ -19,6 +19,7 @@ class SearchUITests(unittest.TestCase):
 
     def browser(self, fields):
         driver = Mock()
+        driver.current_url = "https://www.linkedin.com/jobs/"
         driver.find_elements.side_effect = lambda by, selector: fields if selector == AI_INPUT_XPATH else []
         return driver
 
@@ -33,17 +34,15 @@ class SearchUITests(unittest.TestCase):
         self.assertEqual(field.send_keys.call_args_list[0].args, (spec().query_text,))
         self.assertEqual(field.send_keys.call_args_list[1].args, ("\ue007",))
         results.assert_called_once_with([])
-        browser.get.assert_called_once_with("https://www.linkedin.com/jobs/")
+        browser.get.assert_not_called()
 
-    def test_ai_control_can_be_exposed_on_results_page(self):
+    def test_ai_control_can_be_exposed_after_jobs_page_hydrates(self):
         field = self.field()
-        browser = self.browser([])
-        discoveries = iter([[], [field]])
-        browser.find_elements.side_effect = lambda by, selector: next(discoveries) if selector == AI_INPUT_XPATH else []
-        result = start_search(browser, spec(), Mock())
+        fields = []
+        browser = self.browser(fields)
+        result = start_search(browser, spec(), Mock(side_effect=lambda: fields.append(field)))
         self.assertEqual(result.mode, "ai")
-        url = browser.get.call_args_list[-1].args[0]
-        self.assertEqual(parse_qs(urlparse(url).query)["keywords"], [spec().query_text])
+        browser.get.assert_called_once_with("https://www.linkedin.com/jobs/")
 
     def test_identical_query_already_loaded_does_not_wait_for_card_staleness(self):
         field = self.field()
@@ -57,18 +56,27 @@ class SearchUITests(unittest.TestCase):
         field.clear.assert_not_called()
         field.send_keys.assert_not_called()
 
-    def test_missing_or_hidden_ai_control_falls_back_to_encoded_keywords(self):
+    def test_missing_or_hidden_search_controls_fail_without_guessed_keyword_urls(self):
         for fields in ([], [self.field(False)]):
             with self.subTest(fields=fields):
                 browser = self.browser(fields)
-                result = start_search(browser, spec(), Mock())
-                self.assertEqual(result.mode, "classic")
-                self.assertIn("unavailable", result.fallback_reason)
-                url = browser.get.call_args.args[0]
-                self.assertEqual(parse_qs(urlparse(url).query)["keywords"], [spec().classic_query])
-                self.assertNotIn("#Python", url)
+                with self.assertRaises(SearchUIError) as error:
+                    start_search(browser, spec(), Mock())
+                self.assertEqual(error.exception.stage, "discover_ui")
+                browser.get.assert_called_once_with("https://www.linkedin.com/jobs/")
 
-    def test_ai_input_or_result_failure_falls_back_and_records_reason(self):
+    def test_native_classic_input_is_used_only_when_visible(self):
+        field = self.field()
+        browser = self.browser([])
+        browser.find_elements.side_effect = lambda by, selector: [field] if selector == CLASSIC_INPUT_XPATH else []
+        result = start_search(browser, spec(), Mock(), Mock())
+        self.assertEqual(result.mode, "classic")
+        self.assertIn("visible native keyword", result.fallback_reason)
+        self.assertEqual(field.send_keys.call_args_list[0].args, (spec().classic_query,))
+        self.assertEqual(field.send_keys.call_args_list[1].args, ("\ue007",))
+        browser.get.assert_not_called()
+
+    def test_ai_input_or_result_failure_does_not_guess_a_classic_fallback(self):
         for failure_at in ("input", "results"):
             with self.subTest(failure_at=failure_at):
                 field = self.field()
@@ -78,16 +86,23 @@ class SearchUITests(unittest.TestCase):
                     field.clear.side_effect = RuntimeError("UI changed")
                 else:
                     results.side_effect = TimeoutError("No fresh results")
-                result = start_search(browser, spec(), Mock(), results)
-                self.assertEqual(result.mode, "classic")
-                self.assertIn("failed", result.fallback_reason)
-                self.assertEqual(parse_qs(urlparse(browser.get.call_args.args[0]).query)["keywords"], [spec().classic_query])
+                with self.assertRaises(RuntimeError if failure_at == "input" else TimeoutError):
+                    start_search(browser, spec(), Mock(), results)
+                browser.get.assert_not_called()
 
-    def test_classic_navigation_failure_propagates_for_resumable_run(self):
+    def test_jobs_navigation_failure_propagates_for_resumable_run(self):
         browser = self.browser([])
-        browser.get.side_effect = [None, None, RuntimeError("Browser closed")]
+        browser.get.side_effect = RuntimeError("Browser closed")
         with self.assertRaisesRegex(RuntimeError, "Browser closed"):
             start_search(browser, spec(), Mock())
+
+    def test_auth_challenge_propagates_without_search_fallback(self):
+        browser = self.browser([])
+        browser.current_url = "https://www.linkedin.com/checkpoint/challenge/"
+        with self.assertRaises(SearchUIError) as error:
+            start_search(browser, spec(), Mock())
+        self.assertEqual(error.exception.stage, "auth_required")
+        browser.get.assert_not_called()
 
 
 class CompatibleFilterTests(unittest.TestCase):

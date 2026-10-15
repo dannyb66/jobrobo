@@ -137,6 +137,11 @@ class SearchRunnerTests(unittest.TestCase):
             "wait_for_search": lambda: None,
             "wait_for_search_results": lambda *args: None,
             "start_search": self.start_search,
+            "prepare_search": self.prepare_search,
+            "get_search_cards": lambda browser: browser.find_elements("xpath", "//li[@data-occludable-job-id]"),
+            "search_card_id": lambda card: card.get_dom_attribute("data-occludable-job-id"),
+            "search_results_ready": lambda browser: ("jobs" if browser.find_elements("xpath", "//li[@data-occludable-job-id]") else "empty") if browser.query_id is not None else False,
+            "next_search_page": self.next_search_page,
             "apply_filters": lambda search: ["Unavailable optional filter"],
             "get_job_main_details": self.main_details,
             "find_by_class": self.find_by_class,
@@ -170,6 +175,19 @@ class SearchRunnerTests(unittest.TestCase):
     def start_search(self, browser, search, wait_for_search, *args):
         browser.start(search)
         return SearchResult("classic", "AI search unavailable", ["Capability fallback"])
+
+    def prepare_search(self, browser, search, wait_for_search, wait_for_results, filters):
+        result = self.namespace["start_search"](browser, search, wait_for_search, wait_for_results)
+        search.mode = result.mode
+        result.warnings.extend(filters(search) or [])
+        return result
+
+    def next_search_page(self, browser, current_page):
+        try:
+            browser.page_info()[0].find_element().click()
+            return True
+        except MissingElement:
+            return False
 
     def manifest(self, searches, pages):
         self.browser.pages = pages
@@ -210,6 +228,40 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual(row["Search Profile"], "test-profile@1")
         self.assertEqual(row["Search Source"], "manual")
         self.assertLess(self.events.index("confirm"), self.events.index("Submit application"))
+
+    def test_unready_modern_results_remain_pending_without_opening_application(self):
+        search = spec("modern-results-unready")
+        manifest = self.manifest([search], {search.query_id: [[]]})
+        self.namespace["search_results_ready"] = lambda browser: False
+        self.execute(manifest)
+        self.assertEqual(manifest.query(search.query_id)["status"], "pending")
+        self.assertEqual(manifest.query(search.query_id)["stop_reason"], "search_error:ValueError")
+        self.assertEqual(self.visited, [])
+        self.assertNotIn("Easy Apply", self.events)
+        self.assertNotIn("Submit application", self.events)
+
+    def test_prepared_modern_search_records_verified_transport_before_application(self):
+        search = spec("modern-prepared")
+        manifest = self.manifest([search], {search.query_id: [["1", "1", "2"]]})
+        filters = Mock(side_effect=AssertionError("Modern controls must be prepared once"))
+        self.namespace["apply_filters"] = filters
+
+        def prepared(browser, current, *args):
+            browser.start(current)
+            return SearchResult("ai", ui_variant="modern_prompt", transport="native_ui",
+                                verified_filters=["search_location", "easy_apply_only"],
+                                results_state="jobs", executed_query=current.query_text)
+
+        self.namespace["prepare_search"] = prepared
+        self.execute(manifest)
+        filters.assert_not_called()
+        self.assertEqual(self.visited, ["1"])
+        self.assertEqual(self.events.count("Submit application"), 1)
+        self.assertEqual(manifest.query(search.query_id)["search_mode"], "ai")
+        diagnostics = manifest.query(search.query_id)["search_diagnostics"]
+        self.assertEqual(diagnostics["ui_variant"], "modern_prompt")
+        self.assertEqual(diagnostics["transport"], "native_ui")
+        self.assertIn("search_location", diagnostics["verified_filters"])
 
     def test_missing_verified_resume_stops_before_submit_without_consuming_search_quota(self):
         search = spec("resume-rejected")
