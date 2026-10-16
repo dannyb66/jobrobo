@@ -533,6 +533,18 @@ def answer_common_questions(label: str, answer: str) -> str:
 
 
 # Function to answer the questions for Easy Apply
+def replace_text_verified(element, value):
+    """Replace React-controlled text and require its exact value after blur."""
+    import sys
+    modifier = Keys.COMMAND if sys.platform == "darwin" else Keys.CONTROL
+    element.click()
+    element.send_keys(modifier, "a")
+    element.send_keys(Keys.BACKSPACE)
+    element.send_keys(str(value))
+    element.send_keys(Keys.TAB)
+    WebDriverWait(driver, 5).until(lambda _: element.get_attribute("value") == str(value))
+
+
 def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None ) -> set:
     # Get all questions from the page
      
@@ -657,8 +669,12 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             label = label_org.lower()
 
             prev_answer = text.get_attribute("value")
-            if not prev_answer or overwrite_previous_answers:
-                if 'experience' in label or 'years' in label: answer = years_of_experience
+            preferred_first = globals().get("preferred_first_name", "")
+            preferred_override = (isinstance(preferred_first, str) and preferred_first.strip()
+                                  and re.fullmatch(r"(?:preferred\s+)?first\s+name\s*\*?", label.strip()))
+            if not prev_answer or overwrite_previous_answers or preferred_override:
+                if preferred_override: answer = preferred_first.strip()
+                elif 'experience' in label or 'years' in label: answer = years_of_experience
                 elif 'phone' in label or 'mobile' in label: answer = phone_number
                 elif 'street' in label: answer = street
                 elif 'city' in label or 'location' in label or 'address' in label:
@@ -714,8 +730,11 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                         randomly_answered_questions.add((label_org, "text"))
                         answer = years_of_experience
                  ##<   
-                text.clear()
-                text.send_keys(answer)
+                if preferred_override:
+                    replace_text_verified(text, answer)
+                else:
+                    text.clear()
+                    text.send_keys(answer)
                 if do_actions:
                     sleep(2)
                     actions.send_keys(Keys.ARROW_DOWN)
@@ -797,9 +816,10 @@ def external_apply(pagination_element: WebElement, job_id: str, job_link: str, r
             if "exceeded the daily application limit" in driver.find_element(By.CLASS_NAME, "artdeco-inline-feedback__message").text: dailyEasyApplyLimitReached = True
         except: pass
         print_lg("Easy apply failed I guess!")
-        if pagination_element != None: return True, application_link, tabs_count
+        # Modern results can omit pagination; policy must still block company Apply.
+        return True, application_link, tabs_count
     try:
-        wait.until(EC.element_to_be_clickable((By.XPATH, ".//button[contains(@class,'jobs-apply-button') and contains(@class, 'artdeco-button--3')]"))).click() # './/button[contains(span, "Apply") and not(span[contains(@class, "disabled")])]'
+        wait.until(EC.element_to_be_clickable((By.XPATH, ".//button[contains(@class,'jobs-apply-button') and contains(@class, 'artdeco-button--3')] | //*[@data-view-name='job-detail-page'][.//*[@id='JobDetails_AboutTheJob_" + job_id + "']]//a[@aria-label='Apply on company website'] | //*[@id='JobDetails_AboutTheJob_" + job_id + "']/ancestor::*[.//*[starts-with(@aria-label,'Company,')]][1]//a[@aria-label='Apply on company website']"))).click() # './/button[contains(span, "Apply") and not(span[contains(@class, "disabled")])]'
         wait_span_click(driver, "Continue", 1, True, False)
         windows = driver.window_handles
         tabs_count = len(windows)
@@ -1741,6 +1761,10 @@ def cli_main(argv=None):
         run_bot()
         return 0
     parser = argparse.ArgumentParser(description="Legacy bot or the shared persisted LinkedIn pipeline.", allow_abbrev=False)
+    parser.add_argument("--configured-search-and-apply", action="store_true",
+                        help="Search and apply directly from config files; no verified_roles/linkedin_jobs inputs required")
+    parser.add_argument("--fresh", action="store_true",
+                        help="With --configured-search-and-apply, start a new search manifest while preserving application history")
     parser.add_argument("--mode", choices=("search", "apply", "search-and-apply"), default="search")
     parser.add_argument("--diagnose-search", action="store_true",
                         help="Read-only configured-search diagnostic; collect card metadata without applying")
@@ -1751,6 +1775,20 @@ def cli_main(argv=None):
     parser.add_argument("--db", dest="db_path", default=config.db_path)
     parser.add_argument("--refresh", action="store_true")
     args = parser.parse_args(argv)
+    if args.configured_search_and_apply:
+        incompatible = {"--mode", "--input", "--set", "--output", "--limit", "--db", "--refresh", "--diagnose-search"}
+        if any(argument.partition("=")[0] in incompatible for argument in argv):
+            parser.error("--configured-search-and-apply accepts only --fresh; use config/search.py for limits and filters")
+        previous_resume = search_profile.resume_search_enabled
+        try:
+            if args.fresh:
+                search_profile.resume_search_enabled = False
+            run_bot()
+        finally:
+            search_profile.resume_search_enabled = previous_resume
+        return 0
+    if args.fresh:
+        parser.error("--fresh requires --configured-search-and-apply")
     if args.diagnose_search:
         incompatible = {"--mode", "--input", "--set", "--db", "--refresh"}
         if any(argument.partition("=")[0] in incompatible for argument in argv):

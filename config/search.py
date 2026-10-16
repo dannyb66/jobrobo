@@ -17,7 +17,7 @@ search_terms = [
 # search_terms = ["Founding Software Engineer", "Founding Engineer"]
 
 # Search location, this will be filled in "City, state, or zip code" search box. If left empty as "", tool will not fill it.
-search_location = "San Francisco Bay Area, United States"               # Some valid examples: "", "United States", "India", "Chicago, Illinois, United States", "90001, Los Angeles, California, United States", "Bengaluru, Karnataka, India", etc.
+search_location = "San Francisco Bay Area"               # Some valid examples: "", "United States", "India", "Chicago, Illinois, United States", "90001, Los Angeles, California, United States", "Bengaluru, Karnataka, India", etc.
 
 # After how many number of applications in current search should the bot switch to next search? 
 switch_number = 10                  # Per-query application/external-link quota; then move to the next query.

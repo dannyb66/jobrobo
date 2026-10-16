@@ -5,6 +5,7 @@
 
 # Your legal name
 first_name = "Danny"                 # Your first name in quotes Eg: "First", "Danny"
+preferred_first_name = first_name     # Ordinary First name preference; legal-name fields are preserved.
 middle_name = ""            # Your name in quotes Eg: "Middle", ""
 last_name = "Basavaraju"                # Your last name in quotes Eg: "Last", "Basavaraju"
 

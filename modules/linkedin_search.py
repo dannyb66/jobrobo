@@ -347,6 +347,10 @@ def prepare_search(driver, spec, wait_for_search, wait_for_results, classic_filt
         return modern.prepare_modern_search(driver, spec, wait_for_search=wait_for_search,
                                             wait_for_results=wait_for_results, timeout=timeout, wait=wait)
     result = start_search(driver, spec, wait_for_search, wait_for_results, timeout=timeout, wait=wait)
+    # The jobs landing prompt can hydrate into the modern interface only after
+    # submission. Re-detect it before choosing the filter implementation.
+    if result.ui_variant != "modern_prompt" and modern.detect_modern_ui(driver):
+        result = modern.start_modern_search(driver, spec, wait_for_results=wait_for_results, timeout=timeout, wait=wait)
     if result.ui_variant == "modern_prompt":
         return modern.finish_modern_search(driver, spec, result, wait_for_results=wait_for_results, timeout=timeout, wait=wait)
     spec.mode = result.mode
