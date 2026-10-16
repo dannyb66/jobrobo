@@ -1,8 +1,7 @@
-import ast
 import tempfile
 import unittest
 from pathlib import Path
-from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from modules.resume_upload import ResumeUploadError, upload_verified_resume, verify_source_resume
@@ -36,6 +35,25 @@ class VerifiedResumeUploadTest(unittest.TestCase):
         self.assertEqual(optimize.call_args.kwargs["job_title"], "Staff Engineer")
         self.verify.assert_not_called()
 
+    def test_drafting_receives_exact_successfully_attached_pdf_path(self):
+        attached = Mock()
+        result = upload_verified_resume(
+            self.modal, str(self.source), 'JD', '123',
+            optimize=Mock(return_value=str(self.optimized)), verify_source=self.verify,
+            on_attached=attached)
+        self.assertTrue(result[0])
+        attached.assert_called_once_with(str(self.optimized.resolve()))
+
+    def test_failed_optimized_upload_reports_only_source_path_after_success(self):
+        attached = Mock()
+        self.file_input.send_keys.side_effect = [RuntimeError('upload failed'), None]
+        result = upload_verified_resume(
+            self.modal, str(self.source), 'JD', '123',
+            optimize=Mock(return_value=str(self.optimized)), verify_source=self.verify,
+            on_attached=attached)
+        self.assertTrue(result[0])
+        attached.assert_called_once_with(str(self.pdf.resolve()))
+
     def test_rejection_attaches_independently_verified_source(self):
         self.assertEqual(self.upload(Mock(return_value=None)), (True, "resume.pdf"))
         self.verify.assert_called_once_with(self.source, self.pdf)
@@ -67,47 +85,53 @@ class VerifiedResumeUploadTest(unittest.TestCase):
         self.file_input.send_keys.side_effect = RuntimeError("upload failed")
         self.assertEqual(self.upload(Mock(return_value=None)), (False, "No verified resume"))
 
-    def bot_finally(self):
-        # Compile the real Easy Apply finally block without importing the bot,
-        # whose imports start Chrome. No Selenium/network interaction is needed.
-        path = Path(__file__).resolve().parents[1] / "runAiBot.py"
-        tree = ast.parse(path.read_text())
-        block = next(
-            node.finalbody for node in ast.walk(tree)
-            if isinstance(node, ast.Try) and node.finalbody
-            and any(isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
-                    and child.func.id == "follow_company"
-                    for stmt in node.finalbody for child in ast.walk(stmt))
-        )
-        return path, block
-
-    def test_bot_finally_blocks_submit_when_attachment_is_missing(self):
-        path, block = self.bot_finally()
-        submit = Mock()
+    def bot_preparation(self, uploaded):
+        from test_search_runner import extract_functions
+        modal = Mock()
+        modal.find_elements.return_value = [self.file_input]
+        def navigate(browser, fill, **kwargs):
+            fill(modal)
+            return modal
         namespace = {
-            "use_AI_for_resume": True, "uploaded": False,
-            "ResumeUploadError": ResumeUploadError, "wait_span_click": submit,
+            "use_AI_for_resume": True, "ResumeUploadError": ResumeUploadError,
+            "driver": Mock(), "By": SimpleNamespace(NAME="name"),
+            "wait_for_application_modal": Mock(return_value=modal),
+            "advance_to_review": navigate, "print_lg": Mock(),
+            "answer_questions": Mock(return_value=set()),
+            "upload_optimized_resume": Mock(return_value=(uploaded, "verified.pdf")),
+            "default_resume_docx_path": str(self.source),
+            "first_name": "Test", "last_name": "Candidate",
+            "resume_upload_target": lambda browser, modal: modal,
         }
+        extract_functions(namespace, "prepare_easy_apply")
+        return namespace
+
+    def test_bot_preparation_blocks_when_attachment_is_missing(self):
+        namespace = self.bot_preparation(False)
         with self.assertRaises(ResumeUploadError):
-            exec(compile(ast.Module(body=block, type_ignores=[]), str(path), "exec"), namespace)
-        submit.assert_not_called()
+            namespace["prepare_easy_apply"]("123", "Staff Engineer", "JD", "Bay Area")
+        namespace["upload_optimized_resume"].assert_called_once()
 
-    def test_bot_finally_allows_submit_after_verified_attachment(self):
-        path, block = self.bot_finally()
-        submit = Mock(return_value=True)
-        namespace = {
-            "use_AI_for_resume": True, "uploaded": True,
-            "ResumeUploadError": ResumeUploadError, "wait_span_click": submit,
-            "questions_list": [], "errored": "", "pause_before_submit": False,
-            "driver": Mock(), "modal": Mock(), "follow_company": Mock(),
-            "datetime": datetime, "job_id": "123", "checkpoint_job": Mock(),
-        }
-        exec(compile(ast.Module(body=block, type_ignores=[]), str(path), "exec"), namespace)
-        self.assertTrue(any(call.args[1] == "Submit application" for call in submit.call_args_list))
-        self.assertEqual(
-            [call.args[1] for call in namespace["checkpoint_job"].call_args_list],
-            ["submitting", "applied"],
-        )
+    def test_bot_preparation_returns_only_after_verified_attachment(self):
+        namespace = self.bot_preparation(True)
+        modal, questions, uploaded, resume = namespace["prepare_easy_apply"](
+            "123", "Staff Engineer", "JD", "Bay Area")
+        self.assertTrue(uploaded)
+        self.assertEqual(resume, "verified.pdf")
+        namespace["upload_optimized_resume"].assert_called_once_with(
+            modal, str(self.source), "JD", "123", "Staff Engineer", "Test", "Candidate")
+
+    def test_later_job_reattaches_configured_pdf_before_ai_prose(self):
+        namespace = self.bot_preparation(True)
+        upload = Mock(return_value=(True, "configured.pdf"))
+        namespace.update(use_AI_for_resume=False, useNewResume=False,
+                         ai_descriptive_answers_enabled=True,
+                         default_resume_path=str(self.pdf), upload_resume=upload)
+        _, _, uploaded, resume = namespace["prepare_easy_apply"](
+            "456", "Staff Engineer", "JD", "Bay Area")
+        self.assertTrue(uploaded)
+        self.assertEqual(resume, "configured.pdf")
+        upload.assert_called_once_with(namespace["wait_for_application_modal"].return_value, str(self.pdf))
 
     def test_source_fallback_requires_configured_pdf_page_count(self):
         from reportlab.pdfgen import canvas

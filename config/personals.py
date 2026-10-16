@@ -50,3 +50,15 @@ Some valid examples are:
 
 Invalid inputs will result in an error!
 '''
+
+# Reused for application questions requesting professional references.
+# Enter real names, relationships (including a direct manager), and contact details.
+# Leave empty until supplied; required reference fields will pause or be reported blocked.
+references = ""
+
+# Synthetic data used ONLY by --prepare-only. Never used in a submitting run.
+test_references = """TEST DATA ONLY — not real professional references.
+1. Sample Manager — Direct Manager — manager@example.invalid — +1 202-555-0101
+2. Sample Colleague — Engineering Colleague — colleague@example.invalid — +1 202-555-0102
+3. Sample Partner — Project Partner — partner@example.invalid — +1 202-555-0103
+"""

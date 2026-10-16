@@ -15,6 +15,13 @@
 
 ## Unreleased
 
+### LinkedIn application fixes
+
+- Fill classic and native Easy Apply pages through Next, Review and Submit readiness, with verified attachment paths and explicit submission receipts.
+- Test forms without submitting using `--prepare-only`; retain prepared and failed job URLs, descriptions and retry history.
+- Draft and cache cover letters and descriptive answers from the selected resume and job description. Keep semantic rewrite checks disabled; handle references from reusable configuration with synthetic data restricted to preparation tests.
+- Wait for modern descriptions to hydrate, reattach resumes for drafting on later jobs, and stop if a failed form cannot be discarded cleanly.
+
 ### Added
 
 - Discover startup companies from public investment and hiring boards, and verify roles against official careers pages and Ashby, Greenhouse, or Lever listings.

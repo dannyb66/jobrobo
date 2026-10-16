@@ -19,3 +19,7 @@ venv/
 /docstest/
 /logs/
 /all excels/*_applications_history.csv
+
+# Private, generated application prose and answer history
+/all resumes/application_drafts/
+/all resumes/**/*.application_drafts/

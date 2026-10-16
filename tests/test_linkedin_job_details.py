@@ -9,7 +9,7 @@ from selenium.common.exceptions import StaleElementReferenceException
 
 from modules.linkedin_job_details import (
     DETAIL_ROOT, EASY_APPLY, modern_details_ready, modern_details_root,
-    modern_easy_apply_button, read_modern_company, read_modern_description, read_modern_details,
+    modern_easy_apply_button, read_modern_company, read_modern_description, read_modern_details, modern_description_ready,
 )
 from test_search_runner import extract_functions, spec
 from test_linkedin_modern_search import DOMBrowser, DOMElement
@@ -132,6 +132,15 @@ class ModernDetailReaderTests(unittest.TestCase):
         self.browser.root.children["[id^='JobDetails_AboutTheCompany_']"] = []
         with self.assertRaises(ValueError):
             read_modern_company(self.browser)
+
+    def test_description_readiness_waits_for_text_after_easy_apply_is_available(self):
+        boxes = self.browser.job.children.pop("[data-testid='expandable-text-box']")
+        self.assertTrue(modern_easy_apply_button(self.browser, '123'))
+        self.assertFalse(modern_description_ready(self.browser, '123'))
+        self.browser.job.children["[data-testid='expandable-text-box']"] = boxes
+        self.assertIn('Build production infrastructure', modern_description_ready(self.browser, '123'))
+        self.assertFalse(modern_description_ready(self.browser, '999'))
+        self.browser.apply.click.assert_not_called()
 
     def test_company_identity_requires_linkedin_company_url(self):
         self.browser.label.children["ancestor::a[1]"][0].attrs["href"] = "https://example.com/company/example"
@@ -257,6 +266,22 @@ class ModernDetailRunnerTests(unittest.TestCase):
         self.assertTrue(skip)
         self.assertEqual(reason, "Found a Bad Word in About Job")
         self.assertIn("US Citizen", description)
+
+    def test_runner_waits_for_description_instead_of_skipping_hydrating_job(self):
+        self.namespace.update(bad_words=[], security_clearance=True, did_masters=False,
+                              current_experience=-1, extract_years_of_experience=lambda *_: 0)
+        boxes = self.browser.job.children.pop("[data-testid='expandable-text-box']")
+        def wait(browser, timeout):
+            def until(predicate):
+                self.assertFalse(predicate(browser))
+                browser.job.children["[data-testid='expandable-text-box']"] = boxes
+                return predicate(browser)
+            return SimpleNamespace(until=until)
+        self.namespace['WebDriverWait'] = wait
+        extract_functions(self.namespace, 'get_job_description')
+        description, _, skip, _, _ = self.namespace['get_job_description']()
+        self.assertIn('Build production infrastructure', description)
+        self.assertFalse(skip)
 
     def test_runner_readers_detect_modern_details_without_view_instrumentation(self):
         self.browser.has_view_marker = False
@@ -391,6 +416,7 @@ class ObservedModernDetailDOMTests(unittest.TestCase):
                         node.attrib.pop("data-view-name", None)
                 namespace = dict(driver=browser, bad_words=["US Citizen"], security_clearance=False,
                                  did_masters=True, current_experience=-1, extract_years_of_experience=lambda *_: 10,
+                                 WebDriverWait=lambda driver, *_: SimpleNamespace(until=lambda condition: condition(driver)),
                                  print_lg=Mock())
                 extract_functions(namespace, "get_job_description")
                 description, _, skip, reason, _ = namespace["get_job_description"]()

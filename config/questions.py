@@ -106,6 +106,10 @@ Note: If left empty as "", the tool will not answer the question. However, note 
 ''' 
 
 # Your cover letter in quotes, use \n to add line breaks if using single quotes "Cover Letter".You can skip \n if using triple quotes """Cover Letter""" (This question makes sense though)
+ai_cover_letter_enabled = True
+ai_descriptive_answers_enabled = True
+# Drafting is independent of use_AI_for_resume; results are saved per job.
+
 cover_letter = """
 Cover Letter
 """
