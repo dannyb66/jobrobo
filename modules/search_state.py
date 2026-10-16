@@ -119,7 +119,7 @@ class SearchManifest:
 
     def record_job(self, spec, job_id, status, reason=None, page=1):
         row = self.query(spec.query_id)
-        if status not in {"in_progress", "submitting", "applied", "collected", "failed", "skipped"}:
+        if status not in {"in_progress", "submitting", "applied", "collected", "failed", "skipped", "prepared"}:
             raise ValueError(f"Unsupported job status: {status}")
         if status in {"applied", "collected"} and any(
             job_id in other["jobs"] and other["jobs"][job_id]["status"] in {"applied", "collected"}
@@ -129,7 +129,7 @@ class SearchManifest:
         previous = row["jobs"].get(job_id, {}).get("status")
         # Once submission is recorded, a later UI/CSV failure must not erase it.
         if (previous == "applied" and status != "applied"
-                or previous == "submitting" and status in {"failed", "skipped", "in_progress"}):
+                or previous == "submitting" and status in {"failed", "skipped", "in_progress", "prepared"}):
             row["warnings"].append(f"Post-submit issue for {job_id}: {reason or status}")
         else:
             row["jobs"][job_id] = {"status": status, "reason": reason, "updated_at": timestamp()}

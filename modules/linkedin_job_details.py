@@ -200,6 +200,15 @@ def modern_details_ready(driver, expected_job_id):
         return False
 
 
+def modern_description_ready(driver, expected_job_id=None):
+    """Wait predicate: the header and Easy Apply can precede JD hydration."""
+    from selenium.common.exceptions import StaleElementReferenceException
+    try:
+        return read_modern_description(driver, expected_job_id)
+    except (ValueError, StaleElementReferenceException):
+        return False
+
+
 def modern_easy_apply_button(driver, expected_job_id=None):
     root = modern_details_root(driver, expected_job_id)
     if root is None:

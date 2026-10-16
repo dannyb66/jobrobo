@@ -18,6 +18,7 @@ from modules.linkedin_search import (
 )
 from modules.ai.search_refinement import make_refiner
 from modules.application_budget import ApplicationBudget
+from modules.application_choices import choose_index, dropdown_placeholder
 
 _runtime_loaded = False
 _apply_credentials_loaded = False
@@ -59,6 +60,8 @@ def _export_runtime_module(name):
 
 def load_runtime(execution_mode="apply"):
     global _runtime_loaded, _apply_credentials_loaded
+    global advance_to_review, current_submit_button, wait_for_application_modal, wait_for_submission_confirmation, submission_receipts
+    global resume_upload_target
     global AI_INPUT_XPATH, By, EC, ElementClickInterceptedException, ElementNotInteractableException, Literal, NoSuchElementException, NoSuchWindowException, ResumeUploadError, SearchManifest, Select, WebDriverWait, WebElement, about_company_for_ai, active_manifest, active_page, active_search, aiClient, append_history, apply_configured_filters, build_search_plan, choice, current_ctc, current_ctc_lakhs, current_ctc_monthly, dailyEasyApplyLimitReached, datetime, desired_salary, desired_salary_lakhs, desired_salary_monthly, easy_applied_count, external_jobs_count, failed_count, file_lock, first_name, full_name, last_name, llm_api_key, load_applied_job_ids, load_dotenv, load_openai_key, make_refiner, middle_name, notice_period, notice_period_months, notice_period_weeks, os, password, pause_at_failed_question, pause_before_submit, plan_fingerprint, pyautogui, randint, randomly_answered_questions, re, re_experience, run_non_stop, run_resume_optimization, search_metadata, search_profile, shuffle, skip_count, start_search, tabs_count, upload_verified_resume, useNewResume, use_AI, use_AI_for_resume, username, validate_config
     if _runtime_loaded:
         if execution_mode != "search" and not _apply_credentials_loaded:
@@ -90,6 +93,11 @@ def load_runtime(execution_mode="apply"):
     from dotenv import load_dotenv
     from modules.ai.resume_optimizer import run_resume_optimization
     from modules.resume_upload import ResumeUploadError, upload_verified_resume
+    from modules.linkedin_easy_apply import (
+        advance_to_review, current_submit_button, wait_for_application_modal,
+        wait_for_submission_confirmation, submission_receipts,
+    )
+    from modules.linkedin_file_upload import resume_upload_target
     from modules.ai.openai_key_loader import load_openai_key
     from config import search_profile
     from modules.search_planner import build_search_plan
@@ -112,6 +120,8 @@ def load_runtime(execution_mode="apply"):
     full_name = first_name + " " + middle_name + " " + last_name if middle_name else first_name + " " + last_name
     useNewResume = True
     randomly_answered_questions = set()
+    globals()["defaulted_questions"] = set()
+    globals()['draft_artifact_paths'] = {}
     tabs_count = 1
     easy_applied_count = 0
     external_jobs_count = 0
@@ -474,9 +484,9 @@ def get_job_description(
         ##<
         experience_required = "Unknown"
         found_masters = 0
-        from modules.linkedin_job_details import read_modern_description
+        from modules.linkedin_job_details import modern_description_ready
         modern = bool(driver.find_elements("css selector", "[data-view-name='job-detail-page'], [id^='JobDetails_AboutTheJob_']"))
-        jobDescription = read_modern_description(driver) if modern else find_by_class(driver, "jobs-box__html-content").text
+        jobDescription = WebDriverWait(driver, 15).until(modern_description_ready) if modern else find_by_class(driver, "jobs-box__html-content").text
         jobDescriptionLow = jobDescription.lower()
         skip = False
         skipReason = None
@@ -520,10 +530,11 @@ def upload_resume(modal: WebElement, resume: str) -> tuple[bool, str]:
     except: return False, "Previous resume"
 
 # Function to upload optimized resume using run_resume_optimization function from resume_optimizer.py similar logic to upload_resume function
-def upload_optimized_resume(modal: WebElement, resume_path: str, job_description: str, job_id: str, job_title: str = "job", first_name: str = "first", last_name: str = "last") -> tuple[bool, str]:
+def upload_optimized_resume(modal: WebElement, resume_path: str, job_description: str, job_id: str, job_title: str = "job", first_name: str = "first", last_name: str = "last", *, on_attached=None) -> tuple[bool, str]:
     return upload_verified_resume(
         modal, resume_path, job_description, job_id, job_title, first_name, last_name,
         optimize=run_resume_optimization, log=print_lg,
+        on_attached=on_attached,
     )
 
 # Function to answer common questions for Easy Apply
@@ -545,10 +556,38 @@ def replace_text_verified(element, value):
     WebDriverWait(driver, 5).until(lambda _: element.get_attribute("value") == str(value))
 
 
-def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None ) -> set:
+def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None, *, draft_answer=None ) -> set:
+    import re
+    def reference_field(label):
+        import re
+        return bool(re.search(r"\b(?:references|referees)\b|\b(?:your|professional|employment|personal)\s+reference\b|\breference(?:'s)?\s+(?:name|email|phone|contact)\b", label, re.I)
+                    or re.fullmatch(r'\s*reference\s*#?\d*\s*[:*]?\s*', label, re.I))
     # Get all questions from the page
      
     all_questions = modal.find_elements(By.XPATH, ".//div[@data-test-form-element]")
+    if not all_questions:
+        # The SDUI form uses ordinary label/control pairs and generated classes.
+        # Resume option labels are empty and must not become employer questions.
+        seen = set()
+        for label_node in modal.find_elements(By.XPATH, ".//label[@for]"):
+            if not label_node.is_displayed() or not label_node.text.strip():
+                continue
+            containers = label_node.find_elements(
+                By.XPATH, "./ancestor::*[.//input or .//select or .//textarea][1]")
+            if containers and containers[0].id not in seen:
+                seen.add(containers[0].id)
+                all_questions.append(containers[0])
+        for group in modal.find_elements(By.XPATH, ".//fieldset[.//input[@type='radio']] | .//*[@role='radiogroup'][.//input[@type='radio']]"):
+            if group.id not in seen:
+                seen.add(group.id)
+                all_questions.append(group)
+        for control in modal.find_elements(By.XPATH, ".//textarea[@aria-label] | .//select[@aria-label] | .//input[@aria-label][@type='text' or @type='email' or @type='tel' or @type='number' or @type='url']"):
+            # Native SDUI fields sometimes have only an accessible name, no label.
+            if any(parent.id in seen for parent in control.find_elements(By.XPATH, './ancestor::*')):
+                continue
+            if control.id not in seen:
+                seen.add(control.id)
+                all_questions.append(control)
     # all_questions = modal.find_elements(By.CLASS_NAME, "jobs-easy-apply-form-element")
     # all_list_questions = modal.find_elements(By.XPATH, ".//div[@data-test-text-entity-list-form-component]")
     # all_single_line_questions = modal.find_elements(By.XPATH, ".//div[@data-test-single-line-text-form-component]")
@@ -557,114 +596,113 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
     for Question in all_questions:
         # Check if it's a select Question
         select = try_xp(Question, ".//select", False)
+        if not select:
+            select = try_xp(Question, 'self::select', False)
         if select:
-            label_org = "Unknown"
+            label_org = select.get_attribute('aria-label') or "Unknown"
             try:
                 label = Question.find_element(By.TAG_NAME, "label")
-                label_org = label.find_element(By.TAG_NAME, "span").text
+                label_org = label.text.strip().rstrip("*").strip()
+                try:
+                    label_org = label.find_element(By.TAG_NAME, "span").text
+                except NoSuchElementException:
+                    pass
             except: pass
-            answer = 'Yes'
             label = label_org.lower()
             select = Select(select)
             selected_option = select.first_selected_option.text
-            optionsText = []
-            options = '"List of phone country codes"'
-            if label != "phone country code":
-                optionsText = [option.text for option in select.options]
-                options = "".join([f' "{option}",' for option in optionsText])
-            prev_answer = selected_option
-            if overwrite_previous_answers or selected_option == "Select an option":
-                if 'email' in label or 'phone' in label: answer = prev_answer
-                elif 'gender' in label or 'sex' in label: answer = gender
-                elif 'disability' in label: answer = disability_status
-                elif 'proficiency' in label: answer = 'Professional'
-                else: answer = answer_common_questions(label,answer)
-                try: select.select_by_visible_text(answer)
-                except NoSuchElementException as e:
-                    possible_answer_phrases = ["Decline", "not wish", "don't wish", "Prefer not", "not want"] if answer == 'Decline' else [answer]
-                    foundOption = False
-                    for phrase in possible_answer_phrases:
-                        for option in optionsText:
-                            if phrase in option:
-                                select.select_by_visible_text(option)
-                                answer = f'Decline ({option})' if len(possible_answer_phrases) > 1 else option
-                                foundOption = True
-                                break
-                        if foundOption: break
-                    if not foundOption:
-                        #TODO: Use AI to answer the question need to be implemented logic to extract the options for the question
-                        print_lg(f'Failed to find an option with text "{answer}" for question labelled "{label_org}", answering randomly!')
-                        select.select_by_index(randint(1, len(select.options)-1))
-                        answer = select.first_selected_option.text
-                        randomly_answered_questions.add((f'{label_org} [ {options} ]',"select"))
+            options = '"List of phone country codes"' if label == "phone country code" else "".join(
+                f' "{option.text}",' for option in select.options)
+            prev_answer = answer = selected_option
+            if overwrite_previous_answers or dropdown_placeholder(selected_option):
+                requested = None
+                if 'email' in label:
+                    requested = globals().get('email') or globals().get('username') or prev_answer
+                elif 'phone' in label:
+                    requested = prev_answer if not dropdown_placeholder(prev_answer) else globals().get('country')
+                elif 'gender' in label or 'sex' in label: requested = globals().get('gender')
+                elif 'disability' in label: requested = globals().get('disability_status')
+                elif 'citizenship' in label or 'employment eligibility' in label: requested = globals().get('us_citizenship')
+                elif 'veteran' in label or 'protected' in label: requested = globals().get('veteran_status')
+                else: requested = answer_common_questions(label, None)
+                choices = [{"text": option.text, "enabled": option.is_enabled(),
+                            "placeholder": dropdown_placeholder(option.text)} for option in select.options]
+                index, defaulted = choose_index(choices, requested)
+                select.select_by_index(index)
+                answer = select.first_selected_option.text
+                if defaulted:
+                    print_lg(f'No matching configured answer for "{label_org}"; defaulting to the first enabled option.')
+                    globals().setdefault('defaulted_questions', set()).add((label_org, "select"))
             questions_list.add((f'{label_org} [ {options} ]', answer, "select", prev_answer))
             continue
         
         # Check if it's a radio Question
         radio = try_xp(Question, './/fieldset[@data-test-form-builder-radio-button-form-component="true"]', False)
+        native_radio = False
+        if not radio:
+            radio = try_xp(Question, "self::fieldset[.//input[@type='radio']] | self::*[@role='radiogroup'][.//input[@type='radio']]", False)
+            native_radio = bool(radio)
         if radio:
             prev_answer = None
             label = try_xp(radio, './/span[@data-test-form-builder-radio-button-form-component__title]', False)
             try: label = find_by_class(label, "visually-hidden", 2.0)
             except: pass
             label_org = label.text if label else "Unknown"
-            answer = 'Yes'
+            if native_radio:
+                title_node = try_xp(radio, './/legend | .//*[@role="heading"]', False)
+                label_org = title_node.text if title_node else (radio.get_attribute("aria-label") or "")
+                if not label_org.strip():
+                    references = (radio.get_attribute('aria-labelledby') or '').split()
+                    label_org = ' '.join(node.text for ident in references
+                                         for node in modal.find_elements(By.XPATH, f'.//*[@id="{ident}"]'))
+                if not label_org.strip():
+                    preceding_title = try_xp(radio, './preceding-sibling::p[1]', False)
+                    label_org = preceding_title.text if preceding_title else ''
+                if not label_org.strip() or label_org.strip().lower().startswith('resume'):
+                    continue
             label = label_org.lower()
-
-            label_org += ' [ '
-            options = radio.find_elements(By.TAG_NAME, 'input')
-            options_labels = []
-            
-            for option in options:
-                id = option.get_attribute("id")
-                option_label = try_xp(radio, f'.//label[@for="{id}"]', False)
-                options_labels.append( f'"{option_label.text if option_label else "Unknown"}"<{option.get_attribute("value")}>' ) # Saving option as "label <value>"
-                if option.is_selected(): prev_answer = options_labels[-1]
-                label_org += f' {options_labels[-1]},'
-
+            option_nodes = radio.find_elements(By.TAG_NAME, 'input')
+            choices, controls = [], []
+            for option in option_nodes:
+                ident = option.get_attribute("id")
+                option_label = try_xp(radio, f'.//label[@for="{ident}"]', False)
+                role_control = try_xp(option, './ancestor::*[@role="radio"][1]', False) if native_radio else False
+                text = option_label.text.strip() if option_label else ""
+                if not text and role_control:
+                    text = role_control.text.strip() or role_control.get_attribute('aria-label')
+                choices.append({"text": text, "enabled": option.is_enabled()})
+                controls.append(role_control or option_label or option)
+                if option.is_selected(): prev_answer = text
+            answer = prev_answer
             if overwrite_previous_answers or prev_answer is None:
-                if 'citizenship' in label or 'employment eligibility' in label: answer = us_citizenship
-                elif 'veteran' in label or 'protected' in label: answer = veteran_status
-                elif 'disability' in label or 'handicapped' in label: 
-                    answer = disability_status
-                else: answer = answer_common_questions(label,answer)
-                foundOption = try_xp(radio, f".//label[normalize-space()='{answer}']", False)
-                if foundOption: 
-                    actions.move_to_element(foundOption).click().perform()
-                else:    
-                    possible_answer_phrases = ["Decline", "not wish", "don't wish", "Prefer not", "not want"] if answer == 'Decline' else [answer]
-                    ele = options[0]
-                    answer = options_labels[0]
-                    for phrase in possible_answer_phrases:
-                        for i, option_label in enumerate(options_labels):
-                            if phrase in option_label:
-                                foundOption = options[i]
-                                ele = foundOption
-                                answer = f'Decline ({option_label})' if len(possible_answer_phrases) > 1 else option_label
-                                break
-                        if foundOption: break
-                    # if answer == 'Decline':
-                    #     answer = options_labels[0]
-                    #     for phrase in ["Prefer not", "not want", "not wish"]:
-                    #         foundOption = try_xp(radio, f".//label[normalize-space()='{phrase}']", False)
-                    #         if foundOption:
-                    #             answer = f'Decline ({phrase})'
-                    #             ele = foundOption
-                    #             break
-                    actions.move_to_element(ele).click().perform()
-                    if not foundOption: randomly_answered_questions.add((f'{label_org} ]',"radio"))
-            else: answer = prev_answer
+                requested = None
+                if 'gender' in label or 'sex' in label: requested = globals().get('gender')
+                elif 'citizenship' in label or 'employment eligibility' in label: requested = globals().get('us_citizenship')
+                elif 'veteran' in label or 'protected' in label: requested = globals().get('veteran_status')
+                elif 'disability' in label or 'handicapped' in label: requested = globals().get('disability_status')
+                else: requested = answer_common_questions(label, None)
+                index, defaulted = choose_index(choices, requested)
+                actions.move_to_element(controls[index]).click().perform()
+                answer = choices[index]["text"]
+                if defaulted:
+                    print_lg(f'No matching configured answer for "{label_org}"; defaulting to the first enabled option.')
+                    globals().setdefault('defaulted_questions', set()).add((label_org, "radio"))
+            label_org += ' [ ' + ', '.join(str(choice['text']) for choice in choices)
             questions_list.add((label_org+" ]", answer, "radio", prev_answer))
             continue
         
         # Check if it's a text question
         text = try_xp(Question, ".//input[@type='text']", False)
+        if not text:
+            text = try_xp(Question, ".//input[@type='tel' or @type='email' or @type='number' or @type='url']", False)
+        if not text:
+            text = try_xp(Question, "self::input[@type='text' or @type='tel' or @type='email' or @type='number' or @type='url']", False)
         if text: 
             do_actions = False
             label = try_xp(Question, ".//label[@for]", False)
             try: label = label.find_element(By.CLASS_NAME,'visually-hidden')
             except: pass
-            label_org = label.text if label else "Unknown"
+            label_org = label.text if label else (text.get_attribute('aria-label') or "Unknown")
             answer = "" # years_of_experience
             label = label_org.lower()
 
@@ -672,9 +710,25 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             preferred_first = globals().get("preferred_first_name", "")
             preferred_override = (isinstance(preferred_first, str) and preferred_first.strip()
                                   and re.fullmatch(r"(?:preferred\s+)?first\s+name\s*\*?", label.strip()))
-            if not prev_answer or overwrite_previous_answers or preferred_override:
-                if preferred_override: answer = preferred_first.strip()
+            configured_employer = globals().get('recent_employer', '')
+            employer_override = (isinstance(configured_employer, str) and configured_employer.strip()
+                                 and re.fullmatch(r'(?:(?:most\s+)?recent|current|present|latest|last)\s+(?:company|employer)(?:\s+name)?\s*\*?', label.strip()))
+            if not prev_answer or overwrite_previous_answers or preferred_override or employer_override:
+                if reference_field(label):
+                    answer = globals().get('references', '').strip()
+                    if not answer and globals().get('prepare_only_run', False):
+                        answer = globals().get('test_references', '').strip()
+                    if not answer and not prev_answer and (text.get_attribute('required') is not None or text.get_attribute('aria-required') == 'true'):
+                        from modules.linkedin_easy_apply import MissingApplicationAnswer
+                        raise MissingApplicationAnswer('Required references are missing from config/personals.py')
+                    answer = answer or prev_answer or ''
+                elif employer_override: answer = configured_employer.strip()
+                elif preferred_override: answer = preferred_first.strip()
                 elif 'experience' in label or 'years' in label: answer = years_of_experience
+                elif 'email' in label or 'e-mail' in label:
+                    answer = globals().get('email') or globals().get('username') or prev_answer
+                    if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', str(answer or '')):
+                        raise ValueError('A configured email address is required for the application field')
                 elif 'phone' in label or 'mobile' in label: answer = phone_number
                 elif 'street' in label: answer = street
                 elif 'city' in label or 'location' in label or 'address' in label:
@@ -719,8 +773,10 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 elif 'country' in label: answer = country
                 else: answer = answer_common_questions(label,answer)
                 ##> ------ Dheeraj Deshwal : dheeraj9811 Email:dheeraj20194@iiitd.ac.in/dheerajdeshwal9811@gmail.com - Feature ------
-                if answer == "":
-                    if use_AI and aiClient:
+                if answer == "" and not reference_field(label):
+                    if draft_answer is not None and globals().get('ai_descriptive_answers_enabled', False):
+                        answer = draft_answer(label_org, 'descriptive', text.get_attribute('maxlength'))
+                    elif use_AI and aiClient:
                         try:
                              answer = ai_answer_question(aiClient, label_org, question_type="text" ,job_description=job_description, user_information_all = user_information_all)
                              print_lg(f'AI Answered recived for question"{label_org}" \nhere is answer : "{answer}"')
@@ -744,16 +800,42 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
 
         # Check if it's a textarea question
         text_area = try_xp(Question, ".//textarea", False)
+        if not text_area:
+            text_area = try_xp(Question, 'self::textarea', False)
         if text_area:
             label = try_xp(Question, ".//label[@for]", False)
-            label_org = label.text if label else "Unknown"
+            label_org = label.text if label else (text_area.get_attribute('aria-label') or "Unknown")
             label = label_org.lower()
             answer = ""
             prev_answer = text_area.get_attribute("value")
+            required = text_area.get_attribute('required') is not None or text_area.get_attribute('aria-required') == 'true'
+            if not prev_answer and not required and re.search(r'^\s*if\b.*\bselected\b.*\bother\b', label):
+                selected_other = False
+                for option in modal.find_elements(By.CSS_SELECTOR, 'input[type="radio"], input[type="checkbox"], option, [role="radio"], [role="checkbox"]'):
+                    option_text = option.text.strip()
+                    if not option_text and option.get_attribute('id'):
+                        option_label = try_xp(modal, './/label[@for="' + option.get_attribute('id') + '"]', False)
+                        option_text = option_label.text.strip() if option_label else ''
+                    if re.match(r'^other\b', option_text, re.I) and (option.is_selected() or option.get_attribute('aria-checked') == 'true'):
+                        selected_other = True
+                        break
+                if not selected_other:
+                    print_lg(f'Skipping inapplicable optional question: {label_org}')
+                    questions_list.add((label, '', 'textarea', prev_answer))
+                    continue
             if not prev_answer or overwrite_previous_answers:
-                if 'summary' in label: answer = linkedin_summary
+                if reference_field(label):
+                    answer = globals().get('references', '').strip()
+                    if not answer and globals().get('prepare_only_run', False):
+                        answer = globals().get('test_references', '').strip()
+                elif draft_answer is not None and (
+                        globals().get('ai_cover_letter_enabled', False) if 'cover' in label
+                        else globals().get('ai_descriptive_answers_enabled', False)):
+                    answer = draft_answer(label_org, 'cover_letter' if 'cover' in label else 'descriptive',
+                                          text_area.get_attribute('maxlength'))
+                elif 'summary' in label: answer = linkedin_summary
                 elif 'cover' in label: answer = cover_letter
-                if answer == "":
+                if answer == "" and not reference_field(label):
                 ##> ------ Dheeraj Deshwal : dheeraj9811 Email:dheeraj20194@iiitd.ac.in/dheerajdeshwal9811@gmail.com - Feature ------
                     if use_AI and aiClient:
                         try:
@@ -763,12 +845,12 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                             print_lg("Failed to get AI answer!", e)
                     else:
                         randomly_answered_questions.add((label_org, "textarea"))
-            text_area.clear()
-            text_area.send_keys(answer)
-            if do_actions:
-                    sleep(2)
-                    actions.send_keys(Keys.ARROW_DOWN)
-                    actions.send_keys(Keys.ENTER).perform()
+                if answer:
+                    text_area.clear()
+                    text_area.send_keys(answer)
+            if not text_area.get_attribute('value') and required:
+                from modules.linkedin_easy_apply import MissingApplicationAnswer
+                raise MissingApplicationAnswer(f'Required personal answer is missing: {label_org}')
             questions_list.add((label, text_area.get_attribute("value"), "textarea", prev_answer))
             ##<
             continue
@@ -908,8 +990,8 @@ def submitted_jobs(job_id: str, title: str, company: str, work_location: str, wo
 
 # Function to discard the job application
 def discard_job() -> None:
-    actions.send_keys(Keys.ESCAPE).perform()
-    wait_span_click(driver, 'Discard', 2)
+    from modules.linkedin_form_cleanup import discard_application
+    discard_application(driver)
 
 
 
@@ -1072,11 +1154,119 @@ def collect_linkedin_jobs(specs, *, limit=25, result_sink=None, checkpoints=None
 
 
 # Function to apply to jobs
-def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_limit=None, application_budget=None) -> None:
+def prepare_easy_apply(job_id, title, description, work_location, *, allow_manual_correction=True, company=''):
+    """Fill all pages before review. Per-application state cannot leak to another job."""
+    uploaded, resume, questions = False, "Previous resume", set()
+    draft_enabled = globals().get('ai_cover_letter_enabled', False) or globals().get('ai_descriptive_answers_enabled', False)
+    selected_resume_path = globals().get('default_resume_path', '')
+    drafts = draft_client = None
+    globals().setdefault('draft_artifact_paths', {}).pop(str(job_id), None)
+    # Preserve the original opening error; no cleanup may navigate or submit.
+    wait_for_application_modal(driver)
+
+    def attached(path):
+        nonlocal selected_resume_path, drafts
+        selected_resume_path = path
+        drafts = None
+
+    def draft_answer(question, kind, max_length=None):
+        nonlocal drafts, draft_client
+        from pathlib import Path
+        from modules.application_drafts import ApplicationDrafts, DraftError
+        from modules.ai.application_drafting import create_drafting_client, make_drafting_provider
+        from modules.linkedin_easy_apply import MissingApplicationAnswer
+        try:
+            if not uploaded or not selected_resume_path:
+                raise DraftError('A verified selected resume must be attached before drafting')
+            if drafts is None:
+                draft_client = draft_client or create_drafting_client(
+                    api_key=globals().get('llm_api_key', ''), base_url=globals().get('llm_api_url'))
+                source = Path(selected_resume_path)
+                paired_docx = source.with_suffix('.docx')
+                drafts = ApplicationDrafts(
+                    resume_path=source, source_docx=paired_docx,
+                    job_id=job_id, job_title=title, company=company, jd=description,
+                    personal_information=globals().get('user_information_all', ''),
+                    provider=make_drafting_provider(client=draft_client, model=globals().get('llm_model')))
+            limit = int(max_length) if max_length and str(max_length).isdigit() and int(max_length) > 0 else None
+            answer = drafts.answer(question, kind=kind, max_length=limit)
+            globals().setdefault('draft_artifact_paths', {})[str(job_id)] = drafts.artifact_summary()
+            return answer
+        except DraftError as error:
+            raise MissingApplicationAnswer(f'AI draft needs review for {question}: {error}') from None
+        except Exception:
+            raise MissingApplicationAnswer(f'AI draft unavailable for {question}; answer manually') from None
+
+    def fill_step(modal):
+        nonlocal uploaded, resume, questions
+        previously_uploaded = uploaded
+        upload_target = resume_upload_target(driver, modal) if not uploaded else None
+        if use_AI_for_resume and not uploaded and upload_target is not None:
+            options = {'on_attached': attached} if draft_enabled else {}
+            uploaded, resume = upload_optimized_resume(
+                upload_target, default_resume_docx_path, description, job_id, title, first_name, last_name, **options)
+            if not uploaded:
+                raise ResumeUploadError("No verified resume was attached; discarding application.")
+        elif not use_AI_for_resume and (useNewResume or draft_enabled) and not uploaded:
+            if upload_target is not None:
+                uploaded, resume = upload_resume(upload_target, default_resume_path)
+                if not uploaded:
+                    raise ResumeUploadError("Configured resume was not attached; discarding application.")
+        if uploaded and not previously_uploaded:
+            modal = wait_for_application_modal(driver)
+        answer_options = {'draft_answer': draft_answer} if draft_enabled else {}
+        questions = answer_questions(modal, questions, work_location, job_description=description, **answer_options)
+
+    def manual_correction(reason):
+        if not allow_manual_correction or not pause_at_failed_question:
+            return False
+        screenshot(driver, job_id, "Form navigation blocked")
+        pyautogui.alert(reason + '\nPlease correct the fields, then click Continue.\nDO NOT CLICK Back, Next, Review or Submit in LinkedIn.',
+                        "Help Needed", "Continue")
+        return True
+
+    try:
+        modal = advance_to_review(driver, fill_step, on_blocked=manual_correction, log=print_lg)
+    finally:
+        if draft_client is not None:
+            try:
+                draft_client.close()
+            except Exception:
+                pass
+    if use_AI_for_resume and not uploaded:
+        raise ResumeUploadError("No verified resume was attached; discarding application.")
+    if questions:
+        print_lg(f"Answered {len(questions)} application questions; values omitted from console output.")
+    return modal, questions, uploaded, resume
+
+
+def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_limit=None, application_budget=None,
+                        prepare_only=False, preparation_limit=10) -> None:
     applied_jobs = get_applied_job_ids()
     rejected_jobs = set()
     blacklisted_companies = set()
     processed_this_run = 0
+    preparation_report = None
+    from pathlib import Path
+    from modules.linkedin_deferred import DeferredJobs
+    retry_path = Path(search_profile.search_state_dir).parent / 'deferred_applications' / 'retry_jobs.json'
+    retry_jobs = DeferredJobs(retry_path)
+
+    def retain_job(job_id, title, company, description, spec, status, reason='', submit_enabled=None):
+        retry_jobs.record(dict(job_id=job_id, title=title, company=company, description=description,
+                               status=status, reason=reason, submission_disabled=bool(prepare_only),
+                               submit_enabled=submit_enabled, run_id=manifest.data['run_id'],
+                               query_id=spec.query_id, query=spec.query_text, profile=spec.profile_name,
+                               source_report=str(Path(search_profile.search_state_dir) / (manifest.data['run_id'] + '.json')),
+                               requires_submission_check=not prepare_only))
+        retry_jobs.export_markdown(retry_path.with_suffix('.md'))
+    if prepare_only:
+        from pathlib import Path
+        from modules.linkedin_preparation_report import PreparationReport
+        from modules.linkedin_form_cleanup import discard_application
+        validation_path = Path(search_profile.search_state_dir).parent / 'form_validations' / (manifest.data['run_id'] + '.json')
+        preparation_report = PreparationReport(validation_path, preparation_limit)
+        print_lg(f'Submission DISABLED. Form validation report: {validation_path}')
     global active_search, active_page, current_city, failed_count, skip_count, easy_applied_count, external_jobs_count, tabs_count, pause_before_submit, pause_at_failed_question, useNewResume, active_application_budget
     active_application_budget = application_budget
     current_city = current_city.strip()
@@ -1126,6 +1316,9 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                     job_listings = list(selected_jobs.get(spec.query_id, []))
 
                 for job in job_listings:
+                    if preparation_report is not None and preparation_report.limit_reached:
+                        manifest.interrupt('preparation_limit_reached')
+                        return
                     if application_budget is not None and application_budget.stop_if_reached(manifest, spec):
                         return
                     if keep_screen_awake: pyautogui.press('shiftright')
@@ -1275,85 +1468,97 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                     uploaded = False
                     # Case 1: Easy Apply Button
                     if try_xp(driver, ".//button[contains(@class,'jobs-apply-button') and contains(@class, 'artdeco-button--3') and contains(@aria-label, 'Easy')] | //*[@data-view-name='job-detail-page']//button[@aria-label='Easy Apply to this job'] | //*[@id='JobDetails_AboutTheJob_" + job_id + "']/ancestor::*[.//*[starts-with(@aria-label,'Company,')]][1]//button[@aria-label='Easy Apply to this job']"):
-                        try: 
-                            try:
-                                errored = ""
-                                modal = find_by_class(driver, "jobs-easy-apply-modal")
-                                wait_span_click(modal, "Next", 1)
-                                # if description != "Unknown":
-                                #     resume = create_custom_resume(description)
-                                resume = "Previous resume"
-                                next_button = True
-                                questions_list = set()
-                                next_counter = 0
-                                while next_button:
-                                    next_counter += 1
-                                    if next_counter >= 15: 
-                                        if pause_at_failed_question:
-                                            screenshot(driver, job_id, "Needed manual intervention for failed question")
-                                            pyautogui.alert("Couldn't answer one or more questions.\nPlease click \"Continue\" once done.\nDO NOT CLICK Back, Next or Review button in LinkedIn.\n\n\n\n\nYou can turn off \"Pause at failed question\" setting in config.py", "Help Needed", "Continue")
-                                            next_counter = 1
-                                            continue
-                                        if questions_list: print_lg("Stuck for one or some of the following questions...", questions_list)
-                                        screenshot_name = screenshot(driver, job_id, "Failed at questions")
-                                        errored = "stuck"
-                                        raise Exception("Seems like stuck in a continuous loop of next, probably because of new questions.")
-                                    questions_list = answer_questions(modal, questions_list, work_location, job_description=description)
-                                    if use_AI_for_resume and not uploaded:
-                                        if modal.find_elements(By.NAME, "file"):
-                                            uploaded, resume = upload_optimized_resume(modal, default_resume_docx_path, description, job_id, title, first_name, last_name)
-                                            if not uploaded:
-                                                raise ResumeUploadError("No verified resume was attached; discarding application.")
-                                    elif useNewResume and not uploaded:
-                                        uploaded, resume = upload_resume(modal, default_resume_path)
-                                    try: next_button = modal.find_element(By.XPATH, './/span[normalize-space(.)="Review"]') 
-                                    except NoSuchElementException:  next_button = modal.find_element(By.XPATH, './/button[contains(span, "Next")]')
-                                    try: next_button.click()
-                                    except ElementClickInterceptedException: break    # Happens when it tries to click Next button in About Company photos section
-                                    buffer(click_gap)
-
-                            except NoSuchElementException: errored = "nose"
-                            finally:
-                                if use_AI_for_resume and not uploaded:
-                                    raise ResumeUploadError("No verified resume was attached; discarding application.")
-                                if questions_list and errored != "stuck": 
-                                    print_lg("Answered the following questions...", questions_list)
-                                    print("\n\n" + "\n".join(str(question) for question in questions_list) + "\n\n")
-                                wait_span_click(driver, "Review", 1, scrollTop=True)
-                                cur_pause_before_submit = pause_before_submit
-                                if errored != "stuck" and cur_pause_before_submit:
-                                    decision = pyautogui.confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
-                                    if decision == "Discard Application": raise Exception("Job application discarded by user!")
-                                    pause_before_submit = False if "Disable Pause" == decision else True
-                                    # try_xp(modal, ".//span[normalize-space(.)='Review']")
-                                follow_company(modal)
-                                checkpoint_job(job_id, "submitting", "Submission requested; verify LinkedIn if interrupted")
-                                if wait_span_click(driver, "Submit application", 2, scrollTop=True): 
-                                    date_applied = datetime.now()
-                                    checkpoint_job(job_id, "applied", "Easy Apply submitted")
-                                    if not wait_span_click(driver, "Done", 2): actions.send_keys(Keys.ESCAPE).perform()
-                                elif errored != "stuck" and cur_pause_before_submit and "Yes" in pyautogui.confirm("You submitted the application, didn't you 😒?", "Failed to find Submit Application!", ["Yes", "No"]):
-                                    date_applied = datetime.now()
-                                    checkpoint_job(job_id, "applied", "Easy Apply submitted")
-                                    wait_span_click(driver, "Done", 2)
-                                else:
-                                    print_lg("Since, Submit Application failed, discarding the job application...")
-                                    # if screenshot_name == "Not Available":  screenshot_name = screenshot(driver, job_id, "Failed to click Submit application")
-                                    # else:   screenshot_name = [screenshot_name, screenshot(driver, job_id, "Failed to click Submit application")]
-                                    raise Exception("Failed to submit application")
-
+                        if preparation_report is not None:
+                            preparation_report.record(dict(job_id=job_id, status='started', title=title, company=company,
+                                                           query_id=spec.query_id, query=spec.query_text,
+                                                           job_url='https://www.linkedin.com/jobs/view/' + job_id + '/',
+                                                           description=description))
+                            retain_job(job_id, title, company, description, spec, 'started')
+                        try:
+                            preparation_options = {'allow_manual_correction': False} if prepare_only else {}
+                            if globals().get('ai_cover_letter_enabled', False) or globals().get('ai_descriptive_answers_enabled', False):
+                                preparation_options['company'] = company
+                            modal, questions_list, uploaded, resume = prepare_easy_apply(
+                                job_id, title, description, work_location, **preparation_options)
+                            if preparation_report is not None:
+                                modal, submit_button = current_submit_button(driver)
+                                driver.execute_script('arguments[0].scrollIntoView({block: "center"});', submit_button)
+                                image_path = validation_path.with_name(validation_path.stem + '-' + job_id + '.png')
+                                driver.save_screenshot(str(image_path))
+                                preparation_report.record(dict(job_id=job_id, status='ready', resume=resume,
+                                                               uploaded=uploaded, screenshot=str(image_path), submit_enabled=True,
+                                                               draft_artifacts=globals().get('draft_artifact_paths', {}).get(str(job_id))))
+                                retain_job(job_id, title, company, description, spec, 'ready', submit_enabled=True)
+                                checkpoint_job(job_id, 'prepared', 'Validation only: final Submit enabled; submission disabled')
+                                print_lg(f'PREPARED [{preparation_report.attempted}/{preparation_limit}] {job_id}: Submit enabled; submission disabled')
+                                discard_application(driver)
+                                continue
+                            if any('TEST DATA ONLY' in str(answer).upper()
+                                   for _, answer, *_ in questions_list):
+                                raise RuntimeError('Synthetic test references cannot be submitted; replace them with real personal data.')
+                            cur_pause_before_submit = pause_before_submit
+                            if cur_pause_before_submit:
+                                decision = pyautogui.confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
+                                if decision not in {"Submit Application", "Disable Pause"}:
+                                    raise Exception("Job application discarded by user!")
+                                pause_before_submit = decision != "Disable Pause"
+                            # The user may have edited fields or navigated backwards.
+                            # Verify the final state again before recording a submit attempt.
+                            modal, submit_button = current_submit_button(driver)
+                            follow_company(modal)
+                            modal, submit_button = current_submit_button(driver)
+                            driver.execute_script('arguments[0].scrollIntoView({block: "center"});', submit_button)
+                            receipt_baseline = submission_receipts(driver)
+                            checkpoint_job(job_id, "submitting", "Submission requested; verify LinkedIn if interrupted")
+                            submit_button.click()
+                            wait_for_submission_confirmation(driver, job_id, baseline=receipt_baseline)
+                            date_applied = datetime.now()
+                            checkpoint_job(job_id, "applied", "Easy Apply confirmed by LinkedIn")
+                            if not wait_span_click(driver, "Done", 2):
+                                actions.send_keys(Keys.ESCAPE).perform()
 
                         except Exception as e:
+                            if preparation_report is not None:
+                                image_path = validation_path.with_name(validation_path.stem + '-' + job_id + '-failed.png')
+                                try:
+                                    driver.save_screenshot(str(image_path))
+                                except Exception:
+                                    pass
+                                from modules.linkedin_easy_apply import MissingApplicationAnswer
+                                preparation_report.record(dict(job_id=job_id, status='failed', reason=str(e), screenshot=str(image_path),
+                                                               stage='missing_personal_data' if isinstance(e, MissingApplicationAnswer) else 'preparation',
+                                                               draft_artifacts=globals().get('draft_artifact_paths', {}).get(str(job_id))))
+                                checkpoint_job(job_id, 'failed', 'Preparation only: ' + str(e))
+                                retain_job(job_id, title, company, description, spec, 'failed', str(e))
+                                failed_count += 1
+                                print_lg(f'PREPARATION FAILED [{preparation_report.attempted}/{preparation_limit}] {job_id}: {e}')
+                                try:
+                                    discard_application(driver)
+                                except Exception as cleanup_error:
+                                    manifest.interrupt('preparation_cleanup_failed')
+                                    print_lg(f'Cannot safely continue after form cleanup failed: {cleanup_error}')
+                                    return
+                                continue
                             print_lg("Failed to Easy apply!")
+                            if date_applied == 'Pending':
+                                retain_job(job_id, title, company, description, spec, 'failed', str(e))
                             # print_lg(e)
                             critical_error_log("Somewhere in Easy Apply process",e)
                             failed_job(job_id, job_link, resume, date_listed, "Problem in Easy Applying", e, application_link, screenshot_name)
                             failed_count += 1
                             if date_applied == "Pending":
-                                discard_job()
+                                try:
+                                    discard_job()
+                                except Exception as cleanup_error:
+                                    manifest.interrupt('application_cleanup_failed')
+                                    print_lg(f'Cannot continue after application cleanup failed: {cleanup_error}')
+                                    return
                                 continue
                             print_lg("Submission succeeded; recording applied history despite a later UI error")
                     else:
+                        if prepare_only:
+                            checkpoint_job(job_id, 'skipped', 'Preparation only: no LinkedIn Easy Apply entry; external submissions disabled')
+                            continue
                         # Case 2: Apply externally
                         skip, application_link, tabs_count = external_apply(pagination_element, job_id, job_link, resume, date_listed, application_link, screenshot_name)
                         if dailyEasyApplyLimitReached:
@@ -1426,7 +1631,8 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                 critical_error_log("In Applier", e)
 
 
-def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs=None, result_sink=None, job_limit=None, application_budget=None):
+def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs=None, result_sink=None, job_limit=None, application_budget=None,
+                  prepare_only=False, preparation_limit=10):
     from modules.search_planner import role_priority
     global active_manifest, active_search, active_result_sink, active_application_budget
     # globals includes active date/sort cycling; filters still originate only in config/search.py.
@@ -1436,13 +1642,15 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
         return None
     deterministic = prepared_specs if prepared_specs is not None else build_search_plan(dict(profile, ai_query_refinement_enabled=False), config, warn=print_lg)
     configuration_id = plan_fingerprint(deterministic, profile)
+    if prepare_only:
+        configuration_id += ':prepare-only:' + str(preparation_limit)
     if selected_jobs is not None:
         import hashlib
         import json
         selection = {key: sorted(str(job["linkedin_id"]) for job in jobs) for key, jobs in selected_jobs.items()}
         configuration_id += ":selected:" + hashlib.sha256(json.dumps(selection, sort_keys=True).encode()).hexdigest()
     with file_lock(os.path.join(profile["search_state_dir"], ".runner.lock")):
-        manifest = SearchManifest.find_resume(profile["search_state_dir"], configuration_id) if profile["resume_search_enabled"] else None
+        manifest = SearchManifest.find_resume(profile["search_state_dir"], configuration_id) if profile["resume_search_enabled"] and not prepare_only else None
         if manifest is None:
             refiner = None if prepared_specs is not None else make_refiner(os.getenv("OPENAI_API_KEY") or llm_api_key, llm_api_url, llm_model, print_lg) if profile["ai_query_refinement_enabled"] else None
             specs = prepared_specs if prepared_specs is not None else build_search_plan(profile, config, refine=refiner, warn=print_lg)
@@ -1465,12 +1673,14 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
                 manifest.data["invocation_applied_count"] = application_budget.count
                 manifest.save()
             print_lg(f"Search run: {manifest.data['run_id']} ({manifest.path})")
-            if selected_jobs is None and result_sink is None and job_limit is None and application_budget is None:
+            if selected_jobs is None and result_sink is None and job_limit is None and application_budget is None and not prepare_only:
                 execute_search_plan(manifest)
             else:
                 options = dict(selected_jobs=selected_jobs, result_sink=result_sink, job_limit=job_limit)
                 if application_budget is not None:
                     options["application_budget"] = application_budget
+                if prepare_only:
+                    options.update(prepare_only=True, preparation_limit=preparation_limit)
                 execute_search_plan(manifest, **options)
             stop_reason = manifest.data.get("stop_reason")
             manifest.finish()
@@ -1497,6 +1707,8 @@ def run(total_runs: int, *, application_budget=None) -> int:
     print_lg(f"Cycle number: {total_runs}")
     print_lg(f"Currently looking for jobs posted within '{date_posted}' and sorting them by '{sort_by}'")
     options = {} if application_budget is None else {"application_budget": application_budget}
+    if globals().get('prepare_only_run', False):
+        options.update(prepare_only=True, preparation_limit=globals().get('preparation_limit', 10))
     apply_to_jobs(search_terms, **options)
     print_lg("########################################################################################################################\n")
     # if not dailyEasyApplyLimitReached:
@@ -1550,7 +1762,7 @@ def main() -> None:
         # Start applying to jobs
         driver.switch_to.window(linkedIn_tab)
         total_runs = run(total_runs, application_budget=application_budget)
-        while run_non_stop and not application_budget.stopped:
+        while run_non_stop and not application_budget.stopped and not globals().get('prepare_only_run', False):
             if cycle_date_posted:
                 date_options = ["Any time", "Past month", "Past week", "Past 24 hours"]
                 global date_posted
@@ -1568,7 +1780,8 @@ def main() -> None:
     except NoSuchWindowException:   pass
     except Exception as e:
         critical_error_log("In Applier Main", e)
-        pyautogui.alert(e,alert_title)
+        if not globals().get('prepare_only_run', False):
+            pyautogui.alert(e,alert_title)
     finally:
         print_lg("\n\nTotal runs:                     {}".format(total_runs))
         print_lg("Jobs Easy Applied:              {}".format(easy_applied_count))
@@ -1578,6 +1791,8 @@ def main() -> None:
         print_lg("Total applied or collected:     {}".format(easy_applied_count + external_jobs_count))
         print_lg("\nFailed jobs:                    {}".format(failed_count))
         print_lg("Irrelevant jobs skipped:        {}\n".format(skip_count))
+        if globals().get("defaulted_questions"):
+            print_lg("Questions defaulted to the first enabled option:", globals()["defaulted_questions"])
         if randomly_answered_questions: print_lg("\n\nQuestions randomly answered:\n  {}  \n\n".format(";\n".join(str(question) for question in randomly_answered_questions)))
         quote = choice([
             "You're one step closer than before.", 
@@ -1594,7 +1809,8 @@ def main() -> None:
             "The only limit to our realization of tomorrow will be our doubts of today. - Franklin D. Roosevelt"
             ])
         msg = f"\n{quote}\n\n\nCheers"
-        pyautogui.alert(msg, "Exiting..")
+        if not globals().get('prepare_only_run', False):
+            pyautogui.alert(msg, "Exiting..")
         print_lg(msg,"Closing the browser...")
         if tabs_count >= 10:
             msg = "NOTE: IF YOU HAVE MORE THAN 10 TABS OPENED, PLEASE CLOSE OR BOOKMARK THEM!\n\nOr it's highly likely that application will just open browser and not do anything next time!" 
@@ -1765,6 +1981,8 @@ def cli_main(argv=None):
                         help="Search and apply directly from config files; no verified_roles/linkedin_jobs inputs required")
     parser.add_argument("--fresh", action="store_true",
                         help="With --configured-search-and-apply, start a new search manifest while preserving application history")
+    parser.add_argument('--prepare-only', action='store_true',
+                        help='With --configured-search-and-apply, test forms up to enabled Submit without submitting; --limit defaults to 10')
     parser.add_argument("--mode", choices=("search", "apply", "search-and-apply"), default="search")
     parser.add_argument("--diagnose-search", action="store_true",
                         help="Read-only configured-search diagnostic; collect card metadata without applying")
@@ -1776,17 +1994,25 @@ def cli_main(argv=None):
     parser.add_argument("--refresh", action="store_true")
     args = parser.parse_args(argv)
     if args.configured_search_and_apply:
-        incompatible = {"--mode", "--input", "--set", "--output", "--limit", "--db", "--refresh", "--diagnose-search"}
+        incompatible = {"--mode", "--input", "--set", "--output", "--db", "--refresh", "--diagnose-search"}
+        if not args.prepare_only:
+            incompatible.add('--limit')
         if any(argument.partition("=")[0] in incompatible for argument in argv):
-            parser.error("--configured-search-and-apply accepts only --fresh; use config/search.py for limits and filters")
+            parser.error("--configured-search-and-apply accepts --fresh and --prepare-only [--limit N]; use config/search.py for application limits and filters")
         previous_resume = search_profile.resume_search_enabled
+        previous_preparation = globals().get('prepare_only_run', False), globals().get('preparation_limit', 10)
         try:
+            globals()['prepare_only_run'] = args.prepare_only
+            globals()['preparation_limit'] = args.limit or 10
             if args.fresh:
                 search_profile.resume_search_enabled = False
             run_bot()
         finally:
             search_profile.resume_search_enabled = previous_resume
+            globals()['prepare_only_run'], globals()['preparation_limit'] = previous_preparation
         return 0
+    if args.prepare_only:
+        parser.error('--prepare-only requires --configured-search-and-apply')
     if args.fresh:
         parser.error("--fresh requires --configured-search-and-apply")
     if args.diagnose_search:

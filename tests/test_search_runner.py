@@ -152,8 +152,21 @@ class SearchRunnerTests(unittest.TestCase):
             "answer_questions": lambda modal, questions, *args, **kwargs: questions,
             "follow_company": lambda *args: None,
             "discard_job": Mock(),
+            "wait_for_application_modal": lambda browser: self.modal,
+            "advance_to_review": self.advance_to_review,
+            "current_submit_button": lambda browser: (self.modal, SimpleNamespace(
+                click=lambda: self.namespace["wait_span_click"](self.modal, "Submit application"))),
+            "wait_for_submission_confirmation": Mock(return_value=True),
+            "submission_receipts": lambda browser: set(),
+            "resume_upload_target": lambda browser, modal: modal if modal.find_elements("name", "file") else None,
         }
-        extract_functions(self.namespace, "execute_search_plan", "checkpoint_job", "failed_job", "submitted_jobs", "get_applied_job_ids")
+        self.browser.execute_script = Mock()
+        self.browser.save_screenshot = Mock(return_value=True)
+        extract_functions(self.namespace, "prepare_easy_apply", "execute_search_plan", "checkpoint_job", "failed_job", "submitted_jobs", "get_applied_job_ids")
+
+    def advance_to_review(self, browser, fill_step, **kwargs):
+        fill_step(self.modal)
+        return self.modal
 
     def confirm(self, *args):
         self.events.append("confirm")
@@ -324,6 +337,17 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual(manifest.query(search.query_id)["jobs"]["1"]["status"], "applied")
         self.assertEqual(self.rows()[0]["Search Query ID"], search.query_id)
 
+    def test_failed_configured_resume_upload_never_submits_previous_attachment(self):
+        search = spec("configured-resume-rejected")
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        self.modal.find_elements = lambda *args: [Mock()]
+        self.namespace.update({"useNewResume": True, "ResumeUploadError": ResumeUploadError,
+                               "default_resume_path": "source.pdf",
+                               "upload_resume": Mock(return_value=(False, "Previous resume"))})
+        self.execute(manifest)
+        self.assertNotIn("Submit application", self.events)
+        self.assertEqual(manifest.query(search.query_id)["jobs"]["1"]["status"], "failed")
+
     def test_duplicate_job_in_next_query_and_applied_history_are_skipped(self):
         append_history(self.directory / "applied.csv", ["Job ID", "Date Applied"],
                        {"Job ID": "99", "Date Applied": "2026-10-12"})
@@ -440,6 +464,148 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual(row["Search Run ID"], manifest.data["run_id"])
         self.assertEqual(row["Search Query"], search.classic_query)
         self.assertEqual(row["Search Mode"], "classic")
+
+    def test_missing_application_dialog_preserves_cause_and_never_reviews_or_submits(self):
+        search = spec("missing-dialog")
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        error = RuntimeError("open: visible Easy Apply dialog not found")
+        self.namespace["wait_for_application_modal"] = Mock(side_effect=error)
+        original_find = self.namespace["find_by_class"]
+        self.namespace["find_by_class"] = lambda target, name, *args: (
+            (_ for _ in ()).throw(error) if name == "jobs-easy-apply-modal"
+            else original_find(target, name, *args))
+        self.execute(manifest)
+        self.assertNotIn("Review", self.events)
+        self.assertNotIn("Submit application", self.events)
+        self.assertNotIn("confirm", self.events)
+        self.assertIn("visible Easy Apply dialog not found", self.rows("failed.csv")[0]["Stack Trace"])
+
+    def test_normal_form_failure_halts_when_discard_cannot_be_verified(self):
+        search = spec("normal-cleanup-failure")
+        manifest = self.manifest([search], {search.query_id: [["1", "2"]]})
+        self.namespace["answer_questions"] = Mock(side_effect=RuntimeError("Missing required answer"))
+        self.namespace["discard_job"] = Mock(side_effect=RuntimeError("Discard confirmation remained open"))
+        self.execute(manifest)
+        self.assertEqual(self.visited, ["1"])
+        self.assertNotIn("Submit application", self.events)
+        self.assertEqual(manifest.data["stop_reason"], "application_cleanup_failed")
+
+    def test_answer_failure_never_enters_review_or_submission(self):
+        search = spec("answer-error")
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        self.namespace["answer_questions"] = Mock(side_effect=RuntimeError("Cannot fill required field"))
+        self.execute(manifest)
+        self.assertNotIn("Review", self.events)
+        self.assertNotIn("confirm", self.events)
+        self.assertNotIn("Submit application", self.events)
+        self.assertEqual(manifest.query(search.query_id)["jobs"]["1"]["status"], "failed")
+
+    def test_review_navigation_changed_before_submit_does_not_create_uncertain_attempt(self):
+        search = spec("changed-review")
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        self.namespace["current_submit_button"] = Mock(side_effect=RuntimeError("review: not on final screen"))
+        self.execute(manifest)
+        self.assertNotIn("Submit application", self.events)
+        self.assertFalse(manifest.has_uncertain_submission(search))
+        self.assertEqual(manifest.query(search.query_id)["jobs"]["1"]["status"], "failed")
+
+    def test_no_receipt_after_submit_remains_uncertain_and_does_not_consume_quota(self):
+        search = spec("no-receipt")
+        manifest = self.manifest([search], {search.query_id: [["1", "2"]]})
+        self.namespace["wait_for_submission_confirmation"] = Mock(side_effect=RuntimeError("submit: confirmation unavailable"))
+        self.execute(manifest)
+        self.assertEqual(self.events.count("Submit application"), 1)
+        self.assertEqual(self.visited, ["1"])
+        self.assertTrue(manifest.has_uncertain_submission(search))
+        self.assertEqual(manifest.query(search.query_id)["applied_count"], 0)
+        self.assertFalse((self.directory / "applied.csv").exists())
+
+    def test_dialog_open_failure_on_second_job_cannot_reuse_first_jobs_modal(self):
+        search = spec("fresh-dialog", 2)
+        manifest = self.manifest([search], {search.query_id: [["1", "2"]]})
+        self.namespace["wait_for_application_modal"] = Mock(side_effect=[self.modal, RuntimeError("open: no current dialog")])
+        self.execute(manifest)
+        self.assertEqual(self.events.count("Submit application"), 1)
+        self.assertEqual(manifest.query(search.query_id)["applied_count"], 1)
+        self.assertEqual(manifest.query(search.query_id)["jobs"]["2"]["status"], "failed")
+        self.assertIn("open: no current dialog", self.rows("failed.csv")[0]["Stack Trace"])
+
+    def test_closing_review_confirmation_discards_without_submission(self):
+        search = spec("review-closed")
+        manifest = self.manifest([search], {search.query_id: [["1"]]})
+        self.namespace["pyautogui"].confirm = lambda *args: None
+        self.execute(manifest)
+        self.assertNotIn("Submit application", self.events)
+        self.assertFalse(manifest.has_uncertain_submission(search))
+
+    def test_confirmed_submission_is_not_added_to_retry_list_after_done_ui_error(self):
+        search = spec('confirmed-before-done-error')
+        manifest = self.manifest([search], {search.query_id: [['1']]})
+        original = self.namespace['wait_span_click']
+        def click(target, label, *args):
+            if label == 'Done':
+                raise RuntimeError('Done UI disappeared')
+            return original(target, label, *args)
+        self.namespace['wait_span_click'] = click
+        self.execute(manifest)
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'applied')
+        self.assertFalse((self.directory / 'deferred_applications' / 'retry_jobs.json').exists())
+
+    def test_stale_synthetic_references_block_a_normal_submission(self):
+        search = spec('stale-test-references')
+        manifest = self.manifest([search], {search.query_id: [['1']]})
+        self.namespace['answer_questions'] = Mock(return_value={
+            ('References', 'TEST DATA ONLY — Sample Manager', 'textarea', '')})
+        self.execute(manifest)
+        self.assertNotIn('Submit application', self.events)
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'failed')
+        self.namespace['wait_for_submission_confirmation'].assert_not_called()
+
+    def test_prepare_only_stops_after_ten_forms_without_any_submission_or_applied_history(self):
+        import json
+        search = spec("ten-preparations", 1)
+        manifest = self.manifest([search], {search.query_id: [[str(i) for i in range(1, 13)]]})
+        def already_retained(browser):
+            archive = json.loads((self.directory / 'deferred_applications' / 'retry_jobs.json').read_text())
+            record = next(row for row in archive['records'] if row['job_id'] == self.visited[-1])
+            self.assertEqual(record['status'], 'ready')
+            self.assertEqual(record['description'], 'A suitable job')
+            self.assertEqual(record['job_url'], 'https://www.linkedin.com/jobs/view/' + self.visited[-1] + '/')
+            self.assertTrue(record['submission_disabled'])
+        with patch('modules.linkedin_form_cleanup.discard_application', side_effect=already_retained) as cleanup:
+            self.namespace['execute_search_plan'](manifest, prepare_only=True, preparation_limit=10)
+        self.assertEqual(self.visited, [str(i) for i in range(1, 11)])
+        self.assertEqual(cleanup.call_count, 10)
+        self.assertNotIn('Submit application', self.events)
+        self.assertNotIn('confirm', self.events)
+        self.namespace['wait_for_submission_confirmation'].assert_not_called()
+        self.assertEqual(manifest.query(search.query_id)['applied_count'], 0)
+        self.assertTrue(all(row['status'] == 'prepared' for row in manifest.query(search.query_id)['jobs'].values()))
+        self.assertFalse((self.directory / 'applied.csv').exists())
+        report = json.loads(next((self.directory / 'form_validations').glob('*.json')).read_text())
+        self.assertEqual((report['attempted'], report['ready'], report['failed']), (10, 10, 0))
+        self.assertTrue(report['submission_disabled'])
+
+    def test_prepare_only_skips_external_application_and_continues_after_form_failure(self):
+        search = spec('preparation-failure', 1)
+        manifest = self.manifest([search], {search.query_id: [['1', '2', '3', '4']]})
+        self.namespace['try_xp'] = lambda *args: self.visited[-1] != '1'
+        external = self.namespace['external_apply'] = Mock()
+        original = self.namespace['answer_questions']
+        self.namespace['answer_questions'] = lambda *a, **k: (
+            (_ for _ in ()).throw(RuntimeError('Question validation failed'))
+            if self.visited[-1] == '2' else original(*a, **k))
+        with patch('modules.linkedin_form_cleanup.discard_application'):
+            self.namespace['execute_search_plan'](manifest, prepare_only=True, preparation_limit=2)
+        self.assertEqual(self.visited, ['1', '2', '3'])
+        external.assert_not_called()
+        self.assertNotIn('Submit application', self.events)
+        self.assertEqual(manifest.query(search.query_id)['jobs']['2']['status'], 'failed')
+        self.assertEqual(manifest.query(search.query_id)['jobs']['3']['status'], 'prepared')
+        import json
+        archive = json.loads((self.directory / 'deferred_applications' / 'retry_jobs.json').read_text())
+        failed = next(row for row in archive['records'] if row['job_id'] == '2')
+        self.assertIn('Question validation failed', failed['failed_reasons'])
 
     def test_failed_jobs_do_not_consume_quota_and_page_through_to_success(self):
         search = spec("gates")

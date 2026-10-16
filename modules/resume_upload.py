@@ -25,7 +25,7 @@ def verify_source_resume(source_path, pdf_path):
 
 def upload_verified_resume(modal, resume_path, job_description, job_id,
                            job_title="job", first_name="first", last_name="last",
-                           *, optimize, verify_source=verify_source_resume, log=None):
+                           *, optimize, verify_source=verify_source_resume, log=None, on_attached=None):
     """Return success only after Selenium attaches a verified PDF.
 
     The optimizer's returned path has passed its verifier. If optimization or
@@ -38,6 +38,8 @@ def upload_verified_resume(modal, resume_path, job_description, job_id,
 
     def attach(path):
         modal.find_element("name", "file").send_keys(str(path.resolve()))
+        if on_attached is not None:
+            on_attached(str(path.resolve()))
         return True, path.name
 
     try:
