@@ -105,6 +105,10 @@ class LinkedInPreparationTests(unittest.TestCase):
         self.assertFalse(company_matches(employer, "Example"))
         self.assertTrue(company_matches(employer, "Renamed Company", "https://www.linkedin.com/company/example-ai"))
         self.assertFalse(company_matches(employer, "Example AI", "https://www.linkedin.com/company/unrelated"))
+        for tab in ("life", "about", "jobs"):
+            self.assertTrue(company_matches(employer, "Example AI", "https://www.linkedin.com/company/example-ai/" + tab + "/"))
+        self.assertFalse(company_matches(employer, "Example AI", "https://unrelated.example/company/example-ai/life/"))
+        self.assertFalse(company_matches(employer, "Example AI", "https://www.linkedin.com/company/unrelated/life/"))
 
     def test_current_config_renders_scoped_queries_snapshots_and_parent_traceability(self):
         settings = config()

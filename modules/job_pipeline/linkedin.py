@@ -29,7 +29,16 @@ def normalize_company(value):
 def company_matches(company, name, linkedin_url=None):
     expected_url = company.get("linkedin_url") or company.get("company_linkedin_url")
     if expected_url and linkedin_url:
-        return urlparse(expected_url).path.rstrip("/").casefold() == urlparse(linkedin_url).path.rstrip("/").casefold()
+        def identity(value):
+            parsed = urlparse(value)
+            parts = parsed.path.strip("/").split("/")
+            if (parsed.hostname in {"www.linkedin.com", "linkedin.com"}
+                    and len(parts) >= 2 and parts[0] == "company" and parts[1]):
+                # Modern job headers link to /life/; tabs share the same employer.
+                return parts[1].casefold()
+            return None
+        expected = identity(expected_url)
+        return expected is not None and expected == identity(linkedin_url)
     return normalize_company(name) in company_names(company)
 
 

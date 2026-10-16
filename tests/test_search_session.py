@@ -157,6 +157,34 @@ class SearchSessionTests(unittest.TestCase):
         with file_lock(self.state_directory / ".runner.lock"):
             self.assertEqual(self.persisted()[0]["stop_reason"], "KeyboardInterrupt")
 
+    def test_manifest_without_adapter_metadata_resumes_and_adds_optional_diagnostics(self):
+        self.namespace["execute_search_plan"] = self.interrupt_after_first_query
+        with self.assertRaises(KeyboardInterrupt):
+            self.apply_to_jobs([])
+        older = self.persisted()[0]
+        self.assertTrue(all("search_diagnostics" not in row for row in older["queries"]))
+        configuration_id = older["configuration_id"]
+
+        def modern_complete(manifest):
+            self.manifests.append(manifest)
+            for search in manifest.queries():
+                manifest.begin_query(search)
+                manifest.record_mode(search, "ai", diagnostics={
+                    "ui_variant": "modern_prompt", "transport": "native_ui",
+                    "verified_filters": ["search_location"], "results_state": "empty",
+                })
+                manifest.finish_query(search, "results_exhausted")
+
+        self.namespace["execute_search_plan"] = modern_complete
+        self.apply_to_jobs([])
+        resumed = self.manifests[-1].data
+        self.assertEqual(resumed["run_id"], older["run_id"])
+        self.assertEqual(resumed["configuration_id"], configuration_id)
+        self.assertEqual(resumed["queries"][0]["jobs"]["123"]["status"], "applied")
+        self.assertNotIn("search_diagnostics", resumed["queries"][0])
+        self.assertEqual(resumed["queries"][1]["search_diagnostics"]["ui_variant"], "modern_prompt")
+        self.assertEqual(len(self.persisted()), 1)
+
     def test_changed_location_creates_fresh_plan_from_current_config(self):
         self.namespace["execute_search_plan"] = self.interrupt_after_first_query
         with self.assertRaises(KeyboardInterrupt):

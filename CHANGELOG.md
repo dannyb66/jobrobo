@@ -20,6 +20,17 @@
 - Cap confirmed submissions across every query and nonstop cycle in one command with `max_applications_per_run = 1` by default, including pipeline application modes; keep capped runs resumable and retain review and verified-resume checks.
 - Verify LinkedIn's committed classic-search location and check each job against the canonical location policy before opening an application form, preventing out-of-area hybrid jobs from passing a Bay Area search while retaining eligible remote jobs.
 
+## [0.1.3.0] - 2026-10-14
+
+### Fixed
+
+- Search LinkedIn's current prompt interface with verified location and inline filters, including pages that omit tracking attributes; reuse validated search URLs for subsequent queries.
+- Read complete job and employer descriptions from modern results and job pages while preserving application review, eligibility checks, and duplicate protection.
+
+### Added
+
+- Diagnose a configured LinkedIn search with `--diagnose-search`, recording filter outcomes, sampled jobs, and screenshots without starting applications or changing application history.
+
 ## [0.1.2.0] - 2026-10-13
 
 ### Fixed

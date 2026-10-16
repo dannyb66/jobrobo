@@ -102,13 +102,16 @@ class SearchManifest:
         self.data["current_query_id"] = spec.query_id
         self.save()
 
-    def record_mode(self, spec, mode, fallback_reason=None, warnings=()):
+    def record_mode(self, spec, mode, fallback_reason=None, warnings=(), diagnostics=None):
         row = self.query(spec.query_id)
         spec.mode = mode
         row["spec"]["mode"] = row["search_mode"] = mode
         row["fallback_reason"] = fallback_reason
         row["executed_query"] = spec.classic_query if mode == "classic" else spec.query_text
         row["warnings"].extend(warnings)
+        if diagnostics is not None:
+            # Diagnostics augment existing manifests without changing resume identity.
+            row["search_diagnostics"] = diagnostics
         self.save()
 
     def processed_ids(self):
