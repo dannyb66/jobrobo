@@ -54,6 +54,14 @@ an early header alone does not establish that the description is unavailable.
 python runAiBot.py --configured-search-and-apply --fresh
 ```
 
+**Validated on 18 October 2026:** fresh search-and-apply is working end to end,
+including final Submit, LinkedIn confirmation, application-history recording and
+stopping at the configured limit. An observed live run submitted and confirmed
+two applications and verified their applied status again after reload. The user
+also confirmed successful manual testing. Filters and limits still come from
+the configuration; this validation does not imply every search result or UI
+variation is supported.
+
 This starts the same configured search/application runner as `python runAiBot.py`.
 The explicit fresh command creates a new search manifest instead of resuming an
 unfinished matching search. It restores the in-process resume setting afterward
