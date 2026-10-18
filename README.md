@@ -803,7 +803,7 @@ https://discord.gg/fFp7uUzWCY
 - **X/Twitter**: https://x.com/deepakcool3
 
 
-#### ℹ️ Version: [0.1.4.0](VERSION)
+#### ℹ️ Version: [0.1.5.0](VERSION)
 
 ---
 
