@@ -171,3 +171,16 @@ submitted. This does not establish that live submission succeeded.
 The isolated publishing suite passed 817 offline tests. It covers later-job
 resume attachment for AI prose and verified cleanup after normal form failures.
 Private per-job evidence and retry URLs remain under ignored `logs/` paths.
+
+## Submission confirmation
+
+The runner recognizes both explicit receipt dialogs and the modern job-specific
+**Application status → Application submitted** panel. It compares the observed
+state with the selected job's pre-submit baseline, so an existing applied panel
+or a changed elapsed-time label cannot count as a new application. Missing
+confirmation remains uncertain and blocks automatic resubmission.
+
+An optional receipt can be dismissed after confirmation. Modern panels do not
+require a Done button, and receipt-dismissal errors do not change a confirmed
+application into a failure. Applied history and the invocation limit are updated
+from the confirmed submission.
