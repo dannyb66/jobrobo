@@ -1508,14 +1508,18 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                             follow_company(modal)
                             modal, submit_button = current_submit_button(driver)
                             driver.execute_script('arguments[0].scrollIntoView({block: "center"});', submit_button)
-                            receipt_baseline = submission_receipts(driver)
+                            receipt_baseline = submission_receipts(driver, job_id=job_id)
                             checkpoint_job(job_id, "submitting", "Submission requested; verify LinkedIn if interrupted")
                             submit_button.click()
                             wait_for_submission_confirmation(driver, job_id, baseline=receipt_baseline)
                             date_applied = datetime.now()
                             checkpoint_job(job_id, "applied", "Easy Apply confirmed by LinkedIn")
-                            if not wait_span_click(driver, "Done", 2):
+                            # Modern submitted-status panels have no Done button.
+                            # Dismissing an optional receipt cannot undo success.
+                            try:
                                 actions.send_keys(Keys.ESCAPE).perform()
+                            except Exception as dismiss_error:
+                                print_lg('Application confirmed; receipt dismissal unavailable:', type(dismiss_error).__name__)
 
                         except Exception as e:
                             if preparation_report is not None:

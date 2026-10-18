@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5.0] - 2026-10-18
+
+### Fixed
+
+- Recognize LinkedIn's job-specific Application status panel after Easy Apply submission, so successful applications are confirmed and counted toward the run limit.
+- Compare submitted state with the exact job's pre-submit baseline, retaining protection against stale, hidden and unrelated receipts.
+- Dismiss optional success receipts without requiring the older Done button; dismissal errors no longer turn confirmed applications into failures.
+
 ## [0.1.4.0] - 2026-10-15
 
 ### Added

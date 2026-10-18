@@ -54,6 +54,14 @@ an early header alone does not establish that the description is unavailable.
 python runAiBot.py --configured-search-and-apply --fresh
 ```
 
+**Validated on 18 October 2026:** fresh search-and-apply is working end to end,
+including final Submit, LinkedIn confirmation, application-history recording and
+stopping at the configured limit. An observed live run submitted and confirmed
+two applications and verified their applied status again after reload. The user
+also confirmed successful manual testing. Filters and limits still come from
+the configuration; this validation does not imply every search result or UI
+variation is supported.
+
 This starts the same configured search/application runner as `python runAiBot.py`.
 The explicit fresh command creates a new search manifest instead of resuming an
 unfinished matching search. It restores the in-process resume setting afterward
@@ -171,3 +179,16 @@ submitted. This does not establish that live submission succeeded.
 The isolated publishing suite passed 817 offline tests. It covers later-job
 resume attachment for AI prose and verified cleanup after normal form failures.
 Private per-job evidence and retry URLs remain under ignored `logs/` paths.
+
+## Submission confirmation
+
+The runner recognizes both explicit receipt dialogs and the modern job-specific
+**Application status → Application submitted** panel. It compares the observed
+state with the selected job's pre-submit baseline, so an existing applied panel
+or a changed elapsed-time label cannot count as a new application. Missing
+confirmation remains uncertain and blocks automatic resubmission.
+
+An optional receipt can be dismissed after confirmation. Modern panels do not
+require a Done button, and receipt-dismissal errors do not change a confirmed
+application into a failure. Applied history and the invocation limit are updated
+from the confirmed submission.
