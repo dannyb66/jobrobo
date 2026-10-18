@@ -199,29 +199,48 @@ def current_submit_button(driver, *, timeout=10):
     return modal, button
 
 
-def submission_receipts(driver):
-    """Snapshot visible receipt texts before clicking Submit to exclude old toasts."""
+def job_submission_receipts(driver, job_id):
+    """Read applied state only inside the pane bound to this exact posting.
+
+    Modern LinkedIn renders a persistent Application status panel outside any
+    dialog or live region. Stable tokens omit elapsed time so an old receipt
+    cannot become new merely because its timestamp changed.
+    """
+    from modules.linkedin_job_details import modern_details_root
+    try:
+        root = modern_details_root(driver, job_id)
+        if root is None:
+            return set()
+        labels = [' '.join(node.text.split()) for node in _visible(root.find_elements(
+            By.CSS_SELECTOR, 'p, h2, h3, [role="heading"]'))]
+        result = set()
+        if any(label.lower() == 'application status' for label in labels):
+            if any(re.fullmatch(r'(?:your\s+)?application\s+(?:(?:has been|was)\s+)?(?:sent|submitted)(?:\s+successfully)?',
+                                label, re.I) for label in labels):
+                result.add(f'job:{job_id}:application-submitted')
+        if re.search(r'\bApplied\s+(?:just now|\d+\s+(?:second|minute)s?\s+ago)\b', root.text, re.I):
+            result.add(f'job:{job_id}:applied-badge')
+        return result
+    except (ValueError, StaleElementReferenceException):
+        return set()
+
+
+def submission_receipts(driver, job_id=None):
+    """Snapshot receipts before Submit, including the selected job's status."""
     result = set()
     for node in _visible(driver.find_elements(By.CSS_SELECTOR, DIALOGS + ', [role="alert"], [role="status"]')):
         text = node.text.strip()
         if re.search(r'(?:^|\n)(?:your\s+)?application\s+(?:(?:has been|was)\s+)?(?:sent|submitted)\b', text, re.I):
             result.add(text)
+    if job_id is not None:
+        result.update(job_submission_receipts(driver, job_id))
     return result
 
 
-def wait_for_submission_confirmation(driver, job_id, *, baseline, timeout=10):
-    """Require an explicit receipt; a successful click alone is not confirmation."""
+def wait_for_submission_confirmation(driver, job_id, *, baseline, timeout=15):
+    """Require a new explicit receipt; a successful click alone is not proof."""
     def confirmed(browser):
-        if submission_receipts(browser) - baseline:
-            return True
-        # New results UI exposes an Applied badge bound to the selected posting.
-        selector = f'[id="JobDetails_AboutTheJob_{job_id}"]'
-        for section in browser.find_elements(By.CSS_SELECTOR, selector):
-            panes = section.find_elements(By.XPATH, './ancestor::*[.//*[starts-with(@aria-label,"Company,")]][1]')
-            for pane in panes:
-                if pane.is_displayed() and re.search(r'\bApplied\s+(?:just now|\d+\s+(?:second|minute)s?\s+ago)\b', pane.text, re.I):
-                    return True
-        return False
+        return bool(submission_receipts(browser, job_id=job_id) - baseline)
     try:
         return bool(_wait(driver, confirmed, timeout))
     except TimeoutException as error:

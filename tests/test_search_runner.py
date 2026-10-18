@@ -157,7 +157,7 @@ class SearchRunnerTests(unittest.TestCase):
             "current_submit_button": lambda browser: (self.modal, SimpleNamespace(
                 click=lambda: self.namespace["wait_span_click"](self.modal, "Submit application"))),
             "wait_for_submission_confirmation": Mock(return_value=True),
-            "submission_receipts": lambda browser: set(),
+            "submission_receipts": lambda browser, **kwargs: set(),
             "resume_upload_target": lambda browser, modal: modal if modal.find_elements("name", "file") else None,
         }
         self.browser.execute_script = Mock()
@@ -538,18 +538,16 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertNotIn("Submit application", self.events)
         self.assertFalse(manifest.has_uncertain_submission(search))
 
-    def test_confirmed_submission_is_not_added_to_retry_list_after_done_ui_error(self):
-        search = spec('confirmed-before-done-error')
+    def test_confirmed_submission_survives_optional_receipt_dismiss_failure(self):
+        search = spec('confirmed-before-dismiss-error')
         manifest = self.manifest([search], {search.query_id: [['1']]})
-        original = self.namespace['wait_span_click']
-        def click(target, label, *args):
-            if label == 'Done':
-                raise RuntimeError('Done UI disappeared')
-            return original(target, label, *args)
-        self.namespace['wait_span_click'] = click
+        self.namespace['actions'] = Mock()
+        self.namespace['actions'].send_keys.return_value.perform.side_effect = RuntimeError('Receipt already disappeared')
         self.execute(manifest)
         self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'applied')
         self.assertFalse((self.directory / 'deferred_applications' / 'retry_jobs.json').exists())
+        self.assertEqual(self.namespace['failed_count'], 0)
+        self.assertEqual(self.rows()[0]['Job ID'], '1')
 
     def test_stale_synthetic_references_block_a_normal_submission(self):
         search = spec('stale-test-references')
@@ -653,18 +651,14 @@ class SearchRunnerTests(unittest.TestCase):
         first, second = spec("first"), spec("second")
         manifest = self.manifest([first, second], {"first": [["1"]], "second": [["1", "2"]]})
 
-        def click(target, label, *args, **kwargs):
-            if label == "Done":
-                raise RuntimeError("Confirmation modal changed after submit")
-            return self.click(target, label, *args, **kwargs)
-
-        self.namespace["wait_span_click"] = click
+        self.namespace['actions'] = Mock()
+        self.namespace['actions'].send_keys.return_value.perform.side_effect = RuntimeError('Confirmation receipt disappeared')
         self.execute(manifest)
         self.assertEqual(self.visited, ["1", "2"])
         self.assertEqual(self.events.count("Submit application"), 2)
         self.assertEqual(manifest.query("first")["jobs"]["1"]["status"], "applied")
         self.assertEqual(manifest.query("first")["applied_count"], 1)
-        self.assertTrue(any("Post-submit issue" in item for item in manifest.query("first")["warnings"]))
+        self.assertEqual(self.namespace["failed_count"], 0)
         self.assertEqual(load_applied_job_ids(self.directory / "applied.csv"), {"1", "2"})
 
     def test_new_run_skips_success_when_csv_logging_failed(self):

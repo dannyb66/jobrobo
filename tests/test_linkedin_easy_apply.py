@@ -222,6 +222,57 @@ class NavigationTests(unittest.TestCase):
         self.assertTrue(wait_for_submission_confirmation(browser, '123', baseline=baseline, timeout=.01))
         self.assertEqual(browser.clicks, ['Submit application'])
 
+    def test_observed_job_status_panel_confirms_without_dialog_or_applied_badge(self):
+        from test_linkedin_job_details import DetailDOMBrowser
+        from lxml import etree
+        browser = DetailDOMBrowser()
+        root = browser.root.xpath("//*[@data-view-name='job-detail-page']")[0]
+        root.insert(5, etree.fromstring('<div><h2>Application status</h2><p>Application submitted</p><p>5 minutes ago</p><a>View resume</a></div>'))
+        self.assertTrue(wait_for_submission_confirmation(browser, '123', baseline=set(), timeout=.01))
+        self.assertEqual(browser.clicks, [])
+
+    def test_existing_status_panel_is_not_a_new_submission_even_when_time_changes(self):
+        from test_linkedin_job_details import DetailDOMBrowser
+        from lxml import etree
+        browser = DetailDOMBrowser()
+        root = browser.root.xpath("//*[@data-view-name='job-detail-page']")[0]
+        panel = etree.fromstring('<div><h2>Application status</h2><p>Application submitted</p><p>1 minute ago</p></div>')
+        root.insert(5, panel)
+        baseline = submission_receipts(browser, job_id='123')
+        self.assertIn('job:123:application-submitted', baseline)
+        panel[-1].text = '2 minutes ago'
+        with self.assertRaisesRegex(EasyApplyError, 'submission is uncertain'):
+            wait_for_submission_confirmation(browser, '123', baseline=baseline, timeout=.01)
+
+    def test_other_job_or_hidden_status_panel_does_not_confirm(self):
+        from test_linkedin_job_details import DetailDOMBrowser
+        from lxml import etree
+        for kind in ('other-job', 'hidden', 'description-only'):
+            with self.subTest(kind=kind):
+                browser = DetailDOMBrowser()
+                root = browser.root.xpath("//*[@data-view-name='job-detail-page']")[0]
+                panel = etree.fromstring('<div><h2>Application status</h2><p>Application submitted</p></div>')
+                if kind == 'hidden':
+                    panel.set('style', 'display:none')
+                    root.insert(5, panel)
+                elif kind == 'description-only':
+                    panel[0].text = 'Example description'
+                    root.insert(5, panel)
+                else:
+                    browser.root.append(panel)
+                with self.assertRaisesRegex(EasyApplyError, 'submission is uncertain'):
+                    wait_for_submission_confirmation(browser, '123', baseline=set(), timeout=.01)
+                self.assertEqual(browser.clicks, [])
+
+    def test_mismatched_job_id_cannot_use_current_status_panel(self):
+        from test_linkedin_job_details import DetailDOMBrowser
+        from lxml import etree
+        browser = DetailDOMBrowser()
+        browser.root.xpath("//*[@data-view-name='job-detail-page']")[0].insert(5,
+            etree.fromstring('<div><h2>Application status</h2><p>Application submitted</p></div>'))
+        with self.assertRaisesRegex(EasyApplyError, 'submission is uncertain'):
+            wait_for_submission_confirmation(browser, '999', baseline=set(), timeout=.01)
+
     def test_click_without_receipt_stays_uncertain(self):
         browser = Browser([form(action='Submit application')])
         baseline = submission_receipts(browser)
