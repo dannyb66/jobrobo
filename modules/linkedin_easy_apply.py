@@ -19,7 +19,7 @@ class MissingApplicationAnswer(EasyApplyError):
     """A required personal answer is absent; never invent free-text answers."""
 
 
-DIALOGS = 'dialog[open], .jobs-easy-apply-modal, [role="dialog"], [aria-modal="true"]'
+DIALOGS = 'dialog[open], .jobs-easy-apply-modal, .artdeco-modal, [role="dialog"], [aria-modal="true"]'
 BUTTONS = 'button, [role="button"]'
 ERRORS = '.artdeco-inline-feedback--error, [aria-invalid="true"], [role="alert"]'
 
@@ -80,10 +80,56 @@ def _wait(driver, condition, timeout):
                          ignored_exceptions=(StaleElementReferenceException,)).until(condition)
 
 
-def wait_for_application_modal(driver, *, timeout=10):
+def _fit_warning(driver):
+    """Identify only LinkedIn's pre-application fit warning, not recommendations."""
+    dialogs=[]
+    for node in _visible(driver.find_elements(By.CSS_SELECTOR,DIALOGS)):
+        heading=(node.get_attribute('aria-label') or '')+' '+' '.join(
+            h.text for h in node.find_elements(By.CSS_SELECTOR,'h1, h2, h3, [role="heading"]'))
+        heading=' '.join(heading.split())
+        # Some warning variants render their title as a paragraph, not a heading.
+        # Require the specific warning text and exact continuation action there.
+        plain_warning=re.search(r'job may not be the best fit',' '.join(node.text.split()),re.I)
+        continuation=any(any(' '.join((label or '').lower().split())=='continue applying'
+            for label in (button.text,button.get_attribute('aria-label')))
+            for button in _visible(node.find_elements(By.CSS_SELECTOR,BUTTONS)))
+        if re.search(r'job may not be the best fit|position yourself to stand out',heading,re.I) or (plain_warning and continuation):
+            dialogs.append(node)
+    dialogs=[node for node in dialogs if not any(child.id!=node.id and
+        driver.execute_script('return arguments[0].contains(arguments[1]);',node,child) for child in dialogs)]
+    if len(dialogs)>1:
+        raise EasyApplyError('open: multiple visible fit-warning dialogs')
+    if not dialogs:return False
+    buttons=[b for b in _visible(dialogs[0].find_elements(By.CSS_SELECTOR,BUTTONS))
+        if any(' '.join((label or '').lower().split())=='continue applying'
+            for label in (b.text,b.get_attribute('aria-label')))]
+    return dialogs[0],buttons
+
+
+def wait_for_application_modal(driver, *, timeout=10, continue_fit_warning=True, log=lambda _: None):
+    continued=False
+    def opened(browser):
+        nonlocal continued
+        warning=_fit_warning(browser)
+        if warning:
+            if not continue_fit_warning or continued:return False
+            _,buttons=warning
+            if len(buttons)!=1:
+                raise EasyApplyError('open: fit warning lacks one Continue applying button')
+            button=buttons[0]
+            if _kind(button) is not None or not _enabled(button):
+                raise EasyApplyError('open: fit-warning Continue applying is disabled or ambiguous')
+            browser.execute_script('arguments[0].scrollIntoView({block: "center"});',button)
+            button.click()
+            continued=True
+            log('Easy Apply: Continue applying clicked; waiting for the application form')
+            if _fit_warning(browser):return False
+        return _modal(browser)
     try:
-        return _wait(driver, _modal, timeout)
+        return _wait(driver, opened, timeout)
     except TimeoutException as error:
+        if continued:
+            raise EasyApplyError('open: Continue applying did not open the application form') from error
         raise EasyApplyError('open: visible Easy Apply dialog not found (classic or semantic UI)') from error
 
 
@@ -122,7 +168,7 @@ def advance_to_review(driver, fill_step, *, timeout=10, max_steps=15, on_blocked
     fill_step receives a freshly acquired modal, including for one-page forms.
     on_blocked may invite manual field correction; it must not click navigation.
     """
-    wait_for_application_modal(driver, timeout=timeout)
+    wait_for_application_modal(driver, timeout=timeout, log=log)
     for step in range(1, max_steps + 1):
         try:
             state = _wait(driver, _state, timeout)

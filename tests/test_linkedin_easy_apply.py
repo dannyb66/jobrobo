@@ -84,6 +84,70 @@ class NavigationTests(unittest.TestCase):
     def navigate(self, browser, fill=None, **kwargs):
         return advance_to_review(browser, fill or (lambda modal: None), timeout=.01, **kwargs)
 
+    def test_fit_warning_plain_text_classic_modal_continues(self):
+        warning='''<div class="artdeco-modal"><p>This job may not be the best fit —
+            position yourself to stand out</p><button>Continue applying</button>
+            <button>Explore more jobs</button></div>'''
+        browser=Browser([warning,form(action='Submit application')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,['Continue applying'])
+
+    def test_fit_warning_semantic_plain_text_without_heading_continues(self):
+        warning='''<dialog open><p>This job may not be the best fit — position yourself to stand out</p>
+            <button>Continue applying</button><button>Explore more jobs</button></dialog>'''
+        browser=Browser([warning,form(action='Submit application')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,['Continue applying'])
+
+    def test_fit_warning_can_be_detected_without_clicking_during_cleanup(self):
+        browser=Browser(['<dialog open><h2>This job may not be the best fit</h2>'
+            '<button>Continue applying</button></dialog>'])
+        with self.assertRaises(EasyApplyError):
+            wait_for_application_modal(browser,timeout=.01,continue_fit_warning=False)
+        self.assertEqual(browser.clicks,[])
+
+    def test_fit_warning_continues_then_fills_pages_without_submitting(self):
+        warning='''<dialog open><h2>This job may not be the best fit — position yourself to stand out</h2>
+            <a>Recommended job</a><button>Continue applying</button><button>Explore more jobs</button></dialog>'''
+        browser=Browser([warning,form(),form('Questions','Review'),form('Review','Submit application')])
+        fill=Mock()
+        self.navigate(browser,fill)
+        self.assertEqual(browser.clicks,['Continue applying','Next','Review'])
+        self.assertEqual(fill.call_count,3)
+
+    def test_fit_warning_waits_for_dismissal_and_clicks_only_once(self):
+        warning='''<div role="dialog"><h2>This job may not be the best fit</h2>
+            <button>Continue applying</button><button>Explore more jobs</button></div>'''
+        browser=Browser([warning+form(action='Submit application')],on_click=lambda _:None)
+        fill=Mock()
+        with self.assertRaisesRegex(EasyApplyError,'Continue applying did not open'):
+            self.navigate(browser,fill)
+        self.assertEqual(browser.clicks,['Continue applying'])
+        fill.assert_not_called()
+
+    def test_fit_warning_ignores_hidden_and_unrelated_continue_buttons(self):
+        browser=Browser(['<button>Continue applying</button><div role="dialog" hidden>'
+            '<h2>This job may not be the best fit</h2><button>Continue applying</button></div>'
+            +form(action='Submit application')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,[])
+
+    def test_fit_warning_disabled_or_duplicate_continue_never_clicks(self):
+        for buttons in ('<button disabled>Continue applying</button>',
+                '<button>Continue applying</button><button>Continue applying</button>'):
+            browser=Browser(['<dialog open><h2>Position yourself to stand out</h2>'+buttons+'</dialog>'])
+            with self.assertRaisesRegex(EasyApplyError,'fit.warning'):
+                self.navigate(browser)
+            self.assertEqual(browser.clicks,[])
+
+    def test_fit_warning_supports_nested_dialogs_and_accessible_button_labels(self):
+        warning='''<div role="dialog"><dialog open><h2>This job may not be\nthe best fit</h2>
+            <button aria-label="Continue applying"><span aria-hidden="true">Proceed</span></button>
+            <button>Explore more jobs</button></dialog></div>'''
+        browser=Browser([warning,form(action='Submit application')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,['Proceed'])
+
     def test_all_pages_filled_before_next_then_review_and_stop_before_submit(self):
         browser = Browser([form(), form('Resume'), form('Questions', 'Review'), form('Review', 'Submit application')])
         filled = []

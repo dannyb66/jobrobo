@@ -5,7 +5,8 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from lxml import html, etree
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException, StaleElementReferenceException
+from unittest.mock import Mock,patch
 
 from modules.linkedin_file_upload import resume_upload_target
 from modules.resume_upload import ResumeUploadError
@@ -101,6 +102,111 @@ class FileChooserUploadTests(unittest.TestCase):
     def attach(self):
         target = resume_upload_target(self.browser, self.browser.modal, wait=bounded_wait)
         target.find_element("name", "file").send_keys(str(self.pdf))
+
+    def test_long_generation_refreshes_stale_modal_and_reuses_verified_pdf(self):
+        from modules.resume_upload import upload_verified_resume
+        original=self.browser.modal
+        target=resume_upload_target(self.browser,original,wait=bounded_wait,
+            refresh_modal=lambda:self.browser.modal)
+        def generate(**kwargs):
+            self.browser.root=Browser().root
+            self.browser.modal=Element(self.browser,self.browser.root.xpath('//dialog')[0])
+            original.find_elements=Mock(side_effect=StaleElementReferenceException('old modal'))
+            original.find_element=Mock(side_effect=StaleElementReferenceException('old modal'))
+            return str(self.pdf)
+        optimize=Mock(side_effect=generate)
+        with patch('modules.config_loader.peek_runtime_config',return_value={
+                'rewrite_all_bullets':False,'source_checks_enabled':True}):
+            result=upload_verified_resume(target,str(self.pdf),'JD','123',optimize=optimize)
+        self.assertEqual(result,(True,self.pdf.name))
+        optimize.assert_called_once()
+        self.assertEqual(self.browser.sent,[('new-file',str(self.pdf.resolve()))])
+        self.assert_cleaned()
+
+    def test_refresh_retries_stale_lookup_without_restarting_generation(self):
+        stale=Mock()
+        stale.find_element.side_effect=StaleElementReferenceException('rerender')
+        refresh=Mock(side_effect=[stale,self.browser.modal,self.browser.modal,self.browser.modal])
+        target=resume_upload_target(self.browser,self.browser.modal,wait=bounded_wait,refresh_modal=refresh)
+        target.find_element('name','file').send_keys(str(self.pdf))
+        self.assertEqual(self.browser.sent,[('new-file',str(self.pdf.resolve()))])
+        self.assert_cleaned()
+
+    def test_refresh_confirm_selection_from_replaced_modal(self):
+        original=self.browser.modal
+        replaced=False
+        def refresh():
+            nonlocal replaced
+            if self.browser.sent and not replaced:
+                self.browser.root=html.fromstring(etree.tostring(self.browser.root))
+                self.browser.modal=Element(self.browser,self.browser.root.xpath('//dialog')[0])
+                original.find_elements=Mock(side_effect=StaleElementReferenceException('old selection dialog'))
+                replaced=True
+            return self.browser.modal
+        target=resume_upload_target(self.browser,original,wait=bounded_wait,refresh_modal=refresh)
+        target.find_element('name','file').send_keys(str(self.pdf))
+        self.assertTrue(replaced)
+        self.assertEqual(len(self.browser.sent),1)
+        self.assert_cleaned()
+
+    def test_refresh_handles_legacy_inputs_and_bounds_repeated_staleness(self):
+        etree.SubElement(self.browser.modal.node,'input',{'name':'file','type':'file','id':'legacy'})
+        refresh=Mock(return_value=self.browser.modal)
+        target=resume_upload_target(self.browser,self.browser.modal,wait=bounded_wait,refresh_modal=refresh)
+        target.find_element('name','file').send_keys(str(self.pdf))
+        self.assertEqual(self.browser.sent,[('legacy',str(self.pdf.resolve()))])
+        self.assertEqual(self.browser.calls,[])
+        self.browser.modal.find_element=Mock(side_effect=StaleElementReferenceException('still rerendering'))
+        with self.assertRaisesRegex(ResumeUploadError,'kept replacing'):
+            target.find_element('name','file').send_keys(str(self.pdf))
+        self.assertEqual(self.browser.modal.find_element.call_count,3)
+
+    def test_bot_wrapper_refreshes_same_job_and_rejects_changed_job(self):
+        from test_search_runner import extract_functions
+        from modules.resume_upload import upload_verified_resume
+        for changed in (False,True):
+            with self.subTest(changed_job=changed):
+                self.browser=Browser();self.browser.current_url='https://www.linkedin.com/jobs/search-results/?currentJobId=123'
+                def generate(**kwargs):
+                    if changed:self.browser.current_url='https://www.linkedin.com/jobs/view/999/'
+                    return str(self.pdf)
+                optimize=Mock(side_effect=generate)
+                namespace={'driver':self.browser,'wait_for_application_modal':lambda driver:driver.modal,
+                    'ResumeUploadError':ResumeUploadError,'run_resume_optimization':optimize,
+                    'upload_verified_resume':upload_verified_resume,'print_lg':Mock(),
+                    'resume_upload_target':lambda driver,modal,**kw:resume_upload_target(driver,modal,wait=bounded_wait,**kw)}
+                extract_functions(namespace,'upload_optimized_resume')
+                with patch('modules.config_loader.peek_runtime_config',return_value={
+                        'rewrite_all_bullets':True,'source_checks_enabled':True}),\
+                     patch('modules.resume_all_bullets.verify_strict_attachment',return_value=True):
+                    result=namespace['upload_optimized_resume'](self.browser.modal,str(self.pdf),'JD','123')
+                self.assertEqual(result[0],not changed)
+                optimize.assert_called_once()
+                self.assertEqual(len(self.browser.sent),0 if changed else 1)
+
+    def test_bot_wrapper_rejects_job_changed_during_modal_wait(self):
+        from test_search_runner import extract_functions
+        from modules.resume_upload import upload_verified_resume
+        etree.SubElement(self.browser.modal.node,'input',{'name':'file','type':'file','id':'legacy'})
+        self.browser.current_url='https://www.linkedin.com/jobs/view/123/'
+        waits=[]
+        def modal_wait(driver):
+            waits.append(True)
+            if len(waits)==2:driver.current_url='https://www.linkedin.com/jobs/view/999/'
+            return driver.modal
+        optimize=Mock(return_value=str(self.pdf))
+        namespace={'driver':self.browser,'wait_for_application_modal':modal_wait,
+            'ResumeUploadError':ResumeUploadError,'run_resume_optimization':optimize,
+            'upload_verified_resume':upload_verified_resume,'print_lg':Mock(),
+            'resume_upload_target':lambda driver,modal,**kw:resume_upload_target(driver,modal,wait=bounded_wait,**kw)}
+        extract_functions(namespace,'upload_optimized_resume')
+        with patch('modules.config_loader.peek_runtime_config',return_value={
+                'rewrite_all_bullets':True,'source_checks_enabled':True}),\
+             patch('modules.resume_all_bullets.verify_strict_attachment',return_value=True):
+            result=namespace['upload_optimized_resume'](self.browser.modal,str(self.pdf),'JD','123')
+        self.assertFalse(result[0])
+        self.assertEqual(self.browser.sent,[])
+        optimize.assert_called_once()
 
     def assert_cleaned(self):
         self.assertEqual(self.browser.calls[-1], ("Page.setInterceptFileChooserDialog", {"enabled": False}))

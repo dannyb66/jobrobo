@@ -531,8 +531,21 @@ def upload_resume(modal: WebElement, resume: str) -> tuple[bool, str]:
 
 # Function to upload optimized resume using run_resume_optimization function from resume_optimizer.py similar logic to upload_resume function
 def upload_optimized_resume(modal: WebElement, resume_path: str, job_description: str, job_id: str, job_title: str = "job", first_name: str = "first", last_name: str = "last", *, on_attached=None) -> tuple[bool, str]:
+    from modules.linkedin_job_details import _url_job_id
+    def current_upload_modal():
+        if _url_job_id(driver.current_url)!=str(job_id):
+            raise ResumeUploadError('Selected job changed while optimizing; verified resume was not attached')
+        current = wait_for_application_modal(driver)
+        if _url_job_id(driver.current_url)!=str(job_id):
+            raise ResumeUploadError('Selected job changed while waiting for the application form; verified resume was not attached')
+        return current
+    # A long API rewrite may outlive the DOM node passed by the form navigator.
+    # Resolve a new dialog/input before attaching the already verified PDF.
+    target=resume_upload_target(driver,current_upload_modal(),refresh_modal=current_upload_modal)
+    if target is None:
+        raise ResumeUploadError('Current application page has no resume upload control')
     return upload_verified_resume(
-        modal, resume_path, job_description, job_id, job_title, first_name, last_name,
+        target, resume_path, job_description, job_id, job_title, first_name, last_name,
         optimize=run_resume_optimization, log=lambda message: print_lg(message, flush=True),
         on_attached=on_attached,
     )
@@ -1167,8 +1180,16 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
     drafts = draft_client = None
     globals().setdefault('draft_artifact_paths', {}).pop(str(job_id), None)
     globals().setdefault('resume_artifact_paths', {}).pop(str(job_id), None)
-    # Preserve the original opening error; no cleanup may navigate or submit.
-    wait_for_application_modal(driver)
+    # Preserve evidence before cleanup changes a failed opening dialog.
+    try:
+        wait_for_application_modal(driver)
+    except Exception:
+        try:
+            image = screenshot(driver, job_id, "Application opening failed")
+            print_lg(f'Application opening screenshot saved: {image}')
+        except Exception:
+            pass
+        raise
 
     def attached(path):
         nonlocal selected_resume_path, drafts
