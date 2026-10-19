@@ -23,7 +23,7 @@ search_location = "San Francisco Bay Area"               # Some valid examples: 
 switch_number = 10                  # Per-query application/external-link quota; then move to the next query.
 
 # Confirmed submissions across the whole command, including nonstop cycles.
-max_applications_per_run = 1        # Positive integer; None disables the overall submission cap.
+max_applications_per_run = 50       # Positive integer; None disables the overall submission cap.
 
 # Do you want to randomize the search order for search_terms?
 randomize_search_order = False     # True of False, Note: True or False are case-sensitive

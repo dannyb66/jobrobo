@@ -104,13 +104,32 @@ or hiring probabilities**. Inspect required/preferred/context and bounded
 keyword evidence separately, including missing and removed terms.
 
 Only every-bullet substantive acceptance plus global format checks can set
-`rewrite_completed`. Missing, unchanged, source-retained, failed, cancelled or
-budget-blocked IDs produce explicit partial/blocked reports. Such previews
-return no accepted PDF and cannot fall back to Skills-only success. The upload
-helper disables source fallback for strict runs. Offline fixtures never become
-accepted generated attachments. Application routing integrations must honor
-strict completion and artifact binding; no upload or Submit is part of this
-test workflow.
+`rewrite_completed`. By default, missing, unchanged, source-retained, failed,
+cancelled or budget-blocked IDs produce explicit partial/blocked reports. Such
+previews return no accepted PDF and cannot fall back to Skills-only success.
+
+Set `rewrite_source_fallback_enabled: true` in the saved optimizer JSON to retain
+an individual bullet's exact original text after its bounded rewrite attempts
+fail. Successful sibling rewrites remain in the document. A mixed result keeps
+`rewrite_completed: false`, but may set `document_complete: true` and
+`completion_mode: "source_fallback"` when every slot is accounted for and all
+global PDF, Skills, preserved-section and artifact-binding checks pass. Coverage
+reports distinguish accepted rewrites, source fallbacks and unresolved slots,
+and retain each failed rewrite's reason. This flag defaults to false.
+
+Mixed-result uploads require the current configuration to explicitly enable the
+flag, at least one accepted rewrite and a real provider response. Cancelled,
+wholly failed, offline and invalid-layout runs remain ineligible. The upload
+helper never substitutes the entire source resume for an incomplete strict run.
+Application routing integrations must honor completion and artifact binding;
+the offline test workflow never uploads or submits an application.
+
+LinkedIn uploads reacquire the current job's application dialog after generation
+and while confirming the selected attachment. Stale controls receive up to three
+attempts using the same verified PDF; this does not restart generation. If the
+selected job changes, attachment stops. A recognized fit-warning dialog clicks
+Continue applying once before form navigation. Cleanup closes that warning
+without continuing it, and opening failures retain a screenshot before cleanup.
 
 ## Reproduce offline checks
 

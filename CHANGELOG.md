@@ -25,6 +25,10 @@
 
 ### LinkedIn application fixes
 
+- Continue past LinkedIn's fit warning across classic and semantic dialogs, and close warnings safely during application cleanup.
+- Refresh resume upload controls after long optimization runs and retry stale controls with the same verified PDF.
+- Optionally retain individual source bullets when their rewrites fail, while preserving successful rewrites and requiring a complete, verified document before upload.
+- Set the configured per-run application cap to 50 confirmed submissions; per-query quotas still apply.
 - Fill classic and native Easy Apply pages through Next, Review and Submit readiness, with verified attachment paths and explicit submission receipts.
 - Test forms without submitting using `--prepare-only`; retain prepared and failed job URLs, descriptions and retry history.
 - Draft and cache cover letters and descriptive answers from the selected resume and job description. Keep semantic rewrite checks disabled; handle references from reusable configuration with synthetic data restricted to preparation tests.
