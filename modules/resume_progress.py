@@ -51,10 +51,15 @@ class ResumeConsoleProgress:
             'rendering': f"Rendering optimized DOCX to PDF (attempt {event.get('attempt', 1)}/2)",
             'verifying': 'Checking PDF layout, bullet coverage and preserved sections',
             'layout_retry': 'Retrying bullets or Skills that did not fit the rendered document',
+            'source_fallback': f"Keeping {event.get('retained', 0)} original bullets after rewrite failures; verifying the combined PDF",
             'scoring': 'Calculating JD match report',
             'saving': 'Saving artifacts, comparison and verification report',
             'finished': f"Optimization {event.get('status', 'finished')}: {event.get('accepted', 0)}/{event.get('total', 0)} bullets accepted; upload eligible: {bool(event.get('eligible'))}",
         }
+        if kind == 'finished' and event.get('source_fallback'):
+            messages['finished'] = (f"Optimization {event.get('status', 'finished')}: "
+                f"{event.get('accepted', 0)} bullets rewritten; {event['source_fallback']} original bullets retained; "
+                f"total {event.get('total', 0)}; upload eligible: {bool(event.get('eligible'))}")
         if kind in {'request_started', 'request_finished', 'rate_wait'}:
             stage = 'JD keyword extraction' if event.get('stage') == 'keywords' else f"bullet batch ({event.get('bullet_count', 0)} bullets)"
             request = event.get('attempt', event.get('requests', 0))
@@ -66,6 +71,8 @@ class ResumeConsoleProgress:
                     message += ' — retry'
             else:
                 result = 'failed' if event.get('error_kind') or not event.get('response_received') else 'response received'
+                if event.get('error_kind'):
+                    result += f" ({event['error_kind']})"
                 message = f'API request {request}: {stage} — {result}'
         else:
             message = messages.get(kind)

@@ -292,13 +292,15 @@ def execute(args,*,client=None,optimizer_instance=None,runtime_config_override=N
         report_path=max(reports,key=lambda p:p.stat().st_mtime) if reports else None
         report=json.loads(report_path.read_text()) if report_path else {}
         eligible=bool(result and Path(result).is_file() and report.get('format_verification',{}).get('passed'))
-        if args.mode in {'full','bullets'} and not report.get('rewrite_completed'):eligible=False
+        if args.mode in {'full','bullets'} and not (report.get('rewrite_completed') or
+                args.rewrite_all_bullets and report.get('document_complete')):eligible=False
         if args.rewrite_all_bullets:
             eligible=eligible and verify_strict_attachment(result,expected_jd=jd,expected_source_docx=copied,
                 expected_source_checks_enabled=config.get('source_checks_enabled',True),expected_config=config) if result else False
         if digest(source.read_bytes())!=details['source_sha256'] or digest(source.with_suffix('.pdf').read_bytes())!=details['source_pdf_sha256']:
             raise ValueError('Original changed during generation; output blocked')
-        draft_ready=bool((args.review_draft or args.synthetic_jd_test) and report.get('rewrite_completed') and report.get('format_verification',{}).get('passed'))
+        draft_ready=bool((args.review_draft or args.synthetic_jd_test) and
+            (report.get('rewrite_completed') or report.get('document_complete')) and report.get('format_verification',{}).get('passed'))
         kind='offline_validation_preview' if execution_kind!='provider' else 'synthetic_jd_test' if args.synthetic_jd_test and draft_ready else 'manual_review_draft' if draft_ready else 'review_ready' if eligible else 'partial_or_blocked'
         preview=report.get('preview_path') or report.get('output_path')
         summary=dict(details,status=kind,ai_execution_kind=execution_kind,optimized_pdf=result if eligible else None,

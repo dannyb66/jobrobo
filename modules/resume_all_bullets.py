@@ -33,6 +33,7 @@ from modules.resume_company_context import bind_company_context, add_company_con
 
 LABEL = "local heuristic match estimate — not an employer ATS ranking, verified qualification or hiring probability"
 DEFAULTS = dict(rewrite_all_bullets=False, rewrite_experience_concurrency=2,
+                rewrite_source_fallback_enabled=False,
                 source_checks_enabled=True,
                 rewrite_bullets_per_request=12,
                 rewrite_token_estimation='byte_upper_bound',
@@ -58,6 +59,8 @@ def validate_options(config, mode):
         raise ValueError('rewrite_all_bullets must be a boolean')
     if type(options['source_checks_enabled']) is not bool:
         raise ValueError('source_checks_enabled must be a boolean')
+    if type(options['rewrite_source_fallback_enabled']) is not bool:
+        raise ValueError('rewrite_source_fallback_enabled must be a boolean')
     if type(options['rewrite_experience_concurrency']) is not int or not 1 <= options['rewrite_experience_concurrency'] <= 4:
         raise ValueError('rewrite_experience_concurrency must be an integer from 1 to 4')
     if type(options['rewrite_bullets_per_request']) is not int or not 1 <= options['rewrite_bullets_per_request'] <= 12:
@@ -67,7 +70,7 @@ def validate_options(config, mode):
     if not options['source_checks_enabled'] and not options['rewrite_all_bullets']:
         raise ValueError('source_checks_enabled=False requires rewrite_all_bullets=True')
     for key, value in options.items():
-        if key in {'rewrite_all_bullets', 'source_checks_enabled', 'rewrite_model', 'rewrite_reasoning_effort', 'rewrite_token_estimation', 'rewrite_experience_concurrency'}:
+        if key in {'rewrite_all_bullets', 'source_checks_enabled', 'rewrite_source_fallback_enabled', 'rewrite_model', 'rewrite_reasoning_effort', 'rewrite_token_estimation', 'rewrite_experience_concurrency'}:
             continue
         if type(value) not in {int, float} or not math.isfinite(value) or value <= 0:
             raise ValueError(key + ' must be a positive finite number')
@@ -304,6 +307,7 @@ class Scheduler:
             from modules.ai.resume_optimizer import _provider_error_kind
             kind = _provider_error_kind(exc)
             event['error_kind'] = kind
+            event['error_type'] = type(exc).__name__
             if kind in {'authentication_error', 'permission_error'}:
                 self.stop(kind)
             if kind == 'rate_limit':
@@ -859,6 +863,8 @@ def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None
                 outcomes.update(values)
             except Exception as exc:
                 reason=str(exc) if isinstance(exc,(Stopped,ValueError)) else type(exc).__name__
+                if isinstance(exc,ProviderFailure) and str(exc) in {'connection_error','authentication_error','permission_error','rate_limit','invalid_response','provider_error'}:
+                    reason=str(exc)
                 for source in pending:
                     outcomes[source['bullet_id']]=dict(source,status='blocked',reason=reason,
                         rewritten_text=source['source_text'],requested=any(source['bullet_id'] in e['requested_bullet_ids'] for e in scheduler.events),response_received=False)
@@ -1099,6 +1105,40 @@ def _write_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2, ensure_ascii=False), encoding='utf-8')
 
 
+def retain_failed_source_bullets(records):
+    """Retain the original slot after bounded rewrite attempts, with its diagnostics."""
+    for record in records:
+        if record['status'] not in {'candidate', 'accepted', 'source_fallback'}:
+            record['rewrite_failure_status'] = record['status']
+            record['fallback_reason'] = record.get('reason') or 'rewrite unavailable'
+            if record['rewritten_text'] != record['source_text']:
+                record['rejected_proposed_text'] = record['rewritten_text']
+            record.update(status='source_fallback', rewritten_text=record['source_text'])
+    return sum(r['status'] == 'source_fallback' for r in records)
+
+
+def source_fallback_coverage_valid(records, inventory):
+    """Every slot must be a successful rewrite or its exact, source-bound original."""
+    sources = {b['bullet_id']: b for b in inventory['bullets']}
+    if (not records or len(records) != len(sources)
+            or len({r['bullet_id'] for r in records}) != len(records)
+            or not any(r['status'] == 'accepted' for r in records)):
+        return False
+    for row in records:
+        original = sources.get(row['bullet_id'])
+        if not original or any(row.get(k) != original.get(k) for k in
+                ('source_text', 'source_text_hash', 'paragraph_index')):
+            return False
+        if row['status'] == 'source_fallback':
+            if (row['rewritten_text'] != original['source_text']
+                    or sha(row['rewritten_text']) != original['source_text_hash']
+                    or not row.get('fallback_reason')):
+                return False
+        elif row['status'] != 'accepted':
+            return False
+    return True
+
+
 def run_all_bullets(jd, source, job_id, role, config, policy=None, title_override=None,
                     execution_kind='provider', cancel=None, progress=None, *, provider=None, output_root=None):
     """One source-bound run; None means ineligible, with a coherent partial report."""
@@ -1244,6 +1284,10 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
         for layout_attempt in range(2):
             if sha(source.read_bytes()) != inv['source_sha256'] or sha(source_pdf.read_bytes()) != sha((root/'original.pdf').read_bytes()):
                 raise ValueError('original source changed during generation; artifact binding blocked')
+            if options['rewrite_source_fallback_enabled'] and not scheduler.cancel.is_set():
+                retained = retain_failed_source_bullets(records)
+                if retained:
+                    notify('source_fallback', retained=retained, total=len(records))
             doc = Document(source)
             skills_start, skills_end = optimizer._find_skills_section(doc)
             if jd_experiment.is_jd_only(policy):
@@ -1313,11 +1357,13 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
                     record['reason'] = '; '.join(fit_issues[record['bullet_id']]['reasons']) if record['bullet_id'] in fit_issues else None
                     if record['bullet_id'] in fit_issues and sum(record['bullet_id'] in e['requested_bullet_ids'] for e in scheduler.events)<2:
                         retryable=True
+                    if record['bullet_id'] in fit_issues and options['rewrite_source_fallback_enabled']:
+                        retryable=True
             if layout_attempt==0 and retryable and not scheduler.cancel.is_set():
                 notify('layout_retry')
-                if scheduler.active():
+                if scheduler.active() and not (options['rewrite_source_fallback_enabled'] and fit_issues):
                     records = rewrite_inventory(inv,jd,role,policy,scheduler,provider,_glyph_check(source_pdf),records,alignment_keywords=keywords)
-                if scheduler.active() or skills_layout_text:
+                if scheduler.active() or skills_layout_text or options['rewrite_source_fallback_enabled']:
                     continue
             break
         report['format_verification'] = verification
@@ -1335,11 +1381,15 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
             report['same_jd_verified']=True
         else:
             report['scoring_unavailable_reason']='DOCX/PDF text mismatch'
-        complete = bool(records) and all(r['status']=='accepted' for r in records) and verification['passed'] and not scheduler.cancel.is_set() and report['skills_optimization']['completed']
+        all_rewritten = bool(records) and all(r['status']=='accepted' for r in records)
+        accounted = all_rewritten or (options['rewrite_source_fallback_enabled'] and source_fallback_coverage_valid(records,inv))
+        complete = accounted and verification['passed'] and not scheduler.cancel.is_set() and report['skills_optimization']['completed']
         attachment_policy_enabled = policy in {'grounded', jd_experiment.PRODUCTION_POLICY} or (
             policy == jd_experiment.POLICY and config.get('content_policy') == jd_experiment.POLICY
             and options['source_checks_enabled'] is False)
-        report.update(status='complete' if complete else 'partial', rewrite_completed=complete,
+        report.update(status='complete' if complete else 'partial', rewrite_completed=bool(complete and all_rewritten),
+                      document_complete=bool(complete),
+                      completion_mode='all_rewritten' if complete and all_rewritten else 'source_fallback' if complete else None,
                       strict_attachment_eligible=complete and attachment_policy_enabled and execution_kind=='provider' and any(e['response_received'] and e['response_id'] for e in scheduler.events if e['stage']=='bullets'),
                       output_path=str(optimized_pdf), preview_path=str(optimized_pdf),
                       title_replacement_applied=titles)
@@ -1373,6 +1423,9 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
                           retained_source=sum(r['rewritten_text']==r['source_text'] for r in records),
                           failed=sum(r['status']!='accepted' for r in records))
             report['coverage']=counts
+            if options['rewrite_source_fallback_enabled']:
+                counts['source_fallback'] = sum(r['status']=='source_fallback' for r in records)
+                counts['unresolved'] = sum(r['status'] not in {'accepted','source_fallback'} for r in records)
             report['experience_coverage']=[]
             for group in inv['groups']:
                 subset=[r for r in records if r['experience_id']==group['experience_id']]
@@ -1413,6 +1466,7 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
         _write_json(root/'artifact-manifest.json',manifest)
         print(f"Task11 {report['status']}: {report.get('coverage',{})}; review: {root/'comparison.html'}")
         notify('finished', status=report['status'], accepted=report.get('coverage',{}).get('accepted',0),
+               source_fallback=report.get('coverage',{}).get('source_fallback',0),
                total=report.get('coverage',{}).get('inventoried',0), eligible=report['strict_attachment_eligible'])
     return report.get('attachment_path',str(optimized_pdf)) if report['strict_attachment_eligible'] else None
 
@@ -1463,6 +1517,8 @@ def _comparison(root,report,records):
         value+='<tr><td>'+esc(kind)+'</td><td>'+display(component.get('source',{}).get('percentage'))+'</td><td>'+display(component.get('output',{}).get('percentage'))+'</td><td>'+display(component.get('point_delta'))+'</td><td>'+display(component.get('total_weight'))+'</td></tr>'
     value+='</table>'
     coverage=report.get('coverage') or {}
+    if coverage.get('source_fallback'):
+        value+='<p>'+esc(coverage.get('accepted',0))+' bullets rewritten; '+esc(coverage['source_fallback'])+' original bullets retained after rewrite failures. This is not a complete all-bullets rewrite.</p>'
     preserved=report.get('preserved_sections',{}).get('Academic Distinctions',{}).get('bullet_count',0)
     if preserved:value+='<p>Academic Distinctions: '+esc(preserved)+' bullets preserved verbatim, excluded from rewriting.</p>'
     value+='<p>Bullets: '+esc(coverage.get('accepted',0))+' accepted of '+esc(coverage.get('inventoried',len(records)))+' inventoried; '+esc(coverage.get('retained_source',0))+' retained; '+esc(coverage.get('failed',0))+' incomplete. Same exact JD: '+('verified' if report.get('same_jd_verified') else 'unverified')+'.</p>'
@@ -1584,21 +1640,46 @@ def verify_strict_attachment(pdf_path, *, expected_jd=None, expected_job_id=None
             return False
         if expected_source_docx is not None and manifest['source_docx']['sha256']!=sha(Path(expected_source_docx).expanduser().read_bytes()):
             return False
+        completion_valid = (report['rewrite_completed'] is True
+            and report['coverage']['accepted']==count==report['coverage']['inventoried']
+            and report['coverage']['failed']==0 and report['coverage']['retained_source']==0
+            and all(r['status']=='accepted' for r in coverage['bullets']))
+        fallback_count = sum(r['status']=='source_fallback' for r in coverage['bullets'])
+        if fallback_count:
+            # An explicit current config is required; never promote historical
+            # partial files merely because their PDF happened to render.
+            inventory = json.loads((pdf.parent/'source-inventory.json').read_text())
+            output = Document(pdf.with_suffix('.docx'))
+            original = Document(manifest['source_docx']['path'])
+            exact_originals = all(
+                output.paragraphs[r['paragraph_index']].text ==
+                original.paragraphs[r['paragraph_index']].text == r['source_text']
+                for r in coverage['bullets'] if r['status']=='source_fallback')
+            completion_valid = bool(expected_config
+                and expected_config.get('rewrite_source_fallback_enabled') is True
+                and report['effective_config'].get('rewrite_source_fallback_enabled') is True
+                and report.get('document_complete') is True
+                and report.get('completion_mode')=='source_fallback'
+                and report['rewrite_completed'] is False
+                and report['coverage'].get('source_fallback')==fallback_count
+                and report['coverage'].get('unresolved')==0
+                and report['coverage']['accepted']+fallback_count==count==report['coverage']['inventoried']
+                and report['coverage']['retained_source']==report['coverage']['failed']==fallback_count
+                and source_fallback_coverage_valid(coverage['bullets'],inventory)
+                and exact_originals)
         return bool(count and report['status']=='complete' and report['strict_attachment_eligible'] is True
             and report.get('tailoring_contract')=='all-bullets-skills-titles-v1'
             and policy_valid
             and report.get('skills_optimization',{}).get('completed') is True
-            and report['rewrite_completed'] is True and report['ai_execution_kind']=='provider'
+            and completion_valid and report['ai_execution_kind']=='provider'
             and report['ai_activity']['live_provider_response_observed'] is True
             and report['format_verification']['passed'] is True
             and report['format_verification'].get('checks',{}).get('academic_distinctions_preserved') is True
-            and report['coverage']['accepted']==count==report['coverage']['inventoried']
-            and report['coverage']['failed']==0 and report['coverage']['retained_source']==0
-            and len(coverage['bullets'])==count and all(r['status']=='accepted' for r in coverage['bullets'])
+            and len(coverage['bullets'])==count
             and (not expected_source_checks_enabled or all(not missing_source_terms(r['source_text'],r['rewritten_text']) for r in coverage['bullets']))
             and (not expected_source_checks_enabled or all(not source_scope_issue(r['source_text'],r['rewritten_text']) for r in coverage['bullets']))
             and len({r['bullet_id'] for r in coverage['bullets']})==count
             and Path(report.get('attachment_path') or report['output_path']).resolve()==pdf
             and manifest['source_docx']['sha256']==report['source_sha256'])
-    except (ValueError,KeyError,TypeError,OSError):
+    except (ValueError,KeyError,TypeError,OSError,IndexError):
         return False
