@@ -23,3 +23,6 @@ venv/
 # Private, generated application prose and answer history
 /all resumes/application_drafts/
 /all resumes/**/*.application_drafts/
+
+# Per-job generated resume PDFs, reviews and provider response artifacts
+/all resumes/temp/task11/

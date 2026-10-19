@@ -138,6 +138,10 @@ print(output_path)
 
 Use `optimization_mode="skills"` to update Skills only, `"bullets"` to update Skills and bullets, or `"full"` to also replace recognized professional-experience titles with the target title. `full` does not rewrite the summary or validate title equivalence. Use a distinct local job ID and inspect the returned PDF and report before an application run.
 
+## Resume optimization from one file
+
+Use [`optimize_resume.py`](optimize_resume.py) for an original resume plus complete JD text/file or a supported public JobPosting JSON-LD URL. It reuses the existing engine, supports `--mode full|bullets|skills`, independent `--replace-title` / `--no-replace-title`, opt-in strict `--rewrite-all-bullets`, and a new `--output` review directory. `--preflight` makes no OpenAI call. See [Task 11 commands, dependencies, mode/title semantics and limitations](docs/TASK11-README.md). Paid runs require an already configured local credential and separate authorization; this workflow never uploads or submits applications.
+
 ## Search and apply on LinkedIn without stage inputs
 
 The configured bot searches LinkedIn directly from `config/search.py` and

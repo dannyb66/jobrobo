@@ -9,6 +9,10 @@ from modules.resume_upload import ResumeUploadError, upload_verified_resume, ver
 
 class VerifiedResumeUploadTest(unittest.TestCase):
     def setUp(self):
+        # Legacy fallback tests are independent of the user's saved all-bullet setting.
+        config_patch=patch('modules.config_loader.peek_runtime_config',return_value={
+            'rewrite_all_bullets':False,'source_checks_enabled':True})
+        config_patch.start();self.addCleanup(config_patch.stop)
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.source = Path(self.directory.name) / "resume.docx"
@@ -118,8 +122,9 @@ class VerifiedResumeUploadTest(unittest.TestCase):
             "123", "Staff Engineer", "JD", "Bay Area")
         self.assertTrue(uploaded)
         self.assertEqual(resume, "verified.pdf")
-        namespace["upload_optimized_resume"].assert_called_once_with(
-            modal, str(self.source), "JD", "123", "Staff Engineer", "Test", "Candidate")
+        call=namespace['upload_optimized_resume'].call_args
+        self.assertEqual(call.args,(modal,str(self.source),'JD','123','Staff Engineer','Test','Candidate'))
+        self.assertTrue(callable(call.kwargs['on_attached']))
 
     def test_later_job_reattaches_configured_pdf_before_ai_prose(self):
         namespace = self.bot_preparation(True)

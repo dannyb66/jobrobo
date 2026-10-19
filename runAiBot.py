@@ -533,7 +533,7 @@ def upload_resume(modal: WebElement, resume: str) -> tuple[bool, str]:
 def upload_optimized_resume(modal: WebElement, resume_path: str, job_description: str, job_id: str, job_title: str = "job", first_name: str = "first", last_name: str = "last", *, on_attached=None) -> tuple[bool, str]:
     return upload_verified_resume(
         modal, resume_path, job_description, job_id, job_title, first_name, last_name,
-        optimize=run_resume_optimization, log=print_lg,
+        optimize=run_resume_optimization, log=lambda message: print_lg(message, flush=True),
         on_attached=on_attached,
     )
 
@@ -981,6 +981,11 @@ def submitted_jobs(job_id: str, title: str, company: str, work_location: str, wo
                'Date Posted':date_listed, 'Date Applied':date_applied, 'Job Link':job_link,
                'External Job link':application_link, 'Questions Found':questions_list, 'Connect Request':connect_request}
         row.update(search_metadata(active_manifest, active_search))
+        artifact=globals().get('resume_artifact_paths',{}).get(str(job_id),{})
+        if artifact:
+            fieldnames+=['Resume Path','Resume SHA256','Resume Source Checks']
+            row.update({'Resume Path':artifact['pdf'],'Resume SHA256':artifact['sha256'],
+                'Resume Source Checks':artifact.get('source_checks_enabled','')})
         append_history(file_name, fieldnames, row)
     except Exception as e:
         print_lg("Failed to update submitted jobs list!", e)
@@ -1161,13 +1166,26 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
     selected_resume_path = globals().get('default_resume_path', '')
     drafts = draft_client = None
     globals().setdefault('draft_artifact_paths', {}).pop(str(job_id), None)
+    globals().setdefault('resume_artifact_paths', {}).pop(str(job_id), None)
     # Preserve the original opening error; no cleanup may navigate or submit.
     wait_for_application_modal(driver)
 
     def attached(path):
         nonlocal selected_resume_path, drafts
+        from pathlib import Path
+        import hashlib
         selected_resume_path = path
         drafts = None
+        selected=Path(path)
+        globals().setdefault('resume_artifact_paths', {})[str(job_id)]={
+            'pdf':str(selected.resolve()),'sha256':hashlib.sha256(selected.read_bytes()).hexdigest()}
+        report_path=selected.parent/'match-report.json'
+        if report_path.is_file():
+            import json
+            report=json.loads(report_path.read_text())
+            globals()['resume_artifact_paths'][str(job_id)].update(
+                source_checks_enabled=report.get('source_content_checks_enabled'),
+                rewrite_run_id=report.get('run_id'),content_policy=report.get('effective_config',{}).get('content_policy'))
 
     def draft_answer(question, kind, max_length=None):
         nonlocal drafts, draft_client
@@ -1202,7 +1220,7 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
         previously_uploaded = uploaded
         upload_target = resume_upload_target(driver, modal) if not uploaded else None
         if use_AI_for_resume and not uploaded and upload_target is not None:
-            options = {'on_attached': attached} if draft_enabled else {}
+            options = {'on_attached': attached}
             uploaded, resume = upload_optimized_resume(
                 upload_target, default_resume_docx_path, description, job_id, title, first_name, last_name, **options)
             if not uploaded:
@@ -1487,6 +1505,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                                 driver.save_screenshot(str(image_path))
                                 preparation_report.record(dict(job_id=job_id, status='ready', resume=resume,
                                                                uploaded=uploaded, screenshot=str(image_path), submit_enabled=True,
+                                                               resume_artifact=globals().get('resume_artifact_paths',{}).get(str(job_id)),
                                                                draft_artifacts=globals().get('draft_artifact_paths', {}).get(str(job_id))))
                                 retain_job(job_id, title, company, description, spec, 'ready', submit_enabled=True)
                                 checkpoint_job(job_id, 'prepared', 'Validation only: final Submit enabled; submission disabled')
@@ -1644,6 +1663,7 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
     profile = {key: value for key, value in vars(search_profile).items() if not key.startswith("_")}
     if prepared_specs is not None and not prepared_specs:
         return None
+    print_lg('Preparing configured search plan...')
     deterministic = prepared_specs if prepared_specs is not None else build_search_plan(dict(profile, ai_query_refinement_enabled=False), config, warn=print_lg)
     configuration_id = plan_fingerprint(deterministic, profile)
     if prepare_only:
@@ -1656,6 +1676,8 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
     with file_lock(os.path.join(profile["search_state_dir"], ".runner.lock")):
         manifest = SearchManifest.find_resume(profile["search_state_dir"], configuration_id) if profile["resume_search_enabled"] and not prepare_only else None
         if manifest is None:
+            if prepared_specs is None and profile.get('ai_query_refinement_enabled', False):
+                print_lg('Refining search queries with AI; this can take a moment...')
             refiner = None if prepared_specs is not None else make_refiner(os.getenv("OPENAI_API_KEY") or llm_api_key, llm_api_url, llm_model, print_lg) if profile["ai_query_refinement_enabled"] else None
             specs = prepared_specs if prepared_specs is not None else build_search_plan(profile, config, refine=refiner, warn=print_lg)
             if randomize_search_order:
