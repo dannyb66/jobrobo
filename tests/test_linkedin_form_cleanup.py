@@ -142,6 +142,19 @@ class CleanupTests(unittest.TestCase):
         with patch("modules.linkedin_form_cleanup.monotonic", side_effect=lambda: self.browser.now):
             return discard_application(self.browser, wait=self.browser.wait)
 
+    def test_informational_warnings_close_without_continuing(self):
+        for heading in ['Job search safety reminder', 'This job may not be the best fit']:
+            with self.subTest(heading=heading):
+                self.browser = Browser()
+                application = self.browser.application()
+                application.find('h2').text = heading
+                application.remove(application.find('form'))
+                application.xpath('.//button[normalize-space()="Submit application"]')[0].text = 'Continue applying'
+                self.browser.mode = 'close'
+                self.cleanup()
+                self.assertEqual(self.browser.clicks, ['Dismiss'])
+                self.assertEqual(self.browser.keys, [])
+
     def test_native_dialog_dismisses_then_discards_without_save_or_submit(self):
         self.assertTrue(self.cleanup())
         self.assertEqual(self.browser.clicks, ["Dismiss", "Discard"])

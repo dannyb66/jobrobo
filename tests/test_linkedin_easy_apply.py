@@ -84,6 +84,174 @@ class NavigationTests(unittest.TestCase):
     def navigate(self, browser, fill=None, **kwargs):
         return advance_to_review(browser, fill or (lambda modal: None), timeout=.01, **kwargs)
 
+    def safety_reminder(self, buttons=None):
+        return ('<dialog open data-testid="dialog"><h2>Job search safety reminder</h2>'
+            '<h3>Research the company</h3><p>Before you apply, review the employer’s official website.</p>'
+            '<h3>Report suspicious jobs</h3><p>Report requests for sensitive information.</p>'
+            +(buttons if buttons is not None else '<button>Review job post</button><button>Continue applying</button>')
+            +'</dialog>')
+
+    def test_safety_reminder_continues_then_next_review_without_submitting(self):
+        browser=Browser([self.safety_reminder(),form(),form('Questions','Review'),form('Review','Submit application')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,['Continue applying','Next','Review'])
+
+    def test_safety_reminder_uses_exact_action_not_rightmost_button(self):
+        browser=Browser([self.safety_reminder('<button>Continue applying</button><button>Review job post</button>'),
+                         form(action='Submit application')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,['Continue applying'])
+
+    def test_safety_reminder_and_fit_warning_can_appear_in_sequence(self):
+        fit='<dialog open><h2>This job may not be the best fit</h2><button>Continue applying</button></dialog>'
+        browser=Browser([self.safety_reminder(),fit,form(action='Submit application')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,['Continue applying','Continue applying'])
+
+    def test_safety_reminder_does_not_repeat_a_slow_continuation_click(self):
+        browser=Browser([self.safety_reminder()],on_click=lambda _:None)
+        with self.assertRaisesRegex(EasyApplyError,'Continue applying did not open'):
+            self.navigate(browser)
+        self.assertEqual(browser.clicks,['Continue applying'])
+
+    def test_safety_reminder_disabled_or_ambiguous_continuation_is_not_clicked(self):
+        for buttons in ['<button disabled>Continue applying</button>',
+                        '<button>Continue applying</button><button>Continue applying</button>']:
+            browser=Browser([self.safety_reminder(buttons)])
+            with self.assertRaises(EasyApplyError):self.navigate(browser)
+            self.assertEqual(browser.clicks,[])
+
+    def test_daily_limit_takes_precedence_over_safety_reminder(self):
+        from modules.linkedin_easy_apply import EasyApplyLimitReached
+        browser=Browser([self.safety_reminder().replace('</dialog>',
+            '<p>You reached today’s Easy Apply limit</p></dialog>')])
+        with self.assertRaises(EasyApplyLimitReached):self.navigate(browser)
+        self.assertEqual(browser.clicks,[])
+
+    def test_safety_reminder_cleanup_detection_never_continues(self):
+        browser=Browser([self.safety_reminder()])
+        with self.assertRaises(EasyApplyError):
+            wait_for_application_modal(browser,timeout=.01,continue_fit_warning=False)
+        self.assertEqual(browser.clicks,[])
+
+    def test_pre_application_continuations_are_bounded(self):
+        browser=Browser([self.safety_reminder() for _ in range(4)]+[form(action='Submit application')])
+        with self.assertRaisesRegex(EasyApplyError,'too many pre-application'):
+            self.navigate(browser)
+        self.assertEqual(browser.clicks,['Continue applying']*3)
+
+    def test_unknown_dialog_does_not_guess_yes_or_rightmost_action(self):
+        browser=Browser(['<dialog open><h2>Confirm agreement</h2><button>Cancel</button><button>Yes</button></dialog>'])
+        with self.assertRaises(EasyApplyError):self.navigate(browser)
+        self.assertEqual(browser.clicks,[])
+
+    def test_safety_reminder_words_inside_form_do_not_trigger_continuation(self):
+        browser=Browser([form(action='Submit application',extra='<p>Job search safety reminder</p><button>Continue applying</button>')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,[])
+
+    def test_safety_reminder_conflicting_submit_label_is_not_clicked(self):
+        browser=Browser([self.safety_reminder('<button aria-label="Submit application">Continue applying</button>')])
+        with self.assertRaises(EasyApplyError):self.navigate(browser)
+        self.assertEqual(browser.clicks,[])
+
+    def test_fit_warning_plain_text_classic_modal_continues(self):
+        warning='''<div class="artdeco-modal"><p>This job may not be the best fit —
+            position yourself to stand out</p><button>Continue applying</button>
+            <button>Explore more jobs</button></div>'''
+        browser=Browser([warning,form(action='Submit application')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,['Continue applying'])
+
+    def test_fit_warning_semantic_plain_text_without_heading_continues(self):
+        warning='''<dialog open><p>This job may not be the best fit — position yourself to stand out</p>
+            <button>Continue applying</button><button>Explore more jobs</button></dialog>'''
+        browser=Browser([warning,form(action='Submit application')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,['Continue applying'])
+
+    def test_fit_warning_can_be_detected_without_clicking_during_cleanup(self):
+        browser=Browser(['<dialog open><h2>This job may not be the best fit</h2>'
+            '<button>Continue applying</button></dialog>'])
+        with self.assertRaises(EasyApplyError):
+            wait_for_application_modal(browser,timeout=.01,continue_fit_warning=False)
+        self.assertEqual(browser.clicks,[])
+
+    def test_fit_warning_continues_then_fills_pages_without_submitting(self):
+        warning='''<dialog open><h2>This job may not be the best fit — position yourself to stand out</h2>
+            <a>Recommended job</a><button>Continue applying</button><button>Explore more jobs</button></dialog>'''
+        browser=Browser([warning,form(),form('Questions','Review'),form('Review','Submit application')])
+        fill=Mock()
+        self.navigate(browser,fill)
+        self.assertEqual(browser.clicks,['Continue applying','Next','Review'])
+        self.assertEqual(fill.call_count,3)
+
+    def test_fit_warning_waits_for_dismissal_and_clicks_only_once(self):
+        warning='''<div role="dialog"><h2>This job may not be the best fit</h2>
+            <button>Continue applying</button><button>Explore more jobs</button></div>'''
+        browser=Browser([warning+form(action='Submit application')],on_click=lambda _:None)
+        fill=Mock()
+        with self.assertRaisesRegex(EasyApplyError,'Continue applying did not open'):
+            self.navigate(browser,fill)
+        self.assertEqual(browser.clicks,['Continue applying'])
+        fill.assert_not_called()
+
+    def test_fit_warning_ignores_hidden_and_unrelated_continue_buttons(self):
+        browser=Browser(['<button>Continue applying</button><div role="dialog" hidden>'
+            '<h2>This job may not be the best fit</h2><button>Continue applying</button></div>'
+            +form(action='Submit application')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,[])
+
+    def test_fit_warning_disabled_or_duplicate_continue_never_clicks(self):
+        for buttons in ('<button disabled>Continue applying</button>',
+                '<button>Continue applying</button><button>Continue applying</button>'):
+            browser=Browser(['<dialog open><h2>Position yourself to stand out</h2>'+buttons+'</dialog>'])
+            with self.assertRaisesRegex(EasyApplyError,'fit.warning'):
+                self.navigate(browser)
+            self.assertEqual(browser.clicks,[])
+
+    def test_fit_warning_supports_nested_dialogs_and_accessible_button_labels(self):
+        warning='''<div role="dialog"><dialog open><h2>This job may not be\nthe best fit</h2>
+            <button aria-label="Continue applying"><span aria-hidden="true">Proceed</span></button>
+            <button>Explore more jobs</button></dialog></div>'''
+        browser=Browser([warning,form(action='Submit application')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,['Proceed'])
+
+    def test_runner_keeps_daily_limit_job_pending_and_stops_without_cleanup(self):
+        from test_search_runner import SearchRunnerTests, spec
+        from modules.linkedin_easy_apply import EasyApplyLimitReached
+        h=SearchRunnerTests();h.setUp()
+        try:
+            search=spec('daily-limit')
+            manifest=h.manifest([search],{search.query_id:[['1','2']]})
+            h.namespace['prepare_easy_apply']=Mock(side_effect=EasyApplyLimitReached())
+            h.namespace['execute_search_plan'](manifest)
+            self.assertEqual(h.visited,['1'])
+            self.assertEqual(manifest.data['stop_reason'],'daily_easy_apply_limit')
+            self.assertEqual(manifest.query(search.query_id)['status'],'pending')
+            self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'],'in_progress')
+            self.assertNotIn('1',manifest.processed_ids())
+            self.assertTrue(h.namespace['dailyEasyApplyLimitReached'])
+            self.assertEqual(h.namespace['failed_count'],0)
+            h.namespace['discard_job'].assert_not_called()
+            self.assertNotIn('Submit application',h.events)
+        finally:h.doCleanups()
+
+    def test_live_safety_reminder_anchor_without_button_role_continues(self):
+        reminder=self.safety_reminder('<button>Review job post</button><a href="/jobs/view/123/">Continue applying</a>')
+        browser=Browser([reminder,form(action='Submit application')])
+        self.navigate(browser)
+        self.assertEqual(browser.clicks,['Continue applying'])
+
+    def test_disabled_or_duplicate_continuation_link_is_not_clicked(self):
+        for controls in ['<a href="#" aria-disabled="true">Continue applying</a>',
+                         '<button>Continue applying</button><a href="#">Continue applying</a>']:
+            browser=Browser([self.safety_reminder(controls)])
+            with self.assertRaises(EasyApplyError):self.navigate(browser)
+            self.assertEqual(browser.clicks,[])
+
     def test_all_pages_filled_before_next_then_review_and_stop_before_submit(self):
         browser = Browser([form(), form('Resume'), form('Questions', 'Review'), form('Review', 'Submit application')])
         filled = []

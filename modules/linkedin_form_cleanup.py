@@ -7,7 +7,7 @@ from selenium.common.exceptions import StaleElementReferenceException, TimeoutEx
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 
-from modules.linkedin_easy_apply import DIALOGS, BUTTONS, EasyApplyError, wait_for_application_modal
+from modules.linkedin_easy_apply import DIALOGS, BUTTONS, EasyApplyError, wait_for_application_modal, _fit_warning, dialog_elements
 
 
 class ApplicationCleanupError(EasyApplyError):
@@ -26,7 +26,7 @@ def _labels(element):
 
 def _visible_dialogs(driver):
     dialogs, seen = [], set()
-    for node in driver.find_elements("css selector", DIALOGS):
+    for node in dialog_elements(driver):
         if node.is_displayed() and node.id not in seen:
             seen.add(node.id)
             dialogs.append(node)
@@ -118,6 +118,24 @@ def discard_application(driver, timeout=5, *, wait=None):
                     return False
                 return now - quiet_since >= _QUIET_SECONDS
             quiet_since = None
+            # Cleanup must close the pre-application warning, never Continue applying.
+            warning = _fit_warning(driver)
+            if warning:
+                application, _ = warning
+                if any(node.id != application.id for node in dialogs):
+                    raise ApplicationCleanupError("cleanup: unrelated dialog remains behind fit warning")
+                if dismissed:
+                    trace["phase"] = "await_fit_warning_close"
+                    return False
+                trace["phase"] = "close_fit_warning"
+                button = _action(application, _CLOSE, "Dismiss/Close")
+                if button is None:
+                    application.send_keys(Keys.ESCAPE)
+                else:
+                    button.click()
+                dismissed = True
+                generation += 1
+                return False
             trace["phase"] = "classify_dialogs"
             confirmations = [dialog for dialog in dialogs if _confirmation(dialog)]
             trace["last_confirmation_count"] = len(confirmations)
@@ -129,7 +147,7 @@ def discard_application(driver, timeout=5, *, wait=None):
                     # confirmation, but an unrelated dialog must not be ignored.
                     try:
                         trace["phase"] = "reacquire_underlying_application"
-                        application = wait_for_application_modal(driver, timeout=min(timeout, .2))
+                        application = wait_for_application_modal(driver, timeout=min(timeout, .2), continue_fit_warning=False)
                     except EasyApplyError:
                         # The underlying form can close after this poll's
                         # dialog snapshot. Recheck the current UI next poll.
@@ -156,7 +174,7 @@ def discard_application(driver, timeout=5, *, wait=None):
                 return False
             try:
                 trace["phase"] = "reacquire_application"
-                application = wait_for_application_modal(driver, timeout=min(timeout, .2))
+                application = wait_for_application_modal(driver, timeout=min(timeout, .2), continue_fit_warning=False)
             except EasyApplyError:
                 # Reacquisition can race React closing/replacing the form.
                 # The outer bounded wait still rejects persistent blockers.

@@ -6,7 +6,7 @@ Logs contain step/action names, never field values or application answers.
 from __future__ import annotations
 
 import re
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+from selenium.common.exceptions import NoSuchShadowRootException, StaleElementReferenceException, TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -15,13 +15,25 @@ class EasyApplyError(RuntimeError):
     pass
 
 
+class EasyApplyLimitReached(EasyApplyError):
+    """LinkedIn blocked opening the form; leave this job pending for a later run."""
+    stop_reason = 'daily_easy_apply_limit'
+
+    def __init__(self):
+        super().__init__("LinkedIn's daily Easy Apply limit reached; no further applications will be attempted")
+
+
+
 class MissingApplicationAnswer(EasyApplyError):
     """A required personal answer is absent; never invent free-text answers."""
 
 
-DIALOGS = 'dialog[open], .jobs-easy-apply-modal, [role="dialog"], [aria-modal="true"]'
+DIALOGS = 'dialog[open], .jobs-easy-apply-modal, .artdeco-modal, [role="dialog"], [aria-modal="true"], [data-testid="dialog"]'
 BUTTONS = 'button, [role="button"]'
+CONTINUATION_CONTROLS = BUTTONS + ', a'
 ERRORS = '.artdeco-inline-feedback--error, [aria-invalid="true"], [role="alert"]'
+
+OVERLAY_HOSTS = '#interop-outlet, [data-testid="interop-shadowdom"]'
 
 
 def _visible(nodes):
@@ -50,7 +62,7 @@ def _enabled(button):
 
 def _modal(driver):
     candidates = []
-    for node in _visible(driver.find_elements(By.CSS_SELECTOR, DIALOGS)):
+    for node in dialog_elements(driver):
         classic = 'jobs-easy-apply-modal' in (node.get_attribute('class') or '').split()
         heading = (node.get_attribute('aria-label') or '') + ' ' + ' '.join(
             n.text for n in node.find_elements(By.CSS_SELECTOR, 'h1, h2, h3, [role="heading"]'))
@@ -80,14 +92,132 @@ def _wait(driver, condition, timeout):
                          ignored_exceptions=(StaleElementReferenceException,)).until(condition)
 
 
-def wait_for_application_modal(driver, *, timeout=10):
+def dialog_contexts(driver):
+    """Document plus bounded open shadow roots, including unmarked SDUI hosts.
+
+    No page mutation or private form values are read. Closed roots remain
+    inaccessible and therefore require a diagnostic rather than a blind click.
+    """
+    contexts, hosts, seen = [driver], [], set()
+    execute = getattr(driver, 'execute_script', None)
+    discovery_script = '''/* jobrobo-dialog-contexts */
+        const roots=[document], hosts=[]; let visited=0;
+        for(let i=0;i<roots.length && i<24;i++) {
+            for(const e of roots[i].querySelectorAll('*')) {
+                if(++visited>12000) return hosts;
+                if(e.shadowRoot && hosts.length<23) {
+                    hosts.push(e); roots.push(e.shadowRoot);
+                }
+            }
+        }
+        return hosts;
+    '''
     try:
-        return _wait(driver, _modal, timeout)
+        discovered=execute(discovery_script) if callable(execute) else []
+    except TypeError:
+        # Some read-only DOM adapters expose only execute_script(script,
+        # parent, child) for containment checks, with no discovery support.
+        discovered=[]
+    # Lightweight DOM adapters need not implement JavaScript discovery.
+    pending = list(discovered) if isinstance(discovered, (list, tuple)) else []
+    for context in contexts:
+        pending.extend(_visible(context.find_elements(By.CSS_SELECTOR, OVERLAY_HOSTS)))
+        while pending and len(contexts)<24:
+            host=pending.pop(0)
+            if host.id in seen:
+                continue
+            seen.add(host.id)
+            if not hasattr(host, 'is_displayed') or host.is_displayed():
+                hosts.append(host)
+            try:
+                contexts.append(host.shadow_root)
+            except (AttributeError, NoSuchShadowRootException):
+                pass
+    return contexts, hosts
+
+
+def dialog_elements(driver, selector=DIALOGS):
+    contexts, _ = dialog_contexts(driver)
+    return list({node.id:node for context in contexts
+                 for node in _visible(context.find_elements(By.CSS_SELECTOR, selector))}.values())
+
+
+def _fit_warning(driver):
+    """Identify LinkedIn's fit/safety interstitials (legacy helper name)."""
+    dialogs=[]
+    for node in dialog_elements(driver):
+        heading=(node.get_attribute('aria-label') or '')+' '+' '.join(
+            h.text for h in node.find_elements(By.CSS_SELECTOR,'h1, h2, h3, [role="heading"]'))
+        heading=' '.join(heading.split())
+        # Some warning variants render their title as a paragraph, not a heading.
+        # Require the specific warning text and exact continuation action there.
+        plain_warning=re.search(r'job may not be the best fit',' '.join(node.text.split()),re.I)
+        continuation=any(any(' '.join((label or '').lower().split())=='continue applying'
+            for label in (button.text,button.get_attribute('aria-label')))
+            for button in _visible(node.find_elements(By.CSS_SELECTOR,CONTINUATION_CONTROLS)))
+        safety_reminder=re.search(r'\bjob search safety reminder\b',heading+' '+node.text,re.I)
+        # The safety reminder is informational, not a form or Review/Submit page.
+        safety_reminder=(safety_reminder and continuation
+            and not node.find_elements(By.CSS_SELECTOR,'form, input, textarea, select'))
+        if re.search(r'job may not be the best fit|position yourself to stand out',heading,re.I) or (plain_warning and continuation) or safety_reminder:
+            dialogs.append(node)
+    dialogs=[node for node in dialogs if not any(child.id!=node.id and
+        driver.execute_script('return arguments[0].contains(arguments[1]);',node,child) for child in dialogs)]
+    if len(dialogs)>1:
+        raise EasyApplyError('open: multiple visible fit-warning dialogs')
+    if not dialogs:return False
+    buttons=[b for b in _visible(dialogs[0].find_elements(By.CSS_SELECTOR,CONTINUATION_CONTROLS))
+        if any(' '.join((label or '').lower().split())=='continue applying'
+            for label in (b.text,b.get_attribute('aria-label')))]
+    return dialogs[0],buttons
+
+
+def check_easy_apply_limit(driver):
+    # SDUI's internal screen marker can disappear. The visible, specific message
+    # in a dialog (or classic inline feedback) remains authoritative.
+    for node in dialog_elements(driver, DIALOGS + ', .artdeco-inline-feedback__message'):
+        text = ' '.join(node.text.lower().replace('’', "'").split())
+        if re.search(r"\byou (?:have )?reached today's easy apply limit\b|"
+                     r"\bexceeded the daily application limit\b", text):
+            raise EasyApplyLimitReached()
+
+
+def wait_for_application_modal(driver, *, timeout=10, continue_fit_warning=True, log=lambda _: None):
+    continued=set()
+    def opened(browser):
+        while True:
+            check_easy_apply_limit(browser)
+            warning=_fit_warning(browser)
+            if not warning:
+                return _modal(browser)
+            if not continue_fit_warning:return False
+            dialog,buttons=warning
+            kind='safety reminder' if re.search(r'\bjob search safety reminder\b',dialog.text,re.I) else 'fit warning'
+            identity=(dialog.id,kind)
+            if identity in continued:return False
+            if len(continued)>=3:
+                raise EasyApplyError('open: too many pre-application continuation dialogs')
+            if len(buttons)!=1:
+                raise EasyApplyError('open: fit warning lacks one Continue applying button')
+            button=buttons[0]
+            if _kind(button) is not None or not _enabled(button):
+                raise EasyApplyError('open: fit-warning Continue applying is disabled or ambiguous')
+            browser.execute_script('arguments[0].scrollIntoView({block: "center"});',button)
+            # Remember before clicking: a rerender can stale the successful
+            # click's response. Never send a second click to the same warning.
+            continued.add(identity)
+            button.click()
+            log(f'Easy Apply: Continue applying clicked ({kind}); waiting for the application form')
+    try:
+        return _wait(driver, opened, timeout)
     except TimeoutException as error:
+        if continued:
+            raise EasyApplyError('open: Continue applying did not open the application form') from error
         raise EasyApplyError('open: visible Easy Apply dialog not found (classic or semantic UI)') from error
 
 
 def _state(driver):
+    check_easy_apply_limit(driver)
     modal = _modal(driver)
     if not modal:
         return False
@@ -122,7 +252,7 @@ def advance_to_review(driver, fill_step, *, timeout=10, max_steps=15, on_blocked
     fill_step receives a freshly acquired modal, including for one-page forms.
     on_blocked may invite manual field correction; it must not click navigation.
     """
-    wait_for_application_modal(driver, timeout=timeout)
+    wait_for_application_modal(driver, timeout=timeout, log=log)
     for step in range(1, max_steps + 1):
         try:
             state = _wait(driver, _state, timeout)

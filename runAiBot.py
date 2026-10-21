@@ -1249,6 +1249,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
     preparation_report = None
     from pathlib import Path
     from modules.linkedin_deferred import DeferredJobs
+    from modules.linkedin_easy_apply import EasyApplyLimitReached
     retry_path = Path(search_profile.search_state_dir).parent / 'deferred_applications' / 'retry_jobs.json'
     retry_jobs = DeferredJobs(retry_path)
 
@@ -1521,6 +1522,14 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                             except Exception as dismiss_error:
                                 print_lg('Application confirmed; receipt dismissal unavailable:', type(dismiss_error).__name__)
 
+                        except EasyApplyLimitReached:
+                            globals()['dailyEasyApplyLimitReached'] = True
+                            checkpoint_job(job_id, 'in_progress', 'LinkedIn daily Easy Apply limit reached; resume later')
+                            row = manifest.query(spec.query_id)
+                            row['status'], row['stop_reason'] = 'pending', 'daily_easy_apply_limit'
+                            manifest.interrupt('daily_easy_apply_limit')
+                            print_lg('Stopping: LinkedIn daily Easy Apply limit; current job remains pending')
+                            return
                         except Exception as e:
                             if preparation_report is not None:
                                 image_path = validation_path.with_name(validation_path.stem + '-' + job_id + '-failed.png')
