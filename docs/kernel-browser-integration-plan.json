@@ -1,0 +1,369 @@
+{
+  "status": "implemented_validated_with_profile_blocker",
+  "created_at": "2026-10-21T22:48:30.557251+00:00",
+  "objective": "Add optional Kernel cloud-browser support to the existing direct preparation/submission pipeline. Explicit pause-before-submit never performs automatic final Submit after current checks; default manual tab review remains available.",
+  "verified_facts": [
+    {
+      "fact": "Kernel stealth enables its automatic CAPTCHA solver and, when proxy is omitted, the managed default proxy. Baseline anti-detection exists without stealth.",
+      "source": "https://www.kernel.sh/docs/browsers/bot-detection/stealth"
+    },
+    {
+      "fact": "Kernel supports CDP, WebDriver BiDi and Playwright execution. Its BiDi WebSocket is not documented as a ChromeDriver HTTP endpoint.",
+      "source": "https://www.kernel.sh/docs/introduction/control"
+    },
+    {
+      "fact": "Headful sessions provide interactive live view. The create API accepts headless, stealth, timeout_seconds, location, profile, proxy and tags.",
+      "source": "https://www.kernel.sh/docs/api-reference/browsers/create-a-browser-session"
+    },
+    {
+      "fact": "API inactivity timeout defaults to 60 seconds, ranges 10 through 259200 seconds, and counts CDP/live-view connections as activity.",
+      "source": "https://www.kernel.sh/openapi.json"
+    },
+    {
+      "fact": "Local filesystem paths do not identify files in the cloud VM. Playwright supports explicit name/mimeType/buffer uploads; Kernel also provides filesystem upload APIs.",
+      "source": "https://www.kernel.sh/docs/browsers/file-io"
+    },
+    {
+      "fact": "CAPTCHA task and challenge events differ; inferred solved results do not prove site acceptance. Events can be absent or unordered, and Turnstile has no challenge-result event.",
+      "source": "https://www.kernel.sh/docs/browsers/telemetry/categories"
+    },
+    {
+      "fact": "Profiles preserve browser data but do not prove that a previous form action completed or that a selected upload/in-memory form survived a new session.",
+      "source": "https://www.kernel.sh/docs/browsers/profiles"
+    },
+    {
+      "fact": "Kernel recommends Playwright execution for a new agent. CDP remains supported but adds network/protocol overhead. Named execution contexts are limited to eight per browser.",
+      "source": "https://www.kernel.sh/docs/browsers/playwright-execution"
+    }
+  ],
+  "recommendation": {
+    "first_transport": "Official Python Kernel SDK to create/reconnect sessions, plus Python Playwright over returned CDP WebSocket for explicit page/frame ownership.",
+    "reason": "The existing multi-tab pipeline needs stable per-job page references, same guard/snapshot logic and exact file-byte verification. A real browser-action adapter is easier to verify than pretending Kernel is a local Chrome debugger or emulating the entire Selenium API.",
+    "later_option": "Implement Kernel Playwright-execution transport behind the same adapter if CDP latency/detection is material. Do not mix executor-default foreground-tab selection with job identity. An executor per retained job would fail beyond eight without explicit lifecycle management.",
+    "local_behavior": "Local Selenium remains the default and keeps the existing manual-tab workflow. Kernel is explicitly selected; selection alone never changes pause mode.",
+    "dependencies": "kernel and playwright are absent in the inspected Python environment. Add optional pinned compatible dependencies during implementation, verifying Python 3.10 support. Connecting remote Chromium does not require downloading a local Playwright Chromium build.",
+    "runtime_location": "Resume generation and decisions stay local initially; employer navigation, typing and final interaction run in the Kernel browser. No Kernel App deployment or generic computer-use agent is required for the first implementation."
+  },
+  "proposed_cli": {
+    "auto_submit": "python3 direct_apply.py submit --input \"$roles\" --browser kernel --pause-before-submit never --limit 1",
+    "manual": "python3 direct_apply.py submit --input \"$roles\" --browser kernel --limit 2",
+    "prepare_only": "python3 direct_apply.py prepare --input \"$roles\" --browser kernel --limit 1",
+    "resume": "python3 direct_apply.py submit --resume /path/to/run",
+    "pipeline_alias": "python3 job_pipeline.py apply careers --input \"$roles\" --browser kernel --pause-before-submit never --limit 1",
+    "availability": "Examples are proposed and not currently accepted by the CLI. Existing TXT/JSON/verified-role/retry inputs retain their behavior."
+  },
+  "proposed_config": {
+    "path": "config/browser_runtime.json",
+    "default_backend": "local",
+    "kernel": {
+      "api_key_env": "KERNEL_API_KEY",
+      "stealth": true,
+      "headless": false,
+      "timeout_seconds": 1800,
+      "challenge_timeout_seconds": 120,
+      "profile_id": null,
+      "proxy": null,
+      "locale": "en-US",
+      "timezone": "America/Los_Angeles",
+      "max_active_jobs": 1,
+      "failed_session_retention_seconds": 900
+    },
+    "notes": [
+      "Environment overrides ignored local .env without replacing unrelated credentials. Config contains no key value.",
+      "Unset proxy/region is omitted from create request; no paid regional/BYO-proxy entitlement is presumed.",
+      "No local Chrome profile is passed to a cloud browser. Optional Kernel profiles are separate and need an explicit save policy.",
+      "120-second challenge wait and 15-minute failure retention are proposed jobrobo settings, not Kernel API guarantees.",
+      "Signed CDP/live-view URLs and CAPTCHA tokens remain out of progress/events/retry exports; reacquire session details using the SDK."
+    ]
+  },
+  "code_changes": [
+    {
+      "files": [
+        "direct_apply.py",
+        "job_pipeline.py",
+        "config/browser_runtime.json",
+        "requirements-kernel.txt"
+      ],
+      "change": "Add backend selection, typed config and credential/dependency preflight; preserve local/manual defaults and shared apply-careers routing."
+    },
+    {
+      "files": [
+        "modules/browser_runtime.py",
+        "modules/kernel_browser.py"
+      ],
+      "change": "Introduce session and browser-action interfaces with navigate/new-tab/read/frames/evaluate/fill/select/click/upload/screenshot/reconnect/close; keep explicit stable target ownership."
+    },
+    {
+      "files": [
+        "modules/generic_prepare.py",
+        "modules/external_questions.py",
+        "modules/generic_form_snapshot.js",
+        "modules/generic_form.js"
+      ],
+      "change": "Extract Selenium-dependent native-control actions behind the adapter, preserve answer policy and JS observations, and scope final-submit guarding so solver-only challenge frame actions are not mistaken for employer Submit. Retain prepare zero-final-submit invariants."
+    },
+    {
+      "files": [
+        "modules/generic_submit.py",
+        "modules/manual_tabs.py"
+      ],
+      "change": "Make final validation, manual handoff and outcome monitoring transport-aware. Current TargetReader rejects all remote addresses and cannot simply receive the Kernel URL."
+    },
+    {
+      "files": [
+        "modules/kernel_challenges.py",
+        "modules/submit_runner.py",
+        "modules/submit_state.py"
+      ],
+      "change": "Implement bounded challenge waiting, remote session lifecycle, before/after-click reconciliation and reconnectable provider metadata using the existing durable ledger and retry exports."
+    }
+  ],
+  "flow": [
+    "Validate input and create a fresh independent run. Preflight local profile, optimizer and Kernel credentials before creating paid browser resources.",
+    "Create one headful stealth Kernel session tagged with run ID. Store provider/session ID and per-job target IDs. Each posting uses a new tab; initial concurrency stays one.",
+    "Navigate to the current job, allow supported CAPTCHA solving, and re-read posting/JD/form identity. Treat login, OTP and email verification separately.",
+    "Generate/reuse the resume locally using the shared saved optimizer JSON, profile and source/JD/config hashes.",
+    "Transfer verified PDF bytes under the readable employer-facing filename. Use explicit Playwright file buffer or upload API; verify selected bytes in the page and native/visible receipt again.",
+    "Fill answers under existing profile/AI/choice/DEI policies; wait for blur/autosave settling and recheck required values, conditional controls, errors and attachment.",
+    "For always/unknown handoff modes, retain tabs and open remote live view for user review without a Tk window. For never, checkpoint the posting claim and execute one validated final activation.",
+    "If CAPTCHA appears after the activation, remain in submitting while Kernel solves and observe the outcome. A solve event never alone marks applied. Do not issue another final click just because a wait timed out.",
+    "Record employer confirmation, portal duplicate, correction-required or uncertain outcome. Continue the remaining batch according to the existing cap and pending-manual reservation rules."
+  ],
+  "challenge_state_machine": {
+    "events": [
+      "captcha_solve_started",
+      "captcha_solve_result",
+      "captcha_challenge_result"
+    ],
+    "observability": "Poll CAPTCHA-only telemetry with durable offset and sequence fields; resume from saved offset. Persist events lacking page scope as session diagnostics. Page state and posting-scoped employer confirmation remain authoritative.",
+    "dom_readiness": "Use actual page/widget state and token-presence booleans where appropriate; never log tokens. A CAPTCHA iframe remaining in DOM does not alone mean it is unsolved.",
+    "before_activation_timeout": "Mark blocked/retryable challenge timeout, keep review link/session for bounded inspection, and move on.",
+    "after_activation_timeout": "Mark submission_uncertain and keep monitoring/reconcile; do not auto-click or list as a safe pre-submit retry.",
+    "separate_outcomes": [
+      "login_required",
+      "email_verification_required",
+      "captcha_timeout",
+      "captcha_failed",
+      "required_answer_missing",
+      "portal_validation_rejected",
+      "submission_uncertain"
+    ],
+    "solver_scope": "Permit normal challenge interaction without granting the solver arbitrary access to the employer final Submit control. Validate with browser POST counters before live use."
+  },
+  "resume_and_cost": [
+    "Resume fetches session details and refreshed connection URLs by session ID; it reconnects live targets and never recreates a possibly submitted form blindly.",
+    "An expired/crashed session before any enabled final action can be re-prepared under an explicit retry policy. After a possible Submit, preserve uncertainty until outcome inspection.",
+    "Kernel profiles can help future authentication; profile persistence is not an application checkpoint or proof of selected-file preservation.",
+    "Delete completed remote sessions after evidence is saved; disconnect/standby or bounded retention for manual/failed review. Avoid indefinite keepalive polling of a paid session."
+  ],
+  "validation_plan": [
+    "Backend unit tests: key loading/redaction, missing dependency/key, create/get/delete errors, reconnect and expiring signed URLs; no paid resources required.",
+    "Shared fixtures on local Playwright first: native/custom/conditional/iframe/shadow controls, long readable upload names, byte hashes, retained tabs, caps and zero-Submit prepare/manual modes.",
+    "One Kernel cloud smoke test on synthetic HTTPS routes or a fixture server inside its VM; laptop localhost is not reachable as a local URL from the cloud browser.",
+    "One official non-employer CAPTCHA demonstration: observed solve and timeout/error telemetry. No claim that this certifies all employer challenges.",
+    "Synthetic submit tests with CAPTCHA before click and after click, known server rejection, duplicate and disconnect after activation. Assert exactly one automatic final activation and correct durable outcome.",
+    "Expand to ten synthetic jobs and ten selected real preparation-only URLs. Preserve full per-job failures; do not label every generic job URL supported from a single success.",
+    "Live employer submission only through the explicitly selected never-mode command; this research turn performs none."
+  ],
+  "open_validation_items": [
+    "One successful Google reCAPTCHA demonstration does not establish success on every employer challenge",
+    "hCaptcha support depends on Kernel account capabilities",
+    "No live employer final Submit was performed during development",
+    "Explicit candidate.gpa or exact per-question GPA answer for four Hive roles"
+  ],
+  "sources": {
+    "stealth": "https://www.kernel.sh/docs/browsers/bot-detection/stealth",
+    "control": "https://www.kernel.sh/docs/introduction/control",
+    "create_session": "https://www.kernel.sh/docs/api-reference/browsers/create-a-browser-session",
+    "openapi": "https://www.kernel.sh/openapi.json",
+    "uploads": "https://www.kernel.sh/docs/browsers/file-io",
+    "telemetry": "https://www.kernel.sh/docs/browsers/telemetry/categories",
+    "telemetry_stream": "https://www.kernel.sh/docs/api-reference/browser-telemetry/stream-telemetry-events-via-sse",
+    "profiles": "https://www.kernel.sh/docs/browsers/profiles",
+    "live_view": "https://www.kernel.sh/docs/browsers/live-view",
+    "playwright_execution": "https://www.kernel.sh/docs/browsers/playwright-execution",
+    "api_keys": "https://www.kernel.sh/docs/info/api-keys",
+    "auth_context": "https://www.kernel.sh/docs/api-reference/authentication/get-authentication-context",
+    "pricing": "https://www.kernel.sh/docs/info/pricing"
+  },
+  "updated_at": "2026-10-21T23:35:32.276233+00:00",
+  "implementation_sequence": [
+    {
+      "step": 1,
+      "name": "Backend configuration and preflight",
+      "deliverable": "Add --browser local|kernel to prepare, submit and apply-careers. Add optional compatible kernel/playwright dependencies and typed runtime config. Load environment then ignored .env. Keep local and always defaults. Reject local --chrome-profile for Kernel with a clear alternative; optional Kernel profile is separate.",
+      "acceptance": [
+        "Existing local commands behave unchanged.",
+        "Missing credentials/dependencies fail before allocating a cloud browser.",
+        "No key, signed CDP URL or solver token appears in progress or exceptions."
+      ],
+      "files": [
+        "direct_apply.py",
+        "job_pipeline.py",
+        "config/browser_runtime.json",
+        "requirements-kernel.txt"
+      ]
+    },
+    {
+      "step": 2,
+      "name": "Shared browser-action boundary",
+      "deliverable": "Separate BrowserSession, Page and FormControl operations from Selenium in generic preparation. Implement local Selenium and Playwright control actions with the same policies. Reuse guard/snapshot logic while making node handles and frame ownership transport-specific. Replace platform-specific keyboard assumptions with adapter operations.",
+      "acceptance": [
+        "Native/custom/conditional controls, frames, shadow roots and upload receipts pass on both local transports.",
+        "Every job owns an explicit page; user focus never selects the job implicitly.",
+        "Prepare/manual modes produce zero final activations and application POSTs on controlled fixtures."
+      ],
+      "files": [
+        "modules/browser_runtime.py",
+        "modules/generic_prepare.py",
+        "modules/external_questions.py",
+        "modules/generic_form_snapshot.js",
+        "modules/generic_form.js"
+      ]
+    },
+    {
+      "step": 3,
+      "name": "Kernel session and page ownership",
+      "deliverable": "Create a headful stealth browser through the SDK and connect via Playwright/CDP. Persist provider/session/target IDs only, refresh signed URLs on reconnect, and create one tab per posting with one active job initially. Name/tag sessions using the generated run ID; reconcile an ambiguous create response by lookup before allocating another browser.",
+      "acceptance": [
+        "One remote synthetic HTTPS page can navigate, snapshot, type and capture evidence.",
+        "Mac localhost is never mistaken for the cloud browser filesystem/network.",
+        "Live view exposes the actual owned remote session without a separate Tk review window."
+      ],
+      "files": [
+        "modules/kernel_browser.py",
+        "modules/submit_runner.py",
+        "modules/manual_tabs.py",
+        "modules/submit_state.py"
+      ]
+    },
+    {
+      "step": 4,
+      "name": "Verified remote resume attachment and field persistence",
+      "deliverable": "Keep JD/resume/cache generation local. Attach PDF bytes to the remote input with the readable name and preserved identifier/hash. Recompute browser-selected bytes and verify the native input or receipt. Fill from current profile/config and AI policies, blur controls, wait for observable save completion where supported, and read values/conditional fields back before readiness.",
+      "acceptance": [
+        "Remote attachment hash and size match the selected local PDF, including receipt-only and long-name cases.",
+        "No repeated optimizer call when current verified cache is eligible.",
+        "Fields that disappear/revert or remain invalid cannot be reported ready; a DOM value alone is not claimed as generic server-persistence proof."
+      ],
+      "files": [
+        "modules/generic_prepare.py",
+        "modules/kernel_browser.py",
+        "modules/ai/preparation_resume.py"
+      ]
+    },
+    {
+      "step": 5,
+      "name": "Bounded CAPTCHA handling",
+      "deliverable": "Replace immediate CAPTCHA blocking with an optional backend challenge handler at navigation, before final action and while awaiting confirmation. Consume Kernel task/challenge telemetry, correlate only relevant host/page context, and combine it with fresh page/widget state. Separate login, OTP/email verification and missing personal answers from CAPTCHA. Permit solver challenge interactions while guarding the application final action.",
+      "acceptance": [
+        "Challenge solves without a manual pause when supported.",
+        "A remaining iframe is not sufficient evidence of an unsolved challenge.",
+        "Missing, unordered, inferred and Turnstile-specific events cannot falsely mark an application successful.",
+        "Before-click timeout becomes a recorded failure/retry; after-click timeout becomes uncertain and cannot cause another automatic click."
+      ],
+      "files": [
+        "modules/kernel_challenges.py",
+        "modules/generic_prepare.py",
+        "modules/generic_submit.py",
+        "modules/generic_form.js"
+      ]
+    },
+    {
+      "step": 6,
+      "name": "Automatic Submit under explicit never mode",
+      "deliverable": "Reuse the common final validation and durable posting claim before the one final action. Reacquire the button after page updates, click once, and observe employer confirmation or duplicate/error response, including CAPTCHA after click. Never automatically replay a possibly executed final-action request. For the first version, an explicit server validation rejection is saved for correction/retry and the batch continues.",
+      "acceptance": [
+        "Successful synthetic job has one final activation and one confirmed application.",
+        "CAPTCHA success alone never increments applied count.",
+        "A disconnect after activation is uncertain until reconciled, never a fresh automatic retry.",
+        "never does not hang waiting for a person; unresolved job outcomes are saved and later jobs continue."
+      ],
+      "files": [
+        "modules/generic_submit.py",
+        "modules/submit_runner.py",
+        "modules/external_apply.py"
+      ]
+    },
+    {
+      "step": 7,
+      "name": "Durable cloud recovery and bounded retention",
+      "deliverable": "Keep per-run progress/events/manual-review/retry outputs and cap accounting, extending them with remote IDs and redacted challenge timing. Reconnect the existing session/target first on explicit resume. Re-prepare only jobs with a known pre-final-action failure. Save evidence then delete completed remote sessions; retain review/failure sessions only for the configured budget.",
+      "acceptance": [
+        "A restarted process does not lose job order or confirmation history.",
+        "Lost/expired targets after possible final action remain uncertain.",
+        "Cloud profile/cookie persistence is never treated as proof that an application or selected upload survived.",
+        "Fresh invocations remain independent and continue to allow previously attempted URLs."
+      ],
+      "files": [
+        "modules/submit_state.py",
+        "modules/submit_runner.py",
+        "modules/manual_tabs.py",
+        "modules/kernel_browser.py"
+      ]
+    },
+    {
+      "step": 8,
+      "name": "Single-job proof, then ten-job validation",
+      "deliverable": "Run backend contracts and existing local regressions first. Exercise one Kernel synthetic form end to end, plus an official CAPTCHA demonstration. Fix failures until the single job is reliable, then expand to ten synthetic jobs and ten selected real preparation-only URLs. Test actual employer Submit only via the explicitly selected real never-mode command.",
+      "acceptance": [
+        "Synthetic matrix includes native/SPA submits, frames, conditional questions, readable uploads, CAPTCHA before/after click, known rejection, duplicates and disconnects.",
+        "Each picked URL has a recorded pass, blocked or failed result; unsupported pages remain explicit.",
+        "Final receipt distinguishes synthetic submission, real preparation-only and any separately executed real submission."
+      ],
+      "files": [
+        "tests/test_kernel_browser.py",
+        "tests/test_kernel_challenges.py",
+        "tests/test_generic_prepare_browser.py",
+        "tests/test_manual_tabs.py",
+        "tests/test_generic_submit.py",
+        "docs/generic-url-preparation.md"
+      ]
+    }
+  ],
+  "first_deliverable": "Backend preflight plus a reusable browser-action interface passing existing local fixtures; no employer Submit needed to reach this milestone.",
+  "completion_contract": {
+    "default_pause": "always",
+    "explicit_automatic_mode": "--browser kernel --pause-before-submit never",
+    "manual_fallback_in_never_mode": "Save job outcome and continue; no unexpected mandatory review pause.",
+    "actual_success_criterion": "Posting-bound employer confirmation, independent of CAPTCHA telemetry.",
+    "research_setup_done": "Existing .env authentication returned HTTP 200 in the prior research turn. SDK/browser/solver behavior still needs implementation validation."
+  },
+  "research_snapshot": {
+    "official_docs_researched": true,
+    "credential_setup": "Existing ignored .env entry verified; file mode 0600. No secret value persisted in this document or logs.",
+    "credential_authentication": {
+      "http_status": 200,
+      "authenticated": true,
+      "endpoint": "GET /auth/context"
+    },
+    "browser_sessions_created": 0,
+    "employer_actions_performed": false,
+    "runtime_code_changed": false
+  },
+  "implementation": {
+    "runtime_code_changed": true,
+    "backend": "Kernel SDK with Playwright/CDP",
+    "locale_timezone_default": "omitted; organization returned browser_location_disabled",
+    "cloud_smoke": "HTTPS route and native field passed",
+    "employer_submissions": 0,
+    "validation_so_far": {
+      "contracts": 126,
+      "local_selenium_browser_tests": 39,
+      "local_playwright_browser_methods": 5,
+      "cloud_prepare_layouts": 10,
+      "cloud_automatic_synthetic_submits": 11,
+      "cloud_manual_synthetic_submits": 2,
+      "captcha_demo": "passed under preparation guard",
+      "employer_submissions": 0
+    },
+    "validation_receipt": "/Users/deepakbasavaraju/Documents/GitHub/jobrobo/logs/direct_submit_validation/20261021/kernel-implementation/receipt.json",
+    "real_preparation_only": {
+      "attempted": 10,
+      "prepared": 6,
+      "blocked": 4,
+      "failed": 0,
+      "all_uploads_verified": true
+    }
+  }
+}

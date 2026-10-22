@@ -1,0 +1,34 @@
+# Frozen manual-validation sample from current Task 1 remaining roles.
+# 10 URLs: Ashby 5, Lever 2, Greenhouse 2, generic entry 1.
+# Current forms have not been inspected by this selection task; read docs/manual-validation-run.md.
+# Manual tabs: python3 direct_apply.py submit --urls-file jobs-validation.txt --browser kernel --pause-before-submit always --limit 10
+
+# 01 | lever | Instrumentl | Senior Backend Engineer
+https://jobs.lever.co/Instrumentl/76f33356-fa76-44fc-9576-6186113ec086
+
+# 02 | greenhouse | Baton | Software Engineer - Data Platform
+https://job-boards.greenhouse.io/baton/jobs/5177637007
+
+# 03 | ashby | DuckDuckGo | Senior Privacy Engineer
+https://jobs.ashbyhq.com/duck-duck-go/80797cf4-64b2-4e94-9d87-6f2ecc45c862
+
+# 04 | generic_entry | CareerJumpShip | IT Engineer
+https://www.careerjumpship.com/jobs/it-engineer-ondo-finance-c1bb7b74
+
+# 05 | ashby | Namespace | Infrastructure Software Engineer
+https://jobs.ashbyhq.com/namespace/168f6c0b-a28c-4b04-9432-228a297aeedc
+
+# 06 | lever | Shield AI | Engineer, Software- open level (R5285)
+https://jobs.lever.co/shieldai/22e914d8-488d-4f22-96a9-61dd4b15ea04
+
+# 07 | greenhouse | Baton | Staff Software Engineer - Infrastructure, Data Platform
+https://job-boards.greenhouse.io/baton/jobs/5196180007
+
+# 08 | ashby | Solace Health | Senior Backend Engineer
+https://jobs.ashbyhq.com/Solace/009e6604-cc72-40c5-969d-ffc2e06390d4
+
+# 09 | ashby | Modal | Member of Technical Staff - Inference Runtime
+https://jobs.ashbyhq.com/modal/6195f552-ca6f-4540-b7f6-e7e6054e47ad
+
+# 10 | ashby | baseten | Software Engineer - Inference Platform
+https://jobs.ashbyhq.com/baseten/14c4a663-0b1f-4c11-93ff-1359741ee456

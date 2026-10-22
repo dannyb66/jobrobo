@@ -144,7 +144,9 @@ def discover_companies(input_sets=(), set_name=None, limit=None, db_path=None,
 
 def verify_careers(input_sets=(), set_name=None, limit=None, db_path=None,
                    refresh=None, search_config=None, verify=None, client=None, render=None,
-                   config=None, render_enabled=None, prioritize_established=None):
+                   config=None, render_enabled=None, prioritize_established=None, resume_path=None):
+    from .ranking import load_resume_profile, rank_roles
+    resume_profile = load_resume_profile(resume_path) if resume_path is not None else None
     config = _stage_config(config, "verification", verification_limit_companies=limit,
                            verification_refresh=refresh, verification_render_enabled=render_enabled,
                            verification_prioritize_established=prioritize_established,
@@ -159,7 +161,7 @@ def verify_careers(input_sets=(), set_name=None, limit=None, db_path=None,
     if verify is None:
         from .careers import verify_company
         verify = verify_company
-    from .careers import priority_tier
+    from .careers import priority_tier, evaluate_verification_role
     with PipelineStore(db_path) as store:
         artifacts = load_inputs(store, input_sets, "companies")
         if artifacts:
@@ -196,12 +198,13 @@ def verify_careers(input_sets=(), set_name=None, limit=None, db_path=None,
                                 verified_at = verified_at.replace(tzinfo=timezone.utc)
                             now = datetime.now(timezone.utc)
                             if now - timedelta(days=freshness_days) <= verified_at <= now + timedelta(minutes=5):
-                                # Recompute derived priority without claiming a new careers observation.
+                                # Recompute derived decisions without claiming a new careers observation.
                                 cached = []
                                 for previous in store.load_set("verified_roles", set_name):
                                     if previous.get("company_id") == company["id"]:
                                         updated = dict(previous, company=company)
                                         updated["priority_tier"] = priority_tier(company, previous.get("title", ""), config)
+                                        evaluate_verification_role(updated, search_config)
                                         cached.append(updated)
                                 delta.extend(store.upsert_many("verified_roles", set_name, cached, run_id))
                                 successful_companies += 1
@@ -246,9 +249,10 @@ def verify_careers(input_sets=(), set_name=None, limit=None, db_path=None,
                                     continue
                                 if previous["id"] in observed_ids or previous["id"] in raw_ids or previous.get("career_url") in observed_urls:
                                     continue
-                                vanished.append({**previous, "status": "closed", "eligible": False,
-                                                 "verified_at": now, "verification_run_id": run_id,
-                                                 "exclusion_reasons": ["No longer listed on complete careers board"]})
+                                closed = evaluate_verification_role({**previous, "status": "closed", "verified_at": now, "verification_run_id": run_id}, search_config)
+                                closed["exclusion_reasons"].append("No longer listed on complete careers board")
+                                closed["verification_exclusion_reasons"] = list(closed["exclusion_reasons"])
+                                vanished.append(closed)
                             delta.extend(store.upsert_many("verified_roles", set_name, vanished, run_id))
                             store.save_checkpoint(checkpoint_key, set_name, {"complete": True, "verified_at": now})
                         elif not source_errors:
@@ -260,7 +264,48 @@ def verify_careers(input_sets=(), set_name=None, limit=None, db_path=None,
         except BaseException:
             store.finish_run(run_id, "interrupted", errors)
             raise
-        cumulative = store.load_set("verified_roles", set_name)
+        # Presentation metadata is recomputed, not persisted as fresh careers evidence.
+        cumulative = rank_roles(store.load_set("verified_roles", set_name), resume_profile)
         changed_ids = {record["id"] for record in delta}
         return StageResult.create("verified_roles", set_name, run_id, cumulative,
                                   [record for record in cumulative if record["id"] in changed_ids], errors, input_ids)
+
+
+def rank_careers(input_sets=(), set_name=None, db_path=None, resume_path=None, as_of=None):
+    """Rerank saved verification offline, without importing/reobserving source records."""
+    from uuid import uuid4
+    from .models import DEFAULT_DB_PATH
+    from .ranking import as_of_datetime, load_resume_profile, rank_roles
+
+    now = as_of_datetime(as_of)
+    profile = load_resume_profile(resume_path) if resume_path is not None else None
+    db_path = DEFAULT_DB_PATH if db_path is None else db_path
+    inputs = list(input_sets) or [set_name]
+    artifacts = []
+    for value in inputs:
+        is_artifact = isinstance(value, (dict, StageResult))
+        if isinstance(value, (str, Path)):
+            is_artifact = Path(value).is_file() or str(value).lower().endswith(".json")
+        if is_artifact:
+            artifacts.append(read_artifact(value, "verified_roles"))
+        else:
+            if value is None or not Path(db_path).is_file():
+                raise ValueError("Rank careers requires a verified-role artifact or existing saved set")
+            name = str(value).removeprefix("verified_roles:")
+            with PipelineStore(db_path) as store:
+                records = store.load_set("verified_roles", name)
+            if not records:
+                raise ValueError(f"Unknown or empty verified_roles input set: {name}")
+            artifacts.append(StageResult.create("verified_roles", name, "stored-set:" + name, records))
+    records = {}
+    for artifact in artifacts:
+        for record in artifact.records:
+            if not isinstance(record.get("id"), str) or not record["id"].strip():
+                raise ValueError("Rank careers requires a stable ID for every verified role")
+            if record["id"] in records and record != records[record["id"]]:
+                raise ValueError(f"Conflicting saved records for role ID: {record['id']}")
+            records[record["id"]] = record
+    ranked = rank_roles(records.values(), profile, as_of=now)
+    return StageResult.create("verified_roles", set_name or artifacts[0].set_name, "rank:" + str(uuid4()), ranked,
+                              errors=[error for artifact in artifacts for error in artifact.errors],
+                              input_set_ids=_inputs_id(artifacts))

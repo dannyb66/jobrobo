@@ -1,0 +1,16 @@
+# Tested application preparation URLs: 10/10 reached final review on 2026-10-20 UTC.
+# Tailored resumes were uploaded and verified; no applications were submitted.
+# Evidence: final-ten-verification.json in the Task 2 private evidence directory.
+# Run: python3 direct_apply.py prepare --urls-file jobs.txt --grounded-resume
+# Add the previous --output-dir to reuse its reviewed resume and answer caches.
+
+https://jobs.lever.co/hive/4df537a1-1c31-4c05-9390-9ce635f03f1d
+https://job-boards.greenhouse.io/togetherai/jobs/5224090007
+https://job-boards.greenhouse.io/liberate/jobs/5118380008
+https://jobs.ashbyhq.com/ashby/0f5dbf59-687b-4d88-88a7-73ee0a66b48d
+https://jobs.ashbyhq.com/afterquery/c33f01ac-783a-4ab3-9efe-d29a060c4524
+https://jobs.ashbyhq.com/ashby/6a15668c-3f98-4404-8f1f-927cddfc5af7
+https://jobs.ashbyhq.com/afterquery/f9055979-9c2d-4b5d-a0ec-f248205b1d16
+https://jobs.lever.co/hive/55069e13-9442-4a6a-8f5b-20bb43352a73
+https://jobs.lever.co/hive/23d08bdd-b225-4436-9800-e67e96ff0733
+https://jobs.lever.co/hive/7e00cd85-9442-46e7-927d-d0e21b23ea56

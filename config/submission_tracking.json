@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "history_dir": "logs/direct_submit_tracking",
+  "run_roots": ["logs/direct_submit"],
+  "tracker_lock": "~/Documents/Codex/2026-10-14/task/task-progress/render.lock",
+  "role_reviews": [
+    {
+      "input": "~/Documents/Codex/2026-10-14/task/task1-location-fix/phase2/phase2-engineering-ranked.json",
+      "page": "~/Documents/Codex/2026-10-14/task/task1-location-fix/phase2/phase2-engineering-review.html"
+    }
+  ]
+}

@@ -241,11 +241,19 @@ def build_search_plan(profile, config, refine=None, warn=lambda message: None):
             if refine is None:
                 warn("AI search refinement unavailable; using deterministic search queries.")
             else:
+                validation_reason = ""
                 try:
-                    lanes = validate_refinement(refine(roles, _get(profile, "skills"), snapshot), roles)
+                    response = refine(roles, _get(profile, "skills"), snapshot)
+                    try:
+                        lanes = validate_refinement(response, roles)
+                    except ValueError as error:
+                        # These are our own schema/intent validation messages;
+                        # provider exception payloads may contain private data.
+                        validation_reason = ": " + str(error)
+                        raise
                     source = "ai_refined"
                 except Exception as error:
-                    warn(f"AI search refinement failed ({type(error).__name__}); using deterministic search queries.")
+                    warn(f"AI search refinement failed ({type(error).__name__}){validation_reason}; using deterministic search queries.")
         try:
             for _, role, index in lanes:
                 add(role, source, classic=role)

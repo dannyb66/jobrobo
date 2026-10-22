@@ -63,11 +63,10 @@ def fresh_role(role, days=None):
 
 def role_matches(title, description, spec):
     """Engineering-family/level guards, without a local fit score."""
-    if not re.search(r"engineer|engineering|developer|architect|member(?: of)? technical staff|\bmts\b", title, re.I):
+    from .careers import classify_engineering_role
+    if not classify_engineering_role(title, description)["engineering_related"]:
         return False
     if re.search(r"\b(intern|internship|junior|entry.level|new.grad)\b", title, re.I):
-        return False
-    if re.search(r"\b(sales|solutions|support|recruiting)\b", title, re.I):
         return False
     expected = spec.pipeline_context.get("career_roles", []) if spec.pipeline_context else []
     def levels(value):
@@ -77,13 +76,10 @@ def role_matches(title, description, spec):
     actual = levels(title)
     if required > 1 and actual and actual < required:
         return False
-    # A related role must still concern the configured AI/platform engineering families.
-    text = f"{title} {description}".casefold()
-    families = ("software", "backend", "platform", "infrastructure", "systems", "inference", "sdk", "storage", "machine learning", "ml performance", "machines")
-    return any(family in text for family in families) or bool(re.search(r"\b(?:ai|ml|sre)\b", text))
+    return True
 
 
-def prepare_specs(roles, profile, config):
+def prepare_specs(roles, profile, config, *, application=False):
     config, profile = mapping(config), mapping(profile)
     specs, errors = [], []
     grouped = {}
@@ -101,15 +97,15 @@ def prepare_specs(roles, profile, config):
         if role.get("company_id") and role["company_id"] != company["id"]:
             errors.append({"record_id": role.get("id"), "code": "identity_mismatch", "message": "Parent role company identity is inconsistent"})
             continue
-        from .careers import evaluate_role
+        from .careers import evaluate_role, evaluate_verification_role
         for key, default in {"title": "", "description": "", "workplace_type": "Unknown", "employment_type": "Unknown", "locations": []}.items():
             role.setdefault(key, default)
-        evaluate_role(role, config)
+        (evaluate_role if application else evaluate_verification_role)(role, config)
         if not role["eligible"]:
             errors.append({"record_id": role.get("id"), "code": "current_config_exclusion", "message": ", ".join(role["exclusion_reasons"])})
             continue
         allowed = {normalize_company(name) for name in config.get("companies", [])}
-        if allowed and not allowed.intersection(company_names(company)):
+        if application and allowed and not allowed.intersection(company_names(company)):
             continue
         key = (company["id"], normalize_query(role.get("title", "")))
         grouped.setdefault(key, []).append(role)
@@ -145,7 +141,7 @@ def selected_specs(jobs, profile, config):
     for job in jobs:
         for role in job.get("career_roles", []):
             roles[role.get("id")] = role
-    specs, errors = prepare_specs(list(roles.values()), profile, config)
+    specs, errors = prepare_specs(list(roles.values()), profile, config, application=True)
     by_parent = {role_id: spec for spec in specs for role_id in spec.pipeline_context["career_job_ids"]}
     selected, saved_specs = {}, {}
     for job in jobs:

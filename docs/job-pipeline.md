@@ -60,14 +60,20 @@ python -m job_pipeline run linkedin \
 
 Bare `python -m job_pipeline` and `python -m job_pipeline --help` print help without starting a browser or loading credential services. Importing `job_pipeline` and `runAiBot` is also safe; runtime browser and credential setup happens only when a requested LinkedIn run starts.
 
+## Direct official-careers applications
+
+`python3 job_pipeline.py apply careers --input /path/to/ranked.json --pause-before-submit always` consumes the saved verified-role order directly, fills each job in a new retained tab using the shared preparation/resume engine, and defaults to manual Submit on the employer pages. It continues filling without a separate review window and tracks confirmed outcomes in the applications stage. Every invocation creates a new run automatically, including repeated URLs from previous runs. Its printed path can be used with `python3 job_pipeline.py apply careers --resume /path/to/that/run` for explicit recovery. See [independent runs and retry examples](generic-url-preparation.md#submit-using-the-same-preparation-flow). Company discovery and verification remain separate steps; the existing LinkedIn lane is unchanged.
+
 ## Commands and input contracts
 
 | Command | Input stage | Output stage | Limit applies to |
 | --- | --- | --- | --- |
 | `discover companies` | Optional company sets/imports | `companies` | Companies per source in the discovery run. |
 | `verify careers` | `companies` | `verified_roles` | Companies checked in the verification run. |
+| `rank careers` | `verified_roles` | `verified_roles` | All saved records; offline ordering never applies a limit. |
 | `search linkedin` | `verified_roles` | `linkedin_jobs` | LinkedIn collection work for the run. |
 | `apply linkedin` | `linkedin_jobs` | `applications` | Selected application work for the run. |
+| `apply careers` | `verified_roles`, TXT/JSON or legacy direct queue | `applications` | Selected direct jobs; durable run cap also applies. |
 | `run linkedin` | `verified_roles` | `applications` | Combined LinkedIn work for the run. |
 
 The default set is `startup-companies`, and the default database is `data/job_pipeline/pipeline.sqlite3`. LinkedIn commands retain the `default_limit = 25` budget. Discovery and verification use their stage settings described below. Use `--set` to name the output set. `--input` accepts a JSON artifact path or a named set in the selected database; repeat it to combine multiple inputs of the required stage. Wrong-stage or malformed artifacts fail validation before browser startup. `--output` writes the returned result as JSON. Changing an output filename does not change the saved work's identity.
@@ -147,7 +153,47 @@ python -m job_pipeline discover companies \
 
 Verification reads each company's official careers URL and follows the supported Ashby, Greenhouse, Lever, or generic structured HTML/JSON careers adapter. Python callers can supply a public-page renderer through the service's `render` argument. The CLI uses public HTTP requests by default and reports pages that need rendering; configure `verification_render_enabled = True` or pass `--render-public` to allow the bounded renderer. A LinkedIn search result alone does not establish that the company has an open official role.
 
-Verified roles include the full title and job description, official role URL, company identity, locations, workplace arrangement, employment type, sources, verification timestamp, and eligibility outcome. Eligibility reads the existing canonical `config/search.py` settings: location, work arrangement, employment type, exclusion terms, security-clearance rules, and experience gates remain configured once.
+Verification builds a broad inventory of official open engineering and related technical roles. It includes software, AI, data, hardware, security, reliability/SRE, support, forward-deployed work, and engineering management across seniority levels. Technical science/research and engineering-adjacent occupations such as solutions engineering and technical product/program management remain visible with review metadata. A technical department or company description alone does not turn recruiting, sales-account, marketing, or administrative occupations into engineering roles.
+
+In `verified_roles`, `eligible` and `verification_eligible` mean open engineering-inventory inclusion. The configured `config/search.py` `search_location` gates inventory inclusion; mismatched and unknown locations remain in the full audit export with `location_excluded` or `unknown_location`, but stay out of the eligible shortlist. The shared geography matcher also permits explicitly supported US/California/global remote roles for the Bay Area and does not infer geography from an unqualified “Remote” label. Other candidate constraints no longer hide these postings: `application_eligible` and `application_exclusion_reasons` record the separate evaluation against current `config/search.py` location, work arrangement, employment type, date, company, exclusion-term, clearance, and experience settings. `review_notes` exposes these concerns and adjacent/research review; `role_classification` records the family, confidence, evidence, and review flag. Missing full descriptions remain visible for official open postings but block application and leave the crawl incomplete. Closed, unlisted, prospect, unknown-availability, and nonengineering postings do not become eligible engineering vacancies.
+
+Records retain the title, description, official URL, company identity, department/team when supplied, locations, workplace and employment types, sources, verification time, and `verification_policy_version`. Fresh cached records are reevaluated under this policy without changing their observation timestamp or verification run. Refresh is still required to obtain new source evidence.
+
+### Group and order verified roles for review
+
+Verification exports every saved record in review order. Add the original resume to compare its existing vocabulary with each posting:
+
+```bash
+python -m job_pipeline verify careers --input ai-companies --set hiring-roles \
+  --resume "all resumes/default/resume.docx" --output data/job_pipeline/hiring-roles.json
+```
+
+To reorder an existing verification artifact without fetching careers pages, launching Chrome, changing the source database, or applying to jobs:
+
+```bash
+python -m job_pipeline rank careers --input data/job_pipeline/hiring-roles.json \
+  --resume "all resumes/default/resume.docx" --set ranked-roles \
+  --output data/job_pipeline/ranked-roles.json
+```
+
+`--input` also accepts an existing saved verified-role set; repeat it to combine sets. Conflicting versions of the same role ID must be reconciled first. `rank careers` has no processing limit: all 90 open engineering roles in a 174-record verification remain present, as do the other 84 records for audit. `--set` labels this offline export; it does not create a new saved set. To reproduce a snapshot, add an explicit timezone-aware cutoff such as `--as-of 2026-10-15T12:00:00Z`. Normal execution uses the current UTC time. Ranking never makes an old source verification fresh; search/application still require their existing freshness and candidate checks.
+
+Each record has separate `review_priority` metadata. Existing company `priority_tier`, source `verified_at`/`verification_run_id`, inventory inclusion, and application eligibility remain unchanged. Ranking metadata is derived when exporting, rather than persisted as a new careers observation. Legacy consumers may ignore it; LinkedIn query grouping and its company priority policy retain their existing behavior.
+
+Posting age uses the source `published_at` value: at most 24 hours, at most seven days, at most 30 days, older, or unknown. Boundaries are inclusive. Future, invalid, missing, date-only, and timezone-free values have explicit unknown reasons; verification time is never substituted for posting time.
+
+Optional resume affinity is a bounded lexical heuristic for choosing what to review first. It is **not an ATS score, a probability of selection, or proof of qualification**. It recognizes a fixed technical vocabulary with token boundaries and explicit aliases, avoiding Java/JavaScript and RAG/storage substring matches. Terms in the job title count twice; other recognized job-description terms count once. With a recognized title family, the numeric index is `80 × matched term weight / job term weight + 20 × matched title families / title families`. Without a recognized title family, it is `100 × matched term weight / job term weight`. High means at least 65, medium at least 35, and low below 35. Missing resume, missing description, and unrecognized job vocabulary produce unknown affinity, not zero.
+
+The metadata reports the index, band, matched/missing terms, matched title families, reason, method version, cutoff, and SHA-256 of the original resume bytes. It does not save the resume text, path, contact details, or evidence excerpts. DOCX, PDF (with installed `pdfplumber`), UTF-8 text, and Markdown are supported. Use an original reviewed resume; this stage does not optimize it. Lexical matches can come from general or negated mentions and employer boilerplate, and the vocabulary is incomplete, so review the evidence rather than interpreting the index as validated experience.
+
+| Review tier | Open engineering inventory conditions |
+| --- | --- |
+| 1 | Posted within seven days with medium or high resume affinity. |
+| 2 | Any other posting within seven days; a posting within 30 days with medium/high affinity; or an older posting with high affinity. |
+| 3 | Remaining open engineering inventory, including unknown posting dates. |
+| 4 | Records outside open engineering inventory, retained for audit. |
+
+Without `--resume`, affinity is unknown and review ordering uses posting recency: recent postings enter tier 2, others tier 3. Within a tier, sorting uses recency bucket, descending affinity index (unknown last), newest exact posting time, then company name, title, and stable role ID. This ordering groups roles without dropping any. It has no model/API calls and no dependency on the resume optimizer or its scoring implementation. Integrating a separately validated resume/JD scoring model is a future enhancement.
 
 Only a successful complete careers crawl can mark an absent old role as closed. An inaccessible or incomplete crawl cannot establish current availability and preserves existing role data; the company's current hiring check can be recorded as unknown. Importing an older artifact does not revive a role already known to be closed. This distinction prevents an outage or blocked page from erasing valid discovery work.
 
@@ -162,9 +208,13 @@ The version 2 search profile includes Staff/Principal infrastructure, platform, 
 | 3 | Early-stage companies and founding roles. |
 | 4 | Companies whose scale or stage is unknown. |
 
-With the default maturity settings, established-company evidence means a sourced employee count of at least 50 or a sourced Series B or later funding stage, IPO, or public-company status. The shared settings above control those thresholds. Unknown evidence remains unknown. Related engineering titles can match the configured role families; junior roles or an explicit seniority downgrade are excluded. The profile holds semantic role intent, while location and eligibility filters remain in `config/search.py`.
+With the default maturity settings, established-company evidence means a sourced employee count of at least 50 or a sourced Series B or later funding stage, IPO, or public-company status. The shared settings above control those thresholds. Unknown evidence remains unknown. Inventory includes engineering roles at all seniority levels. Later LinkedIn matching retains its junior-role and explicit seniority-downgrade guards. The profile holds semantic role intent, while application filters remain in `config/search.py`.
 
 ## LinkedIn matching and application boundaries
+
+Search-target preparation retains fresh open engineering inventory even when candidate preferences require later review. Query snapshots still carry the configured filters; actual LinkedIn collection continues to apply those filters and its description, company, and seniority checks. This does not promise that every official posting will appear in a filtered LinkedIn result set.
+
+Selected application preparation recomputes current candidate requirements independently, including in the combined search-and-apply flow. Imported `eligible` or `application_eligible` flags cannot authorize an application. Closed/prospect/stale or inconsistent parents, missing descriptions, and current candidate exclusions stop selection. The application runner also retains its live job/company/eligibility checks before forms.
 
 LinkedIn collection uses the existing natural-language query planner and classic keyword fallback. It applies available UI filters and the existing post-discovery description gates. Matching checks company identity against the verified company and configured aliases; a loose partial name match is insufficient. A relevant related engineering title can match an official role family even if LinkedIn's wording differs.
 
@@ -226,7 +276,7 @@ result = run_pipeline(LinkedInRunRequest(
 print(result["stage"], len(result.records), len(result.delta))
 ```
 
-Company records identify the company by ID, name, domain, website, careers URL, aliases, source evidence, employee count, and funding stage. Verified-role records add company ID and nested company details, title, description, careers URL, locations, workplace and employment types, eligibility and exclusion reasons, status (`open`, `closed`, or `unknown`), verification time, priority tier, and sources. LinkedIn and application records retain their upstream company/role references for traceability.
+Company records identify the company by ID, name, domain, website, careers URL, aliases, source evidence, employee count, and funding stage. Verified-role records add company ID and nested company details, title, description, careers URL, department/team, locations, workplace and employment types, separate inventory/application decisions and reasons, classification/review metadata, status (`open`, `closed`, or `unknown`), verification time, priority tier, and sources. LinkedIn and application records retain their upstream company/role references for traceability.
 
 The artifact reader rejects unsupported schema versions, missing or unknown top-level fields, wrong-stage input, invalid timestamps, and nonportable JSON values. Exports are replaced atomically so a failed write preserves the previous file.
 

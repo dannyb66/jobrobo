@@ -64,3 +64,18 @@ class ConfiguredCliTests(unittest.TestCase):
             self.invoke(["--configured-search-and-apply", "--fresh", "--help"])
         self.assertEqual(error.exception.code, 0)
         self.run.assert_not_called()
+
+    def test_prepare_only_enables_non_submitting_run_and_restores_runtime_flags(self):
+        def run():
+            self.assertTrue(self.namespace['prepare_only_run'])
+            self.assertEqual(self.namespace['preparation_limit'], 10)
+        self.run.side_effect = run
+        self.assertEqual(self.invoke(['--configured-search-and-apply', '--fresh', '--prepare-only', '--limit', '10']), 0)
+        self.assertFalse(self.namespace['prepare_only_run'])
+        self.assertTrue(self.profile.resume_search_enabled)
+
+    def test_prepare_only_requires_configured_entry_and_positive_limit(self):
+        for args in (['--prepare-only'], ['--configured-search-and-apply', '--prepare-only', '--limit', '0']):
+            with self.subTest(args=args), self.assertRaises(SystemExit):
+                self.invoke(args)
+        self.run.assert_not_called()

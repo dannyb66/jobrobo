@@ -58,7 +58,9 @@ class JobCardMetadataTests(unittest.TestCase):
         node.returns = None
         for argument in [*node.args.args, *node.args.kwonlyargs]:
             argument.annotation = None
-        namespace = {"re": re, "By": SimpleNamespace(TAG_NAME="tag", CLASS_NAME="class"), "scroll_to_view": Mock(), "buffer": Mock(), "click_gap": 0, "print_lg": Mock(), "driver": Mock(), "discard_job": Mock(), "NoSuchElementException": MissingElement}
+        metadata_driver = Mock()
+        metadata_driver.find_elements.return_value = []
+        namespace = {"re": re, "By": SimpleNamespace(TAG_NAME="tag", CLASS_NAME="class"), "scroll_to_view": Mock(), "buffer": Mock(), "click_gap": 0, "print_lg": Mock(), "driver": metadata_driver, "discard_job": Mock(), "NoSuchElementException": MissingElement}
         exec(compile(ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])), str(path), "exec"), namespace)
         result = namespace["get_job_main_details"](Card(), set(), set())
         anchor.click.assert_called_once()

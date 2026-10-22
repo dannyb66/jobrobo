@@ -60,9 +60,12 @@ def _export_runtime_module(name):
 
 def load_runtime(execution_mode="apply"):
     global _runtime_loaded, _apply_credentials_loaded
-    global advance_to_review, current_submit_button, wait_for_application_modal, wait_for_submission_confirmation, submission_receipts
-    global resume_upload_target
+    global advance_to_review, current_submit_button, wait_for_application_modal, wait_for_submission_confirmation, submission_receipts, open_easy_apply
+    global resume_upload_target, clear_post_submit_ui
     global AI_INPUT_XPATH, By, EC, ElementClickInterceptedException, ElementNotInteractableException, Literal, NoSuchElementException, NoSuchWindowException, ResumeUploadError, SearchManifest, Select, WebDriverWait, WebElement, about_company_for_ai, active_manifest, active_page, active_search, aiClient, append_history, apply_configured_filters, build_search_plan, choice, current_ctc, current_ctc_lakhs, current_ctc_monthly, dailyEasyApplyLimitReached, datetime, desired_salary, desired_salary_lakhs, desired_salary_monthly, easy_applied_count, external_jobs_count, failed_count, file_lock, first_name, full_name, last_name, llm_api_key, load_applied_job_ids, load_dotenv, load_openai_key, make_refiner, middle_name, notice_period, notice_period_months, notice_period_weeks, os, password, pause_at_failed_question, pause_before_submit, plan_fingerprint, pyautogui, randint, randomly_answered_questions, re, re_experience, run_non_stop, run_resume_optimization, search_metadata, search_profile, shuffle, skip_count, start_search, tabs_count, upload_verified_resume, useNewResume, use_AI, use_AI_for_resume, username, validate_config
+    if "_external_local_ai_env" not in globals():
+        import os
+        globals()["_external_local_ai_env"] = {key: os.environ.get(key, "") for key in ("OPENAI_API_KEY", "JOBROBO_EXTERNAL_AI_API_KEY")}
     if _runtime_loaded:
         if execution_mode != "search" and not _apply_credentials_loaded:
             load_openai_key()
@@ -95,8 +98,9 @@ def load_runtime(execution_mode="apply"):
     from modules.resume_upload import ResumeUploadError, upload_verified_resume
     from modules.linkedin_easy_apply import (
         advance_to_review, current_submit_button, wait_for_application_modal,
-        wait_for_submission_confirmation, submission_receipts,
+        wait_for_submission_confirmation, submission_receipts, open_easy_apply,
     )
+    from modules.linkedin_post_submit import clear_post_submit_ui
     from modules.linkedin_file_upload import resume_upload_target
     from modules.ai.openai_key_loader import load_openai_key
     from config import search_profile
@@ -125,9 +129,14 @@ def load_runtime(execution_mode="apply"):
     tabs_count = 1
     easy_applied_count = 0
     external_jobs_count = 0
+    globals()["external_applied_count"] = 0
     failed_count = 0
     skip_count = 0
     dailyEasyApplyLimitReached = False
+    globals()['application_ui_blocked'] = False
+    from pathlib import Path
+    import hashlib
+    print_lg(f"Runtime code: {hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]}; process {os.getpid()}")
     re_experience = re.compile(r'[(]?\s*(\d+)\s*[)]?\s*[-to]*\s*\d*[+]*\s*year[s]?', re.IGNORECASE)
     desired_salary_lakhs = str(round(desired_salary / 100000, 2))
     desired_salary_monthly = str(round(desired_salary/12, 2))
@@ -341,6 +350,26 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
     * work_style: Work style of this job (Remote, On-site, Hybrid)
     * skip: A boolean flag to skip this job
     '''
+    def click_card(expected, initial):
+        from modules.linkedin_post_submit import select_job_card
+        from pathlib import Path
+        first = [initial]
+        def acquire():
+            if first:
+                return str(expected), first.pop()
+            matches = [card for card in get_search_cards(driver) if str(search_card_id(card)) == str(expected)]
+            if len(matches) != 1:
+                return None, None
+            fresh = read_search_card(matches[0])
+            control = fresh.get('title_element')
+            if control is None:
+                links = matches[0].find_elements(By.CSS_SELECTOR, "a[href*='/jobs/view/']")
+                control = next((item for item in links if str(search_card_id(item)) == str(expected)), None)
+            return fresh['id'], control
+        profile = globals().get('search_profile')
+        evidence = Path(profile.search_state_dir).parent / 'application_ui_diagnostics' if profile else None
+        select_job_card(driver, expected, acquire, log=print_lg, diagnostics_dir=evidence)
+
     if not job.get_dom_attribute('data-occludable-job-id'):
         details = read_search_card(job)
         job_id, title, company = details['id'], details['title'], details['company']
@@ -357,9 +386,25 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
             if anchor is None:
                 raise ValueError("Modern job card has no matching LinkedIn job link")
             scroll_to_view(driver, anchor, True)
-            anchor.click()
-            from modules.linkedin_job_details import modern_details_ready
-            live = WebDriverWait(driver, 15).until(lambda browser: modern_details_ready(browser, job_id))
+            click_card(job_id, anchor)
+            from modules.linkedin_job_details import wait_for_modern_details
+            def reselect():
+                matches = [card for card in get_search_cards(driver) if str(search_card_id(card)) == str(job_id)]
+                if len(matches) != 1:
+                    raise ValueError("Selected job card unavailable or ambiguous during recovery")
+                fresh = read_search_card(matches[0])
+                control = fresh.get('title_element')
+                if control is None:
+                    links = matches[0].find_elements(By.CSS_SELECTOR, "a[href*='/jobs/view/']")
+                    control = next((item for item in links if str(search_card_id(item)) == str(job_id)), None)
+                if control is None:
+                    raise ValueError("Selected job link unavailable during recovery")
+                scroll_to_view(driver, control, True)
+                click_card(job_id, control)
+            from pathlib import Path
+            diagnostics_dir = Path(globals().get('search_profile', None).search_state_dir).parent / 'job_detail_diagnostics' if globals().get('search_profile') else None
+            live = wait_for_modern_details(driver, job_id, reselect=reselect, wait_factory=WebDriverWait,
+                                           diagnostics_dir=diagnostics_dir, log=print_lg)
             title, company = live['title'], live['company']
             work_location, work_style = live['location'], live['workplace_type']
             skip = company in blacklisted_companies or job_id in rejected_jobs
@@ -403,14 +448,8 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
             skip = True
             print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
     except: pass
-    try: 
-        if not skip: job_details_button.click()
-    except Exception as e:
-        print_lg(f'Failed to click "{title} | {company}" job on details button. Job ID: {job_id}!') 
-        # print_lg(e)
-        if not read_only:
-            discard_job()
-        job_details_button.click() # To pass the error outside
+    if not skip:
+        click_card(job_id, job_details_button)
     buffer(click_gap)
     return (job_id,title,company,work_location,work_style,skip)
 
@@ -446,12 +485,8 @@ def check_blacklist(rejected_jobs: set, job_id: str, company: str, blacklisted_c
 
 # Function to extract years of experience required from About Job
 def extract_years_of_experience(text: str) -> int:
-    # Extract all patterns like '10+ years', '5 years', '3-5 years', etc.
-    matches = re.findall(re_experience, text)
-    if len(matches) == 0: 
-        print_lg(f'\n{text}\n\nCouldn\'t find experience requirement in About the Job!')
-        return 0
-    return max([int(match) for match in matches if int(match) <= 12])
+    from modules.job_pipeline.careers import required_experience_years
+    return required_experience_years(text)
 
 
 
@@ -474,6 +509,7 @@ def get_job_description(
     - `skipMessage: str | None`
     '''
     modern = False
+    description_stage = "description"
     jobDescription = "Unknown"
     experience_required = "Unknown"
     skip = False
@@ -487,6 +523,10 @@ def get_job_description(
         from modules.linkedin_job_details import modern_description_ready
         modern = bool(driver.find_elements("css selector", "[data-view-name='job-detail-page'], [id^='JobDetails_AboutTheJob_']"))
         jobDescription = WebDriverWait(driver, 15).until(modern_description_ready) if modern else find_by_class(driver, "jobs-box__html-content").text
+        if not isinstance(jobDescription, str) or not jobDescription.strip():
+            raise ValueError("Full job description is empty or not ready")
+        description_stage = "eligibility"
+        from modules.job_pipeline.careers import clearance_required
         jobDescriptionLow = jobDescription.lower()
         skip = False
         skipReason = None
@@ -497,22 +537,28 @@ def get_job_description(
                 skipReason = "Found a Bad Word in About Job"
                 skip = True
                 break
-        if not skip and security_clearance == False and ('polygraph' in jobDescriptionLow or 'clearance' in jobDescriptionLow or 'secret' in jobDescriptionLow):
-            skipMessage = f'\n{jobDescription}\n\nFound "Clearance" or "Polygraph". Skipping this job!\n'
+        if not skip and security_clearance == False and clearance_required(jobDescription):
+            skipMessage = f'\n{jobDescription}\n\nExplicit security clearance or polygraph requirement detected. Skipping this job!\n'
             skipReason = "Asking for Security clearance"
             skip = True
         if not skip:
             if did_masters and 'master' in jobDescriptionLow:
                 print_lg(f'Found the word "master" in \n{jobDescription}')
                 found_masters = 2
-            experience_required = extract_years_of_experience(jobDescription)
+            if current_experience > -1:
+                description_stage = "experience"
+                experience_required = extract_years_of_experience(jobDescription)
             if current_experience > -1 and experience_required > current_experience + found_masters:
                 skipMessage = f'\n{jobDescription}\n\nExperience required {experience_required} > Current Experience {current_experience + found_masters}. Skipping this job!\n'
                 skipReason = "Required experience is high"
                 skip = True
     except Exception as e:
-        if modern:
-            skip, skipReason, skipMessage = True, "Full modern job description unavailable", str(e)
+        if description_stage != "description":
+            skip = True
+            skipReason = "Experience parsing failed" if description_stage == "experience" else "JD eligibility check failed"
+            skipMessage = f"{description_stage}: {type(e).__name__}: {e}"
+        elif modern:
+            skip, skipReason, skipMessage = True, "Full modern job description unavailable", f"{type(e).__name__}: {e}"
         elif jobDescription == "Unknown":    print_lg("Unable to extract job description!")
         else:
             experience_required = "Error in extraction"
@@ -531,9 +577,22 @@ def upload_resume(modal: WebElement, resume: str) -> tuple[bool, str]:
 
 # Function to upload optimized resume using run_resume_optimization function from resume_optimizer.py similar logic to upload_resume function
 def upload_optimized_resume(modal: WebElement, resume_path: str, job_description: str, job_id: str, job_title: str = "job", first_name: str = "first", last_name: str = "last", *, on_attached=None) -> tuple[bool, str]:
+    from modules.linkedin_job_details import _url_job_id
+    def current_upload_modal():
+        if _url_job_id(driver.current_url)!=str(job_id):
+            raise ResumeUploadError('Selected job changed while optimizing; verified resume was not attached')
+        current = wait_for_application_modal(driver)
+        if _url_job_id(driver.current_url)!=str(job_id):
+            raise ResumeUploadError('Selected job changed while waiting for the application form; verified resume was not attached')
+        return current
+    # A long API rewrite may outlive the DOM node passed by the form navigator.
+    # Resolve a new dialog/input before attaching the already verified PDF.
+    target=resume_upload_target(driver,current_upload_modal(),refresh_modal=current_upload_modal)
+    if target is None:
+        raise ResumeUploadError('Current application page has no resume upload control')
     return upload_verified_resume(
-        modal, resume_path, job_description, job_id, job_title, first_name, last_name,
-        optimize=run_resume_optimization, log=print_lg,
+        target, resume_path, job_description, job_id, job_title, first_name, last_name,
+        optimize=run_resume_optimization, log=lambda message: print_lg(message, flush=True),
         on_attached=on_attached,
     )
 
@@ -556,7 +615,7 @@ def replace_text_verified(element, value):
     WebDriverWait(driver, 5).until(lambda _: element.get_attribute("value") == str(value))
 
 
-def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None, *, draft_answer=None ) -> set:
+def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None, *, draft_answer=None, job_id=None ) -> set:
     import re
     def reference_field(label):
         import re
@@ -831,8 +890,15 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 elif draft_answer is not None and (
                         globals().get('ai_cover_letter_enabled', False) if 'cover' in label
                         else globals().get('ai_descriptive_answers_enabled', False)):
-                    answer = draft_answer(label_org, 'cover_letter' if 'cover' in label else 'descriptive',
-                                          text_area.get_attribute('maxlength'))
+                    try:
+                        answer = draft_answer(label_org, 'cover_letter' if 'cover' in label else 'descriptive',
+                                              text_area.get_attribute('maxlength'))
+                    except Exception:
+                        if required:
+                            raise
+                        print_lg('Optional descriptive answer unavailable; leaving it blank and continuing')
+                        questions_list.add((label, prev_answer or '', 'textarea', prev_answer))
+                        continue
                 elif 'summary' in label: answer = linkedin_summary
                 elif 'cover' in label: answer = cover_letter
                 if answer == "" and not reference_field(label):
@@ -855,25 +921,59 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             ##<
             continue
 
-        # Check if it's a checkbox question
-        checkbox = try_xp(Question, ".//input[@type='checkbox']", False)
-        if checkbox:
-            label = try_xp(Question, ".//span[@class='visually-hidden']", False)
-            label_org = label.text if label else "Unknown"
-            label = label_org.lower()
-            answer = try_xp(Question, ".//label[@for]", False)  # Sometimes multiple checkboxes are given for 1 question, Not accounted for that yet
-            answer = answer.text if answer else "Unknown"
-            prev_answer = checkbox.is_selected()
-            checked = prev_answer
-            if not prev_answer:
-                try:
-                    actions.move_to_element(checkbox).click().perform()
-                    checked = True
-                except Exception as e: 
-                    print_lg("Checkbox click failed!", e)
-                    pass
-            questions_list.add((f'{label} ([X] {answer})', checked, "checkbox", prev_answer))
+    # Enumerate controls directly: SDUI checkboxes can be the question root,
+    # wrap a hidden native input, or occur together outside classic form groups.
+    from modules.linkedin_easy_apply import MissingApplicationAnswer
+    configured = globals().get('application_checkbox_answers', {})
+    configured = {' '.join(str(k).casefold().split()):v for k,v in configured.items()} if isinstance(configured,dict) else {}
+    import os
+    approved_signatures=set(filter(None,os.environ.get('JOBROBO_APPROVED_E_SIGNATURE_JOB_IDS','').split(',')))
+    for checkbox in modal.find_elements(By.XPATH, ".//input[@type='checkbox'] | .//*[@role='checkbox'][not(.//input[@type='checkbox'])]"):
+        if checkbox.get_attribute('type') != 'checkbox' and checkbox.get_attribute('role') != 'checkbox':
             continue
+        ident=checkbox.get_attribute('id') or ''
+        if ident=='follow-company-checkbox':
+            continue
+        roles=checkbox.find_elements(By.XPATH,'./ancestor::*[@role="checkbox"][1]')
+        wrapper=roles[0] if roles else checkbox
+        label_node=next(iter(modal.find_elements(By.XPATH, './/label[@for="'+ident+'"]')),None) if ident else None
+        label_org=label_node.text.strip() if label_node else (checkbox.get_attribute('aria-label') or '')
+        if not label_org:
+            label_org=' '.join(node.text for identity in (checkbox.get_attribute('aria-labelledby') or '').split()
+                               for node in modal.find_elements(By.XPATH,'.//*[@id="'+identity+'"]'))
+        if not label_org:
+            # Modern LinkedIn leaves <label for> empty and puts the visible
+            # question in a sibling paragraph inside the ARIA checkbox.
+            label_org=wrapper.text.strip()
+        label=' '.join(label_org.casefold().split())
+        previous=checkbox.is_selected() or wrapper.get_attribute('aria-checked')=='true'
+        required=checkbox.get_attribute('required') is not None or checkbox.get_attribute('aria-required')=='true' or wrapper.get_attribute('aria-required')=='true' or label_org.rstrip().endswith('*')
+        groups=checkbox.find_elements(By.XPATH,'./ancestor::*[.//label and count(.//input | .//select | .//textarea)=1][1]')
+        if groups and '*' in groups[0].text:
+            required=True
+        requested=configured.get(label, True if required else previous)
+        if type(requested) is not bool:
+            raise MissingApplicationAnswer('Configured checkbox answer must be true or false')
+        signing=bool(re.search(r'\b(?:agree|consent|certif\w*|attest\w*|terms|signature|sign electronically)\b',label))
+        # Electronic signature approval is specific to this application, and
+        # never authorizes other agreements or future employers' forms.
+        signature_approved=(str(job_id) in approved_signatures and
+            re.fullmatch(r'yes,?\s+i agree to sign electronically\.?\s*\*?',label) is not None)
+        if signature_approved and label not in configured:
+            requested=True
+        if requested and not previous and signing and not signature_approved:
+            raise MissingApplicationAnswer('Required agreement needs confirmation for this application')
+        if requested != previous:
+            if not checkbox.is_enabled() or wrapper.get_attribute('aria-disabled')=='true':
+                raise MissingApplicationAnswer('Required checkbox is disabled')
+            control=wrapper if wrapper is not checkbox else label_node if label_node is not None and label_node.is_displayed() else checkbox
+            if not control.is_displayed():
+                if roles: control=roles[0]
+            actions.move_to_element(control).click().perform()
+            selected=checkbox.is_selected() or wrapper.get_attribute('aria-checked')=='true'
+            if selected != requested:
+                raise MissingApplicationAnswer('Checkbox selection did not persist')
+        questions_list.add((label, requested, 'checkbox', previous))
 
 
     # Select todays date
@@ -888,7 +988,8 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
 
 
 
-def external_apply(pagination_element: WebElement, job_id: str, job_link: str, resume: str, date_listed, application_link: str, screenshot_name: str) -> tuple[bool, str, int]:
+def external_apply(pagination_element: WebElement, job_id: str, job_link: str, resume: str, date_listed, application_link: str, screenshot_name: str,
+                   *, job_title="", job_description="", company="", prepare_only=False) -> tuple[bool, str, int]:
     '''
     Function to open new tab and save external job application links
     '''
@@ -898,7 +999,8 @@ def external_apply(pagination_element: WebElement, job_id: str, job_link: str, r
             if "exceeded the daily application limit" in driver.find_element(By.CLASS_NAME, "artdeco-inline-feedback__message").text: dailyEasyApplyLimitReached = True
         except: pass
         print_lg("Easy apply failed I guess!")
-        # Modern results can omit pagination; policy must still block company Apply.
+        # Modern result pages may have no pagination. The Easy Apply policy
+        # must block employer navigation regardless of the results layout.
         return True, application_link, tabs_count
     try:
         wait.until(EC.element_to_be_clickable((By.XPATH, ".//button[contains(@class,'jobs-apply-button') and contains(@class, 'artdeco-button--3')] | //*[@data-view-name='job-detail-page'][.//*[@id='JobDetails_AboutTheJob_" + job_id + "']]//a[@aria-label='Apply on company website'] | //*[@id='JobDetails_AboutTheJob_" + job_id + "']/ancestor::*[.//*[starts-with(@aria-label,'Company,')]][1]//a[@aria-label='Apply on company website']"))).click() # './/button[contains(span, "Apply") and not(span[contains(@class, "disabled")])]'
@@ -908,6 +1010,19 @@ def external_apply(pagination_element: WebElement, job_id: str, job_link: str, r
         driver.switch_to.window(windows[-1])
         application_link = driver.current_url
         print_lg('Got the external application link "{}"'.format(application_link))
+        if globals().get("external_apply_enabled", False):
+            # A same-window employer redirect must not replace the LinkedIn session.
+            if driver.current_window_handle == linkedIn_tab:
+                driver.switch_to.new_window("tab")
+                external_tab = driver.current_window_handle
+                driver.get(application_link)
+                driver.switch_to.window(linkedIn_tab)
+                driver.get(job_link)
+                driver.switch_to.window(external_tab)
+            outcome = (prepare_external_application(application_link, job_id, job_title, job_description, company, prepare_only=True)
+                       if prepare_only else prepare_external_application(application_link, job_id, job_title, job_description, company))
+            driver.switch_to.window(linkedIn_tab)
+            return outcome
         if close_tabs and driver.current_window_handle != linkedIn_tab: driver.close()
         driver.switch_to.window(linkedIn_tab)
         return False, application_link, tabs_count
@@ -920,6 +1035,117 @@ def external_apply(pagination_element: WebElement, job_id: str, job_link: str, r
         return True, application_link, tabs_count
 
 
+
+
+
+def checkpoint_external_application(job_id, outcome):
+    """Persist hosted outcome details without treating drafts as confirmed submissions."""
+    status = outcome.status if outcome.status in {"applied", "submitting", "failed"} else "skipped" if outcome.status in {"discarded", "duplicate"} else "collected"
+    checkpoint_job(job_id, status, outcome.reason)
+    if active_manifest and active_search:
+        active_manifest.query(active_search.query_id)["jobs"][str(job_id)]["external_application"] = outcome.to_dict()
+        active_manifest.save()
+        if globals().get("active_result_sink"):
+            active_result_sink(application_outcome(active_manifest, active_search, job_id))
+
+def prepare_external_application(application_link, job_id, job_title, job_description, company, *, prepare_only=False):
+    """Fill supported company forms and preserve existing tracking/budget boundaries."""
+    if prepare_only or globals().get('prepare_only_run', False):
+        from modules.generic_prepare import run_preparations
+        from modules.external_apply import ExternalApplicationResult
+        from pathlib import Path
+        results = run_preparations([application_link],
+            output_dir=Path(search_profile.search_state_dir).parent / 'url_preparations',
+            job_hint={'title': job_title, 'company': company, 'description': job_description})
+        report = results[0]
+        resume = report.get('resume') or {}
+        return ExternalApplicationResult(report['status'], application_link,
+            reason='Preparation only; submission disabled. ' + '; '.join(report['blockers']),
+            resume_name=Path(resume['pdf']).name if resume.get('pdf') else None,
+            resume_sha256=resume.get('pdf_sha256'), question_metadata=report['questions'],
+            manual_questions=report['blockers'], submission_disabled=True, submit_enabled=report.get('submit_enabled'),
+            preparation_report=str(Path(report['output_dir'])/'report.json') if report.get('output_dir') else None)
+    from pathlib import Path
+    from modules.external_apply import ExternalApplicationLedger, ExternalApplicationResult, apply_hosted_application
+    from modules.ai.resume_optimizer import ResumeOptimizer
+    from modules.config_loader import load_runtime_config
+    from modules.external_questions import QuestionConfigError, grounding_context, load_question_config, make_local_ai_answerer, review_answer_preview
+
+    ledger = ExternalApplicationLedger(Path(search_profile.search_state_dir) / "external" / "applications.json")
+    if ledger.protected(application_link):
+        return ExternalApplicationResult("duplicate", application_link, reason="Employer posting already applied or awaiting submission verification.")
+    source_docx = Path(default_resume_docx_path)
+    source_pdf = Path(default_resume_path)
+    resume_config = load_runtime_config()
+    expected_pages = int(resume_config.get("expected_page_count", 2))
+    verifier = ResumeOptimizer.__new__(ResumeOptimizer)
+
+    strict_rewrite = resume_config.get("rewrite_all_bullets",False) and use_AI_for_resume
+
+    def verify_pdf(candidate):
+        if strict_rewrite and candidate.resolve()!=source_pdf.resolve():
+            from modules.resume_all_bullets import verify_strict_attachment
+            return verify_strict_attachment(candidate,expected_jd=job_description,expected_job_id=job_id,expected_source_docx=source_docx,
+                expected_source_checks_enabled=resume_config.get('source_checks_enabled',True),expected_config=resume_config)
+        candidate_docx = candidate.with_suffix(".docx")
+        if not candidate_docx.is_file() and candidate.resolve() == source_pdf.resolve() and source_docx.is_file():
+            candidate_docx = source_docx
+        report = verifier.verify_format(
+            str(source_docx) if source_docx.is_file() else "",
+            str(candidate_docx) if candidate_docx.is_file() else "",
+            str(source_pdf), str(candidate), expected_pages,
+        )
+        return report["passed"]
+
+    candidate = source_pdf
+    if use_AI_for_resume:
+        try:
+            optimized = run_resume_optimization(job_description, str(source_docx), job_id, job_title, first_name, last_name,
+                runtime_config_override=resume_config)
+            if optimized and Path(optimized).is_file() and verify_pdf(Path(optimized)):
+                candidate = Path(optimized)
+        except Exception as error:
+            print_lg(f"External optimizer failed; checking verified source PDF: {error}")
+    if strict_rewrite and candidate.resolve()==source_pdf.resolve():
+        return ExternalApplicationResult("manual_handoff", application_link,
+            reason="Strict all-bullets rewrite incomplete; original/partial fallback is disabled.")
+    profile = {"first_name": first_name, "last_name": last_name, "full_name": full_name,
+               "email": globals().get("username", "") if "@" in globals().get("username", "") else "",
+               "phone": globals().get("phone_number", ""), "linkedin": globals().get("linkedIn", ""),
+               "website": globals().get("website", "")}
+    # Copy only explicit candidate answers; never derive legal answers from citizenship/visa.
+    for target, source in {"city": "current_city", "street": "street", "state": "state", "zipcode": "zipcode", "country": "country",
+                           "require_visa": "require_visa", "citizenship": "us_citizenship", "years_of_experience": "years_of_experience",
+                           "desired_salary": "desired_salary", "notice_period": "notice_period", "current_employer": "recent_employer",
+                           "gender": "gender", "ethnicity": "ethnicity", "disability_status": "disability_status", "veteran_status": "veteran_status"}.items():
+        value = globals().get(source)
+        if value not in (None, "", "Not Applicable"):
+            profile[target] = value
+    question_config, question_error = {}, ""
+    try:
+        question_config = load_question_config(globals().get("external_questions_config_path", "~/.jobrobo/external-questions.json"))
+    except QuestionConfigError:
+        question_error = "External-question JSON is invalid; correct it or answer questions manually."
+    ai_answerer = make_local_ai_answerer(question_config.get("ai", {}), original_local_env=globals().get("_external_local_ai_env", {}))
+    context = grounding_context(source_docx, globals().get("user_information_all", ""), globals().get("linkedin_summary", ""), job_description) if ai_answerer else {}
+    role_urls = [role.get("career_url") for role in (active_search.pipeline_context.get("career_roles", []) if active_search else []) if role.get("career_url")]
+
+    def checkpoint(outcome):
+        # Persist ATS identity first; a disk failure here prevents the Submit click.
+        ledger.record(outcome, job_id)
+        checkpoint_external_application(job_id, outcome)
+
+    def review(details):
+        return review_answer_preview(details)
+
+    outcome = apply_hosted_application(driver, application_link, profile, candidate, verify_pdf=verify_pdf,
+                                       company=company, title=job_title, official_role_urls=role_urls,
+                                       review=review, on_status=checkpoint, question_config=question_config,
+                                       question_config_error=question_error, question_context=context, ai_answerer=ai_answerer)
+    if outcome.status not in {"applied", "submitting", "duplicate"}:
+        checkpoint(outcome)
+    print_lg(f"Company-page application: {outcome.status}: {outcome.reason}")
+    return outcome
 
 def follow_company(modal: WebDriver = None) -> None:
     '''
@@ -981,6 +1207,11 @@ def submitted_jobs(job_id: str, title: str, company: str, work_location: str, wo
                'Date Posted':date_listed, 'Date Applied':date_applied, 'Job Link':job_link,
                'External Job link':application_link, 'Questions Found':questions_list, 'Connect Request':connect_request}
         row.update(search_metadata(active_manifest, active_search))
+        artifact=globals().get('resume_artifact_paths',{}).get(str(job_id),{})
+        if artifact:
+            fieldnames+=['Resume Path','Resume SHA256','Resume Source Checks']
+            row.update({'Resume Path':artifact['pdf'],'Resume SHA256':artifact['sha256'],
+                'Resume Source Checks':artifact.get('source_checks_enabled','')})
         append_history(file_name, fieldnames, row)
     except Exception as e:
         print_lg("Failed to update submitted jobs list!", e)
@@ -1010,8 +1241,11 @@ def selected_live_details(record, spec):
     if url.hostname not in {"www.linkedin.com", "linkedin.com"} or live_id != job_id:
         raise ValueError("Selected LinkedIn ID could not be verified after navigation")
     if driver.find_elements(By.CSS_SELECTOR, "[data-view-name='job-detail-page'], [id^='JobDetails_AboutTheJob_']"):
-        from modules.linkedin_job_details import modern_details_ready
-        live = WebDriverWait(driver, 15).until(lambda browser: modern_details_ready(browser, job_id))
+        from modules.linkedin_job_details import wait_for_modern_details
+        from pathlib import Path
+        diagnostics_dir = Path(globals().get('search_profile', None).search_state_dir).parent / 'job_detail_diagnostics' if globals().get('search_profile') else None
+        live = wait_for_modern_details(driver, job_id, reselect=lambda: driver.get("https://www.linkedin.com/jobs/view/" + job_id + "/"),
+                                       wait_factory=WebDriverWait, diagnostics_dir=diagnostics_dir, log=print_lg)
         company = live["company"]
         posted = calculate_date_posted(live["posted_text"]) if live["posted_text"] else None
         record["_live_details"] = {
@@ -1153,7 +1387,6 @@ def collect_linkedin_jobs(specs, *, limit=25, result_sink=None, checkpoints=None
     return records, errors
 
 
-# Function to apply to jobs
 def prepare_easy_apply(job_id, title, description, work_location, *, allow_manual_correction=True, company=''):
     """Fill all pages before review. Per-application state cannot leak to another job."""
     uploaded, resume, questions = False, "Previous resume", set()
@@ -1161,13 +1394,34 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
     selected_resume_path = globals().get('default_resume_path', '')
     drafts = draft_client = None
     globals().setdefault('draft_artifact_paths', {}).pop(str(job_id), None)
-    # Preserve the original opening error; no cleanup may navigate or submit.
-    wait_for_application_modal(driver)
+    globals().setdefault('resume_artifact_paths', {}).pop(str(job_id), None)
+    # Preserve evidence before cleanup changes a failed opening dialog.
+    try:
+        wait_for_application_modal(driver)
+    except Exception:
+        try:
+            image = screenshot(driver, job_id, "Application opening failed")
+            print_lg(f'Application opening screenshot saved: {image}')
+        except Exception:
+            pass
+        raise
 
     def attached(path):
         nonlocal selected_resume_path, drafts
+        from pathlib import Path
+        import hashlib
         selected_resume_path = path
         drafts = None
+        selected=Path(path)
+        globals().setdefault('resume_artifact_paths', {})[str(job_id)]={
+            'pdf':str(selected.resolve()),'sha256':hashlib.sha256(selected.read_bytes()).hexdigest()}
+        report_path=selected.parent/'match-report.json'
+        if report_path.is_file():
+            import json
+            report=json.loads(report_path.read_text())
+            globals()['resume_artifact_paths'][str(job_id)].update(
+                source_checks_enabled=report.get('source_content_checks_enabled'),
+                rewrite_run_id=report.get('run_id'),content_policy=report.get('effective_config',{}).get('content_policy'))
 
     def draft_answer(question, kind, max_length=None):
         nonlocal drafts, draft_client
@@ -1189,7 +1443,14 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
                     personal_information=globals().get('user_information_all', ''),
                     provider=make_drafting_provider(client=draft_client, model=globals().get('llm_model')))
             limit = int(max_length) if max_length and str(max_length).isdigit() and int(max_length) > 0 else None
-            answer = drafts.answer(question, kind=kind, max_length=limit)
+            for attempt in range(2):
+                try:
+                    answer = drafts.answer(question, kind=kind, max_length=limit)
+                    break
+                except DraftError as error:
+                    if attempt or error.__cause__ is None:
+                        raise
+                    print_lg(f'Application draft [{job_id}]: provider failed; retrying once')
             globals().setdefault('draft_artifact_paths', {})[str(job_id)] = drafts.artifact_summary()
             return answer
         except DraftError as error:
@@ -1202,7 +1463,7 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
         previously_uploaded = uploaded
         upload_target = resume_upload_target(driver, modal) if not uploaded else None
         if use_AI_for_resume and not uploaded and upload_target is not None:
-            options = {'on_attached': attached} if draft_enabled else {}
+            options = {'on_attached': attached}
             uploaded, resume = upload_optimized_resume(
                 upload_target, default_resume_docx_path, description, job_id, title, first_name, last_name, **options)
             if not uploaded:
@@ -1215,15 +1476,24 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
         if uploaded and not previously_uploaded:
             modal = wait_for_application_modal(driver)
         answer_options = {'draft_answer': draft_answer} if draft_enabled else {}
-        questions = answer_questions(modal, questions, work_location, job_description=description, **answer_options)
+        answer_options['job_id'] = job_id
+        from selenium.common.exceptions import StaleElementReferenceException
+        for attempt in range(3):
+            try:
+                questions = answer_questions(modal, set(questions), work_location,
+                    job_description=description, **answer_options)
+                break
+            except StaleElementReferenceException:
+                if attempt == 2:
+                    raise
+                print_lg(f'Application [{job_id}]: form rerendered while answering; reacquiring fields ({attempt + 1}/2)')
+                modal = wait_for_application_modal(driver)
 
     def manual_correction(reason):
-        if not allow_manual_correction or not pause_at_failed_question:
-            return False
-        screenshot(driver, job_id, "Form navigation blocked")
-        pyautogui.alert(reason + '\nPlease correct the fields, then click Continue.\nDO NOT CLICK Back, Next, Review or Submit in LinkedIn.',
-                        "Help Needed", "Continue")
-        return True
+        # User requested unattended processing: unresolved required fields are
+        # retained in the retry ledger and the next job can proceed after cleanup.
+        print_lg(f'Application [{job_id}] could not complete automatically; retaining for retry: {reason}')
+        return False
 
     try:
         modal = advance_to_review(driver, fill_step, on_blocked=manual_correction, log=print_lg)
@@ -1240,6 +1510,36 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
     return modal, questions, uploaded, resume
 
 
+# Function to apply to jobs
+def description_geography_rejections(description, intent):
+    """Reject explicit work-location requirements that contradict card metadata.
+
+    Only employment-location sentences with a named city/state are considered;
+    company service areas and generic mentions of onsite customers are ignored.
+    """
+    from modules.job_pipeline.careers import location_reasons
+    reasons = []
+    for line in re.split(r'[\n!?]+', description or ''):
+        if not re.match(r"(?i)^\s*(?:location\s*:|office\s*:|(?:this|the|our)\s+(?:role|position|job)\b|you\s+(?:must|will)\b|we\s+(?:require|expect)\b|in[- ]person\b|on[- ]site\b|onsite\b|work(?:ing)?\b)", line):
+            continue
+        if not re.search(r'(?i)\b(?:in[- ]person|on[- ]site|onsite)\b', line):
+            continue
+        if re.search(r'(?i)\b(?:no|without)\s+(?:mandatory\s+)?(?:onsite|on[- ]site|in[- ]person)|\bnot\s+(?:require\s+)?(?:onsite|on[- ]site|in[- ]person)', line):
+            continue
+        place = re.search(r"(?i)\b(?:office(?:s)?\s+in|based\s+in|located\s+in|in|location\s*:|office\s*:)\s+([A-Za-z][A-Za-z .'-]{1,60}?),\s*([A-Za-z]{2})\b", line)
+        if not place:
+            continue
+        location = place.group(1).strip() + ', ' + place.group(2)
+        rejected = location_reasons([location], 'On-site', intent.get('search_location', ''))
+        allowed = intent.get('on_site') or []
+        hybrid = re.search(r'(?i)\bhybrid\b|\b(?:[1-4]|one|two|three|four)\s+days?\s+(?:a|per)\s+week', line)
+        if allowed and 'On-site' not in allowed and not hybrid:
+            rejected.append('workplace_type_excluded')
+        if rejected:
+            reasons.append('JD explicitly requires onsite work in ' + location + ': ' + ', '.join(rejected))
+    return reasons
+
+
 def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_limit=None, application_budget=None,
                         prepare_only=False, preparation_limit=10) -> None:
     applied_jobs = get_applied_job_ids()
@@ -1249,16 +1549,19 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
     preparation_report = None
     from pathlib import Path
     from modules.linkedin_deferred import DeferredJobs
+    from modules.linkedin_easy_apply import EasyApplyError, EasyApplyLimitReached
+    from modules.linkedin_job_details import JobDetailsUnavailable
+    from modules.linkedin_post_submit import JobCardBlocked, PostSubmitUIBlocked
     retry_path = Path(search_profile.search_state_dir).parent / 'deferred_applications' / 'retry_jobs.json'
     retry_jobs = DeferredJobs(retry_path)
 
-    def retain_job(job_id, title, company, description, spec, status, reason='', submit_enabled=None):
+    def retain_job(job_id, title, company, description, spec, status, reason='', submit_enabled=None, requires_submission_check=None):
         retry_jobs.record(dict(job_id=job_id, title=title, company=company, description=description,
                                status=status, reason=reason, submission_disabled=bool(prepare_only),
                                submit_enabled=submit_enabled, run_id=manifest.data['run_id'],
                                query_id=spec.query_id, query=spec.query_text, profile=spec.profile_name,
                                source_report=str(Path(search_profile.search_state_dir) / (manifest.data['run_id'] + '.json')),
-                               requires_submission_check=not prepare_only))
+                               requires_submission_check=not prepare_only if requires_submission_check is None else requires_submission_check))
         retry_jobs.export_markdown(retry_path.with_suffix('.md'))
     if prepare_only:
         from pathlib import Path
@@ -1267,10 +1570,11 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
         validation_path = Path(search_profile.search_state_dir).parent / 'form_validations' / (manifest.data['run_id'] + '.json')
         preparation_report = PreparationReport(validation_path, preparation_limit)
         print_lg(f'Submission DISABLED. Form validation report: {validation_path}')
-    global active_search, active_page, current_city, failed_count, skip_count, easy_applied_count, external_jobs_count, tabs_count, pause_before_submit, pause_at_failed_question, useNewResume, active_application_budget
+    global active_search, active_page, current_city, failed_count, skip_count, easy_applied_count, external_jobs_count, external_applied_count, tabs_count, pause_before_submit, pause_at_failed_question, useNewResume, active_application_budget, dailyEasyApplyLimitReached
     active_application_budget = application_budget
     current_city = current_city.strip()
 
+    deferred_card_ids = set()
     for spec in manifest.queries():
         if application_budget is not None and application_budget.stop_if_reached(manifest):
             return
@@ -1280,6 +1584,8 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
         active_search = spec
         active_page = 1
         active_job_id = None
+        query_card_failures = False
+        observed_card_ids = set()
         manifest.begin_query(spec)
         if manifest.has_uncertain_submission(spec):
             row = manifest.query(spec.query_id)
@@ -1309,6 +1615,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                     active_page = current_page or 1
                     buffer(3)
                     job_listings = get_search_cards(driver)
+                    observed_card_ids.update(str(search_card_id(card)) for card in job_listings)
                     if not job_listings and search_results_ready(driver) != "empty":
                         raise ValueError("LinkedIn result cards unavailable; scan is incomplete")
                 else:
@@ -1325,6 +1632,8 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                     if manifest.quota_met(spec) or manifest.has_uncertain_submission(spec): break
                     raw_job_id = str(job.get('linkedin_id', '')) if isinstance(job, dict) else search_card_id(job)
                     if not raw_job_id:
+                        continue
+                    if raw_job_id in deferred_card_ids:
                         continue
                     if raw_job_id in manifest.processed_ids():
                         continue
@@ -1343,7 +1652,27 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                         driver.get("https://www.linkedin.com/jobs/view/" + raw_job_id)
                         job_id,title,company,work_location,work_style,skip = selected_live_details(job, spec)
                     else:
-                        job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
+                        try:
+                            job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
+                        except JobCardBlocked as error:
+                            if error.diagnostics.get('cause_type') == 'OverlayRemainsVisible':
+                                raise
+                            # Card-local pre-application failure: no form or Submit
+                            # was attempted. Continue only with verified clear UI.
+                            try:
+                                clear_post_submit_ui(driver, raw_job_id, log=print_lg,
+                                    diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
+                            except Exception as cleanup_error:
+                                raise JobCardBlocked(raw_job_id, dict(stage='select_job_card',
+                                    cause_type='OverlayRemainsVisible',
+                                    overlay=getattr(cleanup_error,'diagnostics',{}))) from cleanup_error
+                            deferred_card_ids.add(raw_job_id)
+                            query_card_failures = True
+                            manifest.query(spec.query_id).setdefault('ui_failures', []).append(error.diagnostics)
+                            checkpoint_job(raw_job_id, 'in_progress', str(error))
+                            retain_job(raw_job_id, '', '', '', spec, 'card_pending', str(error), requires_submission_check=False)
+                            print_lg(f'Job card [{raw_job_id}] retained for retry; continuing next available job')
+                            continue
                     from modules.job_pipeline.careers import location_reasons
                     geography_rejections = location_reasons(
                         [work_location], work_style, spec.filters_snapshot["intent"].get("search_location", ""),
@@ -1448,6 +1777,14 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                         skip_count += 1
                         continue
 
+                    description_rejections = description_geography_rejections(description, spec.filters_snapshot['intent'])
+                    if description_rejections:
+                        print_lg('Skipping job: ' + '; '.join(description_rejections))
+                        failed_job(job_id, job_link, resume, date_listed, 'JD location rejected',
+                                   '; '.join(description_rejections), 'Skipped', screenshot_name)
+                        skip_count += 1
+                        continue
+
                     
                     if spec.pipeline_context:
                         from modules.job_pipeline.linkedin import role_matches
@@ -1467,7 +1804,8 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
 
                     uploaded = False
                     # Case 1: Easy Apply Button
-                    if try_xp(driver, ".//button[contains(@class,'jobs-apply-button') and contains(@class, 'artdeco-button--3') and contains(@aria-label, 'Easy')] | //*[@data-view-name='job-detail-page']//button[@aria-label='Easy Apply to this job'] | //*[@id='JobDetails_AboutTheJob_" + job_id + "']/ancestor::*[.//*[starts-with(@aria-label,'Company,')]][1]//button[@aria-label='Easy Apply to this job']"):
+                    if open_easy_apply(driver, job_id, log=print_lg,
+                            diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics'):
                         if preparation_report is not None:
                             preparation_report.record(dict(job_id=job_id, status='started', title=title, company=company,
                                                            query_id=spec.query_id, query=spec.query_text,
@@ -1487,6 +1825,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                                 driver.save_screenshot(str(image_path))
                                 preparation_report.record(dict(job_id=job_id, status='ready', resume=resume,
                                                                uploaded=uploaded, screenshot=str(image_path), submit_enabled=True,
+                                                               resume_artifact=globals().get('resume_artifact_paths',{}).get(str(job_id)),
                                                                draft_artifacts=globals().get('draft_artifact_paths', {}).get(str(job_id))))
                                 retain_job(job_id, title, company, description, spec, 'ready', submit_enabled=True)
                                 checkpoint_job(job_id, 'prepared', 'Validation only: final Submit enabled; submission disabled')
@@ -1508,15 +1847,15 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                             follow_company(modal)
                             modal, submit_button = current_submit_button(driver)
                             driver.execute_script('arguments[0].scrollIntoView({block: "center"});', submit_button)
-                            receipt_baseline = submission_receipts(driver)
+                            receipt_baseline = submission_receipts(driver, job_id=job_id)
                             checkpoint_job(job_id, "submitting", "Submission requested; verify LinkedIn if interrupted")
                             submit_button.click()
                             wait_for_submission_confirmation(driver, job_id, baseline=receipt_baseline)
                             date_applied = datetime.now()
                             checkpoint_job(job_id, "applied", "Easy Apply confirmed by LinkedIn")
-                            if not wait_span_click(driver, "Done", 2):
-                                actions.send_keys(Keys.ESCAPE).perform()
 
+                        except EasyApplyLimitReached:
+                            raise
                         except Exception as e:
                             if preparation_report is not None:
                                 image_path = validation_path.with_name(validation_path.stem + '-' + job_id + '-failed.png')
@@ -1556,32 +1895,71 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                                 continue
                             print_lg("Submission succeeded; recording applied history despite a later UI error")
                     else:
-                        if prepare_only:
+                        if prepare_only and not globals().get('external_apply_enabled', False):
                             checkpoint_job(job_id, 'skipped', 'Preparation only: no LinkedIn Easy Apply entry; external submissions disabled')
                             continue
                         # Case 2: Apply externally
-                        skip, application_link, tabs_count = external_apply(pagination_element, job_id, job_link, resume, date_listed, application_link, screenshot_name)
+                        external_options = dict(job_title=title, job_description=description, company=company) if globals().get("external_apply_enabled", False) else {}
+                        if prepare_only:
+                            external_options['prepare_only'] = True
+                        external_result = external_apply(pagination_element, job_id, job_link, resume, date_listed, application_link, screenshot_name, **external_options)
+                        if hasattr(external_result, "status"):
+                            checkpoint_external_application(job_id, external_result)
+                            if prepare_only and preparation_report is not None:
+                                preparation_report.record(dict(job_id=job_id, status='ready' if external_result.status == 'prepared' else 'failed',
+                                    reason=external_result.reason, external_application=external_result.to_dict()))
+                                retain_job(job_id, title, company, description, spec, external_result.status, external_result.reason,
+                                           submit_enabled=getattr(external_result, 'submit_enabled', None), requires_submission_check=False)
+                            skip = external_result.status in {"failed", "discarded", "duplicate"}
+                            application_link = external_result.application_link
+                            if external_result.resume_name:
+                                resume = external_result.resume_name
+                            if external_result.status == "applied":
+                                date_applied = datetime.fromisoformat(external_result.submitted_at)
+                            elif external_result.status == "submitting":
+                                if application_budget is not None:
+                                    application_budget.stop_if_reached(manifest, spec)
+                                return
+                        else:
+                            skip, application_link, tabs_count = external_result
                         if dailyEasyApplyLimitReached:
-                            print_lg("\n###############  Daily application limit for Easy Apply is reached!  ###############\n")
-                            checkpoint_job(job_id, "skipped", "Daily Easy Apply limit reached")
-                            manifest.interrupt("daily_easy_apply_limit")
-                            return
+                            raise EasyApplyLimitReached()
                         if skip:
-                            checkpoint_job(job_id, "skipped", "External apply unavailable or Easy Apply required")
+                            if not hasattr(external_result, "status"):
+                                checkpoint_job(job_id, "skipped", "External apply unavailable or Easy Apply required")
                             continue
-                        checkpoint_job(job_id, "collected", "External application link collected; not submitted")
+                        if date_applied == "Pending" and not hasattr(external_result, "status"):
+                            checkpoint_job(job_id, "collected", "External application prepared/handed off; not submitted")
 
                     submitted_jobs(job_id, title, company, work_location, work_style, description, experience_required, skills, hr_name, hr_link, resume, reposted, date_listed, date_applied, job_link, application_link, questions_list, connect_request)
                     if uploaded:   useNewResume = False
 
                     print_lg(f'Successfully saved "{title} | {company}" job. Job ID: {job_id} info')
-                    if application_link == "Easy Applied": easy_applied_count += 1
-                    else:   external_jobs_count += 1
+                    if application_link == "Easy Applied":
+                        easy_applied_count += 1
+                    elif date_applied != "Pending":
+                        external_applied_count = globals().get("external_applied_count", 0) + 1
+                    else:
+                        external_jobs_count += 1
                     if date_applied != "Pending":
                         applied_jobs.add(job_id)
                     if result_sink:
                         result_sink(application_outcome(manifest, spec, job_id))
-
+                    if application_link == "Easy Applied" and date_applied != "Pending":
+                        try:
+                            clear_post_submit_ui(driver, job_id, log=print_lg,
+                                diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
+                        except Exception as error:
+                            # Submission and CSV are already durable. Cleanup must
+                            # never downgrade that success or attempt another job.
+                            globals()['application_ui_blocked'] = True
+                            row = manifest.query(spec.query_id)
+                            row['status'], row['stop_reason'] = 'pending', 'post_submit_ui_blocked'
+                            row.setdefault('ui_failures', []).append(getattr(error, 'diagnostics',
+                                dict(stage='post_submit_cleanup', job_id=job_id, cause_type=type(error).__name__)))
+                            manifest.interrupt('post_submit_ui_blocked')
+                            print_lg(f'Application confirmed [{job_id}]; stopping because post-submit UI is not clear: {error}')
+                            return
 
 
                 if application_budget is not None and application_budget.stop_if_reached(manifest, spec):
@@ -1590,7 +1968,11 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                     break
                 # Switching to next page
                 if pagination_element == None:
-                    print_lg("Couldn't find pagination element, probably at the end page of results!")
+                    if selected_jobs is None:
+                        from modules.linkedin_modern_search import extend_search_results
+                        if extend_search_results(driver, observed_card_ids, log=print_lg):
+                            continue
+                    print_lg('No further job cards after checking pagination, load-more and scrolling')
                     break
                 if not next_search_page(driver, current_page or 1):
                     print_lg(f"\n>-> Didn't find Page {(current_page or 1)+1}. Probably at the end page of results!\n")
@@ -1602,11 +1984,81 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                 row = manifest.query(spec.query_id)
                 row["status"], row["stop_reason"] = "pending", "submission_uncertain"
                 manifest.save()
+            elif query_card_failures and not manifest.quota_met(spec):
+                row = manifest.query(spec.query_id)
+                row['status'], row['stop_reason'] = 'pending', 'job_cards_pending'
+                manifest.save()
+                print_lg('Unfinished job cards retained; continuing to next configured search')
             else:
                 manifest.finish_query(spec, "quota_met" if manifest.quota_met(spec) else "results_exhausted")
             if result_sink:
                 for job_id in manifest.query(spec.query_id)["jobs"]:
                     result_sink(application_outcome(manifest, spec, job_id))
+        except JobCardBlocked as error:
+            globals()['application_ui_blocked'] = True
+            row = manifest.query(spec.query_id)
+            row['status'], row['stop_reason'] = 'pending', 'job_card_blocked'
+            row.setdefault('ui_failures', []).append(error.diagnostics)
+            if active_job_id:
+                checkpoint_job(active_job_id, 'in_progress', str(error))
+            manifest.interrupt('job_card_blocked')
+            print_lg(f'Stopping: job card is blocked; unfinished job remains pending: {error}')
+            if active_job_id:
+                retain_job(active_job_id, '', '', '', spec, 'card_pending', str(error), requires_submission_check=False)
+            return
+        except JobDetailsUnavailable as error:
+            row = manifest.query(spec.query_id)
+            row['status'], row['stop_reason'] = 'pending', 'job_details_unavailable'
+            row.setdefault('job_detail_failures', []).append(error.diagnostics)
+            if active_job_id:
+                checkpoint_job(active_job_id, 'in_progress', str(error))
+            manifest.interrupt('job_details_unavailable')
+            print_lg(f'Job details unavailable: {error}; current job remains pending for resume')
+            if active_job_id:
+                retain_job(active_job_id, '', '', '', spec, 'details_pending', str(error),
+                           requires_submission_check=False)
+            # Continue other query lanes. This job is intentionally not processed.
+        except EasyApplyLimitReached as error:
+            dailyEasyApplyLimitReached = True
+            row = manifest.query(spec.query_id)
+            row['status'], row['stop_reason'] = 'pending', error.stop_reason
+            if active_job_id:
+                # No submit was attempted: keep the current job outside processed
+                # IDs so a later invocation resumes it, rather than losing it.
+                checkpoint_job(active_job_id, 'in_progress', str(error))
+            manifest.interrupt(error.stop_reason)
+            print_lg(f'Stopping: {error}; current query remains pending for resume')
+            if active_job_id:
+                retain_job(job_id, title, company, description, spec, 'platform_limit', str(error),
+                           requires_submission_check=False)
+            return
+        except EasyApplyError as error:
+            # Entry never opened a usable form. Do not misclassify this as an
+            # external-only job, discard an unknown dialog, or complete the lane.
+            row = manifest.query(spec.query_id)
+            row['status'], row['stop_reason'] = 'pending', 'easy_apply_entry_failed'
+            if getattr(error, 'diagnostics', None):
+                row.setdefault('ui_failures', []).append(error.diagnostics)
+            if active_job_id:
+                checkpoint_job(active_job_id, 'in_progress', str(error))
+            manifest.interrupt('easy_apply_entry_failed')
+            failed_count += 1
+            print_lg(f'Easy Apply entry failed: {error}; current job and query remain pending')
+            if active_job_id:
+                retain_job(job_id, title, company, description, spec, 'entry_failed', str(error),
+                           requires_submission_check=False)
+            try:
+                clear_post_submit_ui(driver, active_job_id, log=print_lg,
+                    diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
+            except Exception as cleanup_error:
+                globals()['application_ui_blocked'] = True
+                row.setdefault('ui_failures', []).append(getattr(cleanup_error, 'diagnostics',
+                    dict(stage='entry_cleanup', cause_type=type(cleanup_error).__name__)))
+                manifest.save()
+                print_lg('Stopping after entry failure: application UI could not be verified clear')
+                return
+            print_lg('Entry failure retained for retry; UI is clear, continuing other search queries')
+            continue
         except Exception as e:
             from modules.linkedin_search import LocationSelectionError
             diagnostics = getattr(e, "diagnostics", None)
@@ -1627,7 +2079,14 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                 row = manifest.query(spec.query_id)
                 row["status"], row["stop_reason"] = "pending", f"search_error:{type(e).__name__}"
                 manifest.save()
-                print_lg("Search interrupted; incomplete query will resume next run")
+                print_lg(f"Search interrupted ({type(e).__name__}); incomplete query will resume next run")
+                if type(e).__name__ == 'TimeoutException':
+                    import traceback
+                    failure = dict(stage='query_execution', job_id=active_job_id,
+                                   exception_type=type(e).__name__, traceback=traceback.format_exc())
+                    row.setdefault('query_failures', []).append(failure)
+                    manifest.save()
+                    print_lg(f"Timeout diagnostics saved in {manifest.path}")
                 critical_error_log("In Applier", e)
 
 
@@ -1640,6 +2099,7 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
     profile = {key: value for key, value in vars(search_profile).items() if not key.startswith("_")}
     if prepared_specs is not None and not prepared_specs:
         return None
+    print_lg('Preparing configured search plan...')
     deterministic = prepared_specs if prepared_specs is not None else build_search_plan(dict(profile, ai_query_refinement_enabled=False), config, warn=print_lg)
     configuration_id = plan_fingerprint(deterministic, profile)
     if prepare_only:
@@ -1652,6 +2112,8 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
     with file_lock(os.path.join(profile["search_state_dir"], ".runner.lock")):
         manifest = SearchManifest.find_resume(profile["search_state_dir"], configuration_id) if profile["resume_search_enabled"] and not prepare_only else None
         if manifest is None:
+            if prepared_specs is None and profile.get('ai_query_refinement_enabled', False):
+                print_lg('Refining search queries with AI; this can take a moment...')
             refiner = None if prepared_specs is not None else make_refiner(os.getenv("OPENAI_API_KEY") or llm_api_key, llm_api_url, llm_model, print_lg) if profile["ai_query_refinement_enabled"] else None
             specs = prepared_specs if prepared_specs is not None else build_search_plan(profile, config, refine=refiner, warn=print_lg)
             if randomize_search_order:
@@ -1684,7 +2146,7 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
                 execute_search_plan(manifest, **options)
             stop_reason = manifest.data.get("stop_reason")
             manifest.finish()
-            if stop_reason in {"application_limit_reached", "submission_uncertain"}:
+            if stop_reason in {"application_limit_reached", "submission_uncertain", "daily_easy_apply_limit", "easy_apply_entry_failed", "job_card_blocked", "post_submit_ui_blocked"}:
                 manifest.data["stop_reason"] = stop_reason
                 manifest.save()
                 if application_budget is not None:
@@ -1700,7 +2162,7 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
 
 
 def run(total_runs: int, *, application_budget=None) -> int:
-    if dailyEasyApplyLimitReached or application_budget is not None and application_budget.stopped:
+    if dailyEasyApplyLimitReached or globals().get('application_ui_blocked', False) or application_budget is not None and application_budget.stopped:
         return total_runs
     print_lg("\n########################################################################################################################\n")
     print_lg(f"Date and Time: {datetime.now()}")
@@ -1762,7 +2224,7 @@ def main() -> None:
         # Start applying to jobs
         driver.switch_to.window(linkedIn_tab)
         total_runs = run(total_runs, application_budget=application_budget)
-        while run_non_stop and not application_budget.stopped and not globals().get('prepare_only_run', False):
+        while run_non_stop and not dailyEasyApplyLimitReached and not globals().get('application_ui_blocked', False) and not application_budget.stopped and not globals().get('prepare_only_run', False):
             if cycle_date_posted:
                 date_options = ["Any time", "Past month", "Past week", "Past 24 hours"]
                 global date_posted
@@ -1787,8 +2249,9 @@ def main() -> None:
         print_lg("Jobs Easy Applied:              {}".format(easy_applied_count))
         print_lg(f"Confirmed this invocation:      {application_budget.count} (cap: {application_budget.limit})")
         print_lg("External job links collected:   {}".format(external_jobs_count))
+        print_lg("Company-page applications:      {}".format(globals().get("external_applied_count", 0)))
         print_lg("                              ----------")
-        print_lg("Total applied or collected:     {}".format(easy_applied_count + external_jobs_count))
+        print_lg("Total applied or collected:     {}".format(easy_applied_count + external_jobs_count + globals().get("external_applied_count", 0)))
         print_lg("\nFailed jobs:                    {}".format(failed_count))
         print_lg("Irrelevant jobs skipped:        {}\n".format(skip_count))
         if globals().get("defaulted_questions"):
@@ -1823,7 +2286,20 @@ def main() -> None:
 # write a wrapper function to run the main function that loops until the user closes the browser
 def run_bot():
     # main already implements configured continuous cycles. A one-shot smoke run stays one-shot.
-    main()
+    global driver, wait, actions, _browser_background
+    try:
+        main()
+    finally:
+        # A completed normal run must release its dedicated Chrome profile.
+        # Prepare-only retains the review window as before.
+        if not globals().get('prepare_only_run', False) and driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+            finally:
+                driver = wait = actions = None
+                _browser_background = None
 
 
 def run_pipeline(request):

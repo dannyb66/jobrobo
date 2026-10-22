@@ -39,7 +39,7 @@ The repository has two related workflows:
 1. `runAiBot.py` drives the LinkedIn browser session. It searches using the values in `config/search.py`, filters jobs, reads the job and company information, answers Easy Apply questions from `config/questions.py` and `config/personals.py`, uploads the configured resume, and records the result in the CSV history files and `logs/`.
 2. `JobRobo.py` opens the desktop dashboard. The **Run LinkedIn Bot** action loads and starts the browser automation. The **Resume Optimizer** tab saves optimizer settings and runs the ATS pipeline without starting Chrome.
 
-For a DOCX resume in `bullets` or `full` mode, the optimizer follows this sequence:
+For the ordinary DOCX path in `bullets` or `full` mode, the optimizer follows this sequence:
 
 ```text
 Job description
@@ -59,7 +59,9 @@ DOCX → PDF conversion → configured page-count/layout verification
 Accepted PDF + `.match_report.json` (or failure report)
 ```
 
-The optimizer and the LinkedIn bot are intentionally separate. You can generate and inspect a resume without starting Chrome, and you can use a static resume by running the bot without enabling resume optimization. A browser run can submit applications, so keep `pause_before_submit = True` while validating a new configuration.
+With `rewrite_all_bullets=true`, a separate path inventories every eligible source bullet, rewrites ordered batches, updates Skills and optionally professional titles, then verifies the assembled PDF. Academic Distinctions stays unchanged. Failed bullet rewrites may retain their original text when `rewrite_source_fallback_enabled=true`; this is reported separately from a complete rewrite. See the [current Task 11 options](docs/TASK11-README.md#current-optimizer-options).
+
+The optimizer can also run separately from the LinkedIn bot. You can generate and inspect a resume without starting Chrome, and you can use a static resume by running the bot without enabling resume optimization. A browser run can submit applications, so keep `pause_before_submit = True` while validating a new configuration.
 
 ## Repository map
 
@@ -71,7 +73,10 @@ The optimizer and the LinkedIn bot are intentionally separate. You can generate 
 | `config/questions.py` | Application answers, resume paths, pause behavior, salary, visa, and profile inputs. |
 | `config/personals.py` | Personal information used in application forms. |
 | `config/settings.py` | Browser, timing, safe mode, stealth mode, logging, and legacy resume flags. |
-| `config/resume_optimizer_defaults.json` | Persistent optimizer mode, bank paths, page-count expectation, and runtime defaults. |
+| `config/resume_optimizer_defaults.json` | Bundled optimizer defaults; existing saved user JSON overrides matching fields. |
+| `config/prompts/resume_bullets.txt` | Canonical bullet generation prompt, pinned per run with policy overrides. |
+| `config/resume_company_context.json` | Company/project domain catalogue for all-bullets generation. |
+| `modules/resume_all_bullets.py` | Parallel all-bullets generation, coverage, Skills/title assembly, review and binding checks. |
 | `modules/ai/resume_optimizer.py` | Keyword guidance, skills optimization, bullet rewriting, bank selection, PDF/DOCX handling, and format verification. |
 | `modules/resume_upload.py` | Optimized-PDF attachment and independently verified source-PDF fallback. |
 | `config/skills/` | ATS vocabulary and role-profile guidance. |
@@ -86,6 +91,18 @@ The optimizer and the LinkedIn bot are intentionally separate. You can generate 
 See the [documentation index](docs/README.md) for the tutorial, architecture explanation, configuration reference, ATS workflow, staff/principal positioning guide, current market notes, and maintenance runbook.
 
 ## Run commands
+
+The command choices below use the current working-tree implementation. Configuration values are a dated snapshot, not universal defaults.
+
+| Goal | Command / guide |
+| --- | --- |
+| Fresh configured LinkedIn search and apply | `python runAiBot.py --configured-search-and-apply --fresh` |
+| Resume an unfinished LinkedIn search | `python runAiBot.py --configured-search-and-apply` |
+| Inspect searches without application forms | `python runAiBot.py --diagnose-search --limit 5 --output /tmp/jobrobo-search-check.json` |
+| Test ten forms/uploads with Submit disabled | `python runAiBot.py --configured-search-and-apply --fresh --prepare-only --limit 10` |
+| Discover → verify → rank → search → apply | [Job discovery pipeline](#job-discovery-pipeline) |
+| Prepare or submit employer URLs | [Direct job URL applications](#direct-job-url-applications) |
+| Optimize a resume independently | [Task 11 commands and options](docs/TASK11-README.md#current-standalone-commands) |
 
 From the repository root, create an isolated environment and install the dependencies:
 
@@ -138,6 +155,10 @@ print(output_path)
 
 Use `optimization_mode="skills"` to update Skills only, `"bullets"` to update Skills and bullets, or `"full"` to also replace recognized professional-experience titles with the target title. `full` does not rewrite the summary or validate title equivalence. Use a distinct local job ID and inspect the returned PDF and report before an application run.
 
+## Resume optimization from one file
+
+Use [`optimize_resume.py`](optimize_resume.py) for an original resume plus complete JD text/file or a supported public JobPosting JSON-LD URL. It reuses the existing engine, supports `--mode full|bullets|skills`, independent `--replace-title` / `--no-replace-title`, opt-in `--rewrite-all-bullets`, and a new `--output` review directory. `--preflight` makes no OpenAI call. See [Task 11 commands, dependencies, mode/title semantics and limitations](docs/TASK11-README.md). Paid runs require an already configured local credential and separate authorization; this workflow never uploads or submits applications.
+
 ## Search and apply on LinkedIn without stage inputs
 
 The configured bot searches LinkedIn directly from `config/search.py` and
@@ -173,7 +194,9 @@ Without `--fresh`, the explicit configured command honors
 
 Filters and the overall submission cap come from `config/search.py`:
 `search_location`, `date_posted`, `job_type`, `experience_level`, `on_site`,
-`easy_apply_only`, and `max_applications_per_run` (default one).
+`easy_apply_only`, and `max_applications_per_run` (currently `50`).
+`switch_number = 10` is the per-query quota; explicit search quotas take precedence.
+These are different limits: an individual manual lane can still have `quota = 1`.
 Use the exact `San Francisco Bay Area` location when selecting that native
 suggestion. Remote/Hybrid intent and unavailable filter controls must be checked
 in the actual results; a requested filter is not proof it was applied.
@@ -181,11 +204,214 @@ With `easy_apply_only = True`, company navigation is blocked even on result
 layouts without pagination. Otherwise company Apply links can be collected;
 an external link is not an application success.
 
-The configured command accepts only `--fresh`; it does not accept pipeline
-`--mode`, `--input`, `--set`, `--db`, `--refresh`, `--output`, or `--limit` flags.
-The diagnostic's `--limit` limits collected metadata, not confirmed submissions.
+Test the form and optimized attachment without submitting:
+
+```bash
+python runAiBot.py --configured-search-and-apply --fresh --prepare-only --limit 10
+```
+
+This fills supported forms through the enabled Submit screen, saves validation
+evidence, and discards the drafts. The report can contain blockers; `--limit 10`
+is a test budget, not a promise that ten forms passed.
+
+The configured command accepts `--fresh` and `--prepare-only [--limit N]`;
+`--limit` is rejected for a submitting configured run. Set its submission cap
+in `config/search.py`. Pipeline `--mode`, `--input`, `--set`, `--db`, `--refresh`
+and `--output` belong to the separate staged commands. The diagnostic's
+`--limit` limits collected metadata, not confirmed submissions.
 See the [configured LinkedIn run guide](docs/linkedin-configured-run.md) for
 configuration, resume behavior, stopping and verification limits.
+
+## Direct job URL applications
+
+`direct_apply.py prepare` fills supported employer forms and uploads an optimized
+resume with **submission permanently disabled**. `direct_apply.py submit` uses
+the same preparation flow and defaults to **manual Submit on each employer tab**.
+Run these commands from the repository root. Local Chrome is the default browser;
+Kernel cloud browsing is optional.
+
+### Choose the input
+
+For this programme, use Task 1's current Phase 2 shortlist. The generated
+`remaining` file excludes jobs recorded as submitted, duplicate or possibly
+submitted across saved runs:
+
+```bash
+roles="$HOME/Documents/Codex/2026-10-14/task/task1-location-fix/phase2/phase2-engineering-ranked-remaining.json"
+```
+
+The original `phase2-engineering-ranked.json` retains the full 191-role shortlist;
+`phase2-engineering-ranked-with-submissions.json` adds run histories to all roles.
+The older `verification-tiers/90-engineering-ranked.json` is a broad inventory,
+not the current geographically filtered shortlist. Earlier runs sourced the
+Stockholm role from that old file. Application preference exclusions in a supplied
+inventory are currently **warnings**, so choosing the current filtered input
+matters. Explicit URLs and the old inventory are not automatically geographically
+filtered by `submit`.
+
+Both `prepare` and `submit` accept one `--url`, a `--urls-file`, or repeated
+`--input` files. Inputs support one URL per TXT line, URL-array/simple job JSON,
+saved verified/ranked `verified_roles` JSON, and legacy queues. An existing
+verified-role set name can be supplied with `--input NAME --db PATH`.
+`jobs.txt` is the preparation pilot list; `jobs-untested.txt` is the separate
+untested list. Neither filename changes submission behaviour. Shell variable
+names are case-sensitive: use lowercase `"$roles"` consistently.
+
+For a fixed cross-provider sample from the current Task 1 remaining shortlist,
+use [`jobs-validation.txt`](jobs-validation.txt) or
+[`jobs-validation.json`](jobs-validation.json). The ten-case sample covers
+Ashby, Lever, Greenhouse and one generic entry. See the
+[manual validation commands, coverage limits and feedback plan](docs/manual-validation-run.md).
+
+### Prepare without submitting
+
+```bash
+python3 direct_apply.py prepare --url 'https://employer.example/careers/job' --leave-open
+python3 direct_apply.py prepare --urls-file jobs.txt
+python3 direct_apply.py prepare --urls-file jobs-untested.txt
+python3 direct_apply.py prepare --input "$roles" --limit 2
+```
+
+Preparation saves evidence, prints blockers, and normally closes its browser.
+`--leave-open` keeps the final draft visible. `--url` is unnecessary when a file
+is supplied. `--grounded-resume` is deprecated and unnecessary: both direct and
+LinkedIn flows read the same saved resume optimizer JSON.
+
+### Manual review or automatic Submit
+
+```bash
+# Default: fill a new tab per job, continue the batch, then monitor manual Submit.
+python3 direct_apply.py submit --input "$roles" --limit 2
+
+# The same default workflow with an untested TXT list.
+python3 direct_apply.py submit --urls-file jobs-untested.txt --limit 2
+
+# Pause only for unknown/defaulted answers or required corrections.
+python3 direct_apply.py submit --input "$roles" --pause-before-submit unknown --limit 2
+
+# Explicit automatic final Submit, using local Chrome.
+python3 direct_apply.py submit --input "$roles" --pause-before-submit never --limit 2
+```
+
+| Pause mode | Final action |
+| --- | --- |
+| `always` | Default. Review/edit and click Submit manually on the employer tabs. |
+| `unknown` | Manual tabs for AI/defaulted answers, recovered labels or required corrections; other jobs submit automatically. |
+| `never` | Automatically click Submit after the required form, identity, attachment and tracking checks pass. |
+
+There is no separate review window or required PDF review gate. Keep the process
+running while submitting manually; it observes outcomes across retained tabs.
+Ctrl-C saves progress. A fresh command creates a new run ID and directory and
+can attempt previously submitted URLs again. The status-filtered input is an
+optional way to avoid repeats; cross-run reporting does not block fresh runs.
+
+### Kernel cloud browser and CAPTCHA handling
+
+Install the optional dependencies and configure `KERNEL_API_KEY` in the ignored
+local `.env` or environment; never put the actual key in a README or run report.
+
+```bash
+python3 -m pip install -r requirements-kernel.txt
+python3 direct_apply.py prepare --input "$roles" --browser kernel --limit 2
+python3 direct_apply.py submit --input "$roles" --browser kernel --limit 2
+python3 direct_apply.py submit --input "$roles" --browser kernel --pause-before-submit never --limit 2
+```
+
+Manual Kernel runs open a private live view for reviewing the tabs. Kernel can
+solve supported CAPTCHA challenges; the runner waits within its configured
+budget and checks the employer page afterwards. CAPTCHA success alone does not
+mean an application was submitted. Employer confirmation, including Ashby's
+success banner, establishes `applied`. An unconfirmed possible activation stays
+`submission_uncertain` without an automatic second click.
+
+`config/browser_runtime.json` controls backend, stealth/headless settings,
+challenge/session timeouts and optional Kernel profile/proxy settings. Use
+`--browser-config PATH` for another file. `--chrome-profile` applies to local
+Chrome and cannot be combined with Kernel. See the
+[Kernel setup, retention and limitations](docs/generic-url-preparation.md#optional-kernel-cloud-browser).
+
+### Status, resume, retries and reconciliation
+
+No `RUN_DIR` or run ID is required for a fresh run. To inspect or continue one
+specific run, copy the actual directory printed by that command:
+
+```bash
+RUN_DIR='/absolute/path/printed/by/the/run'
+python3 direct_apply.py status --run "$RUN_DIR"
+python3 direct_apply.py submit --resume "$RUN_DIR"
+
+# Start a fresh run from that run's retry inventory.
+python3 direct_apply.py submit --input "$RUN_DIR/retry.json" --pause-before-submit always
+
+# Record an inspected outcome locally; this command never submits a form.
+python3 direct_apply.py reconcile --run "$RUN_DIR" --role 'role:EXACT_ID' \
+  --outcome applied --reason 'Employer confirmation inspected'
+```
+
+`--resume` requires a directory and takes its saved selection; do not combine it
+with `--input`, `--run-dir`, `--role` or `--limit`. It reconnects retained review
+tabs and continues pending work, preserving the browser backend. Applied or
+uncertain jobs in that same run are not automatically submitted again. Use
+`--outcome not-submitted` only after inspecting a failed/rejected outcome; this
+adds it to the retry inventory. Reconciliation does not open a browser.
+
+Each run saves `progress.json`, `events.jsonl`, `applications.json`, its own
+ledger/state database, preparation reports, `retry.json`/`retry.txt`,
+`needs-review.json` and manual-review files. `applied` means confirmed;
+`awaiting_manual_submit` needs your click; `awaiting_correction` needs edits;
+`submission_uncertain` needs outcome inspection. Failed pre-submit work is kept
+for retry. `--run-dir` optionally selects a destination; an existing destination
+gets a unique sibling rather than being overwritten.
+
+### Task 1 tracking, profile answers and resume settings
+
+Every submit checkpoint updates the cross-run report at
+`logs/direct_submit_tracking/runs.html`. Task 1's role review links each run and
+its submitted, uncertain, manual and other statuses. Reload it and use
+**Application status** to hide submitted/uncertain jobs or inspect specific
+outcomes. Earlier uncertain attempts remain visible even after another run
+confirms submission. Remaining JSON/TXT inputs are regenerated beside the
+original shortlist; the original verification data is preserved.
+
+`config/submission_tracking.json` selects run roots, output location and linked
+role reviews. To backfill or refresh saved records without browser actions:
+
+```bash
+python3 -m modules.submission_tracking
+```
+
+Profile inputs come from `config/personals.py`, `config/questions.py` and the
+private file selected by `external_questions_config_path` or `--questions`.
+GPA uses explicit `candidate.gpa` (configured locally as `"3.8"`). Website/GitHub
+and discovery source come from their configured fields. The configured
+first-option fallback handles otherwise unanswered choices; DEI questions use
+the last available refusal/None option. AI drafts descriptive answers when
+enabled; missing free-text personal facts remain unresolved. `unknown` mode flags
+first-option and AI answers for manual review.
+
+Direct applications share LinkedIn's optimizer JSON at
+`~/Library/Application Support/jobrobo/config/resume_optimizer_defaults.json`,
+with repository defaults as fallback. Verified PDFs are cached by original
+resume, JD and optimizer settings. Logs show generation stages, API waits,
+bullet progress, cache reuse and upload. The uploaded copy has a readable
+`Name_Resume_Company_Role__identifier-contenthash.pdf` filename. Resume integrity
+and attachment checks remain active without a manual PDF approval requirement.
+
+| Additional option | Purpose |
+| --- | --- |
+| `--role 'role:ID'` | Select an exact saved role; repeat for several roles. |
+| `--limit N` | Select the first N deduplicated input jobs. |
+| `--max-applications N` (submit) | Restrict the configured submit cap; outstanding manual tabs count toward it. |
+| `--config-dir PATH` | Use another profile configuration directory. Include its tracking config for automatic tracker updates. |
+| `--questions PATH` | Use a private question/candidate override JSON. |
+| `--discovery-source 'Web'` | Override the actual referral/discovery source for this run. |
+| `--output-dir PATH` | Select the shared preparation/resume cache location. |
+| `--db PATH --set NAME --output PATH` (submit) | Add pipeline database/set tracking and an application JSON export. |
+
+`submit` replaces the older queue-execution command for this workflow; legacy
+`plan`, `run --queue ... --execute` and `export --queue ...` remain available.
+For detailed input contracts, troubleshooting and tested coverage, see the
+[direct preparation and submission guide](docs/generic-url-preparation.md).
 
 ## Job discovery pipeline
 
@@ -194,9 +420,12 @@ The pipeline separates company discovery, verification against official careers 
 ```bash
 python -m job_pipeline discover companies --set ai-companies --limit 25
 python -m job_pipeline verify careers --input ai-companies --set hiring-roles --limit 25
-python -m job_pipeline search linkedin --input hiring-roles --set linkedin-candidates --limit 25
+python -m job_pipeline rank careers --input hiring-roles --set ranked-roles
+python -m job_pipeline search linkedin --input ranked-roles --set linkedin-candidates --limit 25
 python -m job_pipeline apply linkedin --input linkedin-candidates --set reviewed-applications --limit 1
 ```
+
+Discovery and verification have independent budgets in `config/job_pipeline.py`: `discovery_limit_per_source`, `discovery_source_limits`, `discovery_target_companies`, `verification_limit_companies`, refresh/render flags, and established-company priority. Defaults currently allow 50 companies per source, 250 cumulative companies and 25 company verifications. CLI overrides include `--source`, `--target-companies` (`0` disables the target), `--refresh` / `--no-refresh`, `--render-public` / `--no-render-public`, and verification's `--prioritize-established` / `--no-prioritize-established`. Repeated runs preserve sets and checkpoints. Ranking prioritizes established Staff/Principal roles ahead of early teams; it does not apply.
 
 `search linkedin` only collects jobs and never opens application forms or submits applications. `apply linkedin` revisits the selected IDs, revalidates them, and uses the existing Easy Apply flow with a visible final review pause, including background configurations. `run linkedin` combines search and application. The default database is `data/job_pipeline/pipeline.sqlite3`; repeat `--input` to merge compatible sets, use `--output` to export a stage, and use `--db` to select a database.
 
@@ -229,7 +458,7 @@ See the [job pipeline guide](docs/job-pipeline.md) for input contracts, official
 3. Open `search.py` file in `/config` folder and enter your search preferences, job filters, configure the bot as per your needs (these settings decide which jobs to apply for or skip). Configure role lanes, skills, and manual searches in `search_profile.py`; location and filter values remain in `search.py`. See [Dynamic Search Profiles](docs/dynamic-search.md).
 4. Prefer environment variables or a local, uncommitted secrets configuration for LinkedIn/OpenAI credentials. Credentials are optional: if no LinkedIn username/password is supplied, the bot uses the configured Chrome profile and asks for manual login when needed. Never commit real credentials to `config/secrets.py`.
 5. Open `settings.py` file in `/config` folder to configure the bot settings like, keep screen awake, click intervals (click intervals are randomized to seem like human behavior), run in background, stealth mode (to avoid bot detection), etc. as per your needs.
-6. Add the default resume paths in `config/questions.py`: `default_resume_path` for a static upload and `default_resume_docx_path` for DOCX optimization. With AI optimization enabled, keep a current sibling PDF beside the DOCX: if optimization fails, the bot independently verifies and explicitly attaches that PDF. If neither attachment succeeds, it discards the application before Review/Submit.
+6. Add the default resume paths in `config/questions.py`: `default_resume_path` for a static upload and `default_resume_docx_path` for DOCX optimization. Keep a matching sibling PDF beside the DOCX. Ordinary optimization can use an independently verified source-PDF fallback. All-bullets mode requires a verified generated artifact; its optional per-bullet source retention is different from uploading the entire original PDF. If no verified attachment is available, the application is retained for retry.
 7. Run `runAiBot.py` and see the magic happen.
 8. If you have questions or need help setting it up or to talk in general, join the github server: https://discord.gg/fFp7uUzWCY
 
@@ -239,13 +468,13 @@ See the [job pipeline guide](docs/job-pipeline.md) for input contracts, official
 | --- | --- | --- |
 | `config/search.py:search_terms` | LinkedIn search queries. | `['Senior Software Engineer']` |
 | `config/search.py:search_location` | Location entered into LinkedIn search. | `'California, United States'` |
-| `config/search.py:switch_number` | Applications processed before moving to the next search. | `1` for a smoke test |
-| `config/search.py:max_applications_per_run` | Confirmed submissions across the whole command. | `1`; `None` disables the command-wide cap |
+| `config/search.py:switch_number` | Per-query application/external-link quota, unless a SearchSpec has its own quota. | Currently `10`; use `1` for a smoke test |
+| `config/search.py:max_applications_per_run` | Confirmed submissions across all queries/cycles in the command. | Currently `50`; use `1` for a smoke test; `None` disables the cap |
 | `config/settings.py:run_in_background` | Whether Chrome is visible. | `False` while debugging |
 | `config/settings.py:safe_mode` | Opens a clean Guest-style browser profile when normal Chrome startup fails. | `True` for startup troubleshooting |
 | `config/settings.py:chrome_profile_path` | Dedicated Chrome user-data directory used by JobRobo. | Defaults to `~/.jobrobo/chrome-profile`; an empty value uses the same default |
-| `config/questions.py:pause_before_submit` | Pauses before the final submit action. | `True` until answers are verified |
-| `config/questions.py:pause_at_failed_question` | Pauses when an unknown question cannot be answered. | `True` |
+| `config/questions.py:pause_before_submit` | Pauses before the final submit action. | Currently `False`; use `True` for manual review |
+| `config/questions.py:pause_at_failed_question` | Legacy failed-question setting; current Easy Apply recovery records unresolved required fields for retry without a Help Needed popup. | Inspect retry reasons and configured answers |
 | `config/questions.py:default_resume_path` | PDF uploaded to LinkedIn. | `all resumes/default/resume.pdf` |
 | `config/questions.py:default_resume_docx_path` | DOCX source used when resume optimization is enabled. | `all resumes/default/resume.docx` |
 | `config/resume_optimizer_defaults.json:optimization_mode` | Resume rewrite scope. | `skills`, `bullets`, or `full` |
@@ -256,13 +485,17 @@ Keep secrets out of commits. Use environment variables or the repository's exist
 
 Use this sequence before allowing unattended applications:
 
-1. Use one search term and set `switch_number = 1`, `run_non_stop = False`, `run_in_background = False`, `pause_before_submit = True`, and `pause_at_failed_question = True`. The quota is per search term, not per run.
+1. Set `max_applications_per_run = 1`, use one search term, and set `switch_number = 1`, `run_non_stop = False`, `run_in_background = False`, `pause_before_submit = True`, and `pause_at_failed_question = True`. The quota is per search term, not per run.
 2. Close extra Chrome windows and tabs. A large number of open tabs can cause ChromeDriver to start a browser without reaching the job page.
 3. Run the test suite and inspect the configured resume paths.
 4. Start `python runAiBot.py`, review the job, answers, attached resume, and final submission screen.
 5. Stop the run manually if it proceeds to another job unexpectedly. Multiple search terms can each process their quota even with non-stop looping disabled. Increase quotas or enable repeated cycling only after the one-job path is understood.
 
 ### Resume ATS optimizer
+
+The following bank-selection details describe the ordinary path when
+`rewrite_all_bullets=false`. The current saved all-bullets path has separate
+[policy, Skills-width, source-retention and attachment rules](docs/TASK11-README.md#current-optimizer-options).
 
 The optimizer keeps the existing job-description keyword extraction flow and adds
 curated vocabulary guidance from
@@ -405,7 +638,8 @@ with `pause_after_filters = True` if you need to inspect the search state.
 ### The bot continues to another job
 
 `switch_number` controls the quota for each search term. For a one-job smoke test,
-use one term, set `switch_number = 1`, keep `run_non_stop = False`, and leave
+set `max_applications_per_run = 1`; optionally use one term and
+`switch_number = 1`. Keep `run_non_stop = False`, and leave
 `pause_before_submit = True`. If a run has already
 submitted the expected application, stop it manually before changing the quota or
 cycling settings.
@@ -435,11 +669,11 @@ longer document: the bot's upload path is intended to use a verified PDF.
 
 Searches combine enabled manual queries from `config/search_profile.py`, existing `search_terms`, and queries generated from your role lanes and skills. Each query uses the current location, filters, and exclusion settings in `config/search.py`. The existing San Francisco Bay Area, full-time, remote/hybrid preferences and Staff/Principal search terms are preserved. Duplicate queries keep the first definition, with manual searches taking precedence.
 
-`dynamic_search_enabled = True` and `ai_query_refinement_enabled = True` are enabled by default. Search refinement uses OpenAI independently of resume optimization and `use_AI`; missing credentials or invalid responses fall back to deterministic role queries. `use_AI_for_resume = True` is configured for the next run. The configured `switch_number = 10` is a per-search quota, overridden by `quota = 1` for the supplied manual search; `max_applications_per_run = 1` caps confirmed submissions across the command. `pause_before_submit = True` remains enabled.
+`dynamic_search_enabled = True` and `ai_query_refinement_enabled = True` are enabled by default. Search refinement uses OpenAI independently of resume optimization and `use_AI`; missing credentials or invalid responses fall back to deterministic role queries. The configured `switch_number = 10` is a per-search quota, overridden by `quota = 1` for the supplied manual search; `max_applications_per_run = 50` currently caps confirmed submissions across the command. The current local `pause_before_submit = False` allows submission; set it to `True` for review or use `--prepare-only` to disable Submit entirely.
 
 The runner attempts LinkedIn's natural-language search, records the actual search mode and any fallback or filter warnings, and saves query checkpoints under `logs/search_runs/`. A matching interrupted run resumes automatically; completed searches and previously submitted jobs are skipped. Submission checkpoints across all saved runs also protect fresh runs when CSV logging failed; uncertain submissions remain skipped for manual inspection. Applied and failed CSV records include the run, query, mode, profile, and source. Existing CSV rows are preserved during header migration.
 
-See the [configuration, resume behavior, and verification guide](docs/dynamic-search.md) for manual-search examples, safe query previews, read-only search diagnostics, verified modern filters, and the limits of the classic keyword fallback. Implementation verification uses automated tests; no live applications were submitted for verification.
+See the [configuration, resume behavior, and verification guide](docs/dynamic-search.md) for manual-search examples, safe query previews, read-only search diagnostics, verified modern filters, and the limits of the classic keyword fallback. Fresh search-and-apply was also manually tested. Live evidence has confirmed optimized uploads and submissions; those observations do not guarantee every future LinkedIn layout or employer form. See the [latest recovery behavior and evidence](docs/TASK11-README.md#current-linkedin-integration-and-recovery).
 
 [back to index](#-content)
 
@@ -611,7 +845,10 @@ legacy paths. Some LinkedIn page changes can still require manual intervention.
 - Auto collects a looooooooooooooooooot of info about your jobs, check applied-jobs.excel and failed_jobs.excel for info after each run.
 - Optional pause before submit application.
 - Optional pause if stuck at a question.
-- Configurable ATS resume optimization with `skills`, `bullets`, and `full` modes.
+- Configurable resume optimization with `skills`, `bullets`, and `full` modes, plus the all-bullets path.
+- Per-job AI cover letters and descriptive answers with saved draft artifacts.
+- Independent discovery, official-careers verification, ranking, LinkedIn search/application, and direct employer preparation/submission.
+- Durable search manifests, deferred jobs and submission confirmation evidence.
 - JD-guided skill selection from the Staff / Principal keyword bank.
 - Curated, fact-preserving bullet banks for Trek Health, Codex Self-Hosted, Sohamhamso, and SponsorSkip.
 - Post-conversion resume verification for page count, text extraction, section order, clipping, and layout similarity.
@@ -626,7 +863,6 @@ legacy paths. Some LinkedIn page changes can still require manual intervention.
 - Smooth Scrolls the elements into view before click
 
 #### Upcoming Features or currently in development 🤖🛠️:
-- Answer questions with help of chatGpt or other LLMs
 - Humanize clicks and mouse movements for stealth 
 - Auto send personalized messages to HR that accept messages
 - Broader resume generation beyond the current DOCX/PDF optimizer
@@ -675,6 +911,13 @@ With heartfelt appreciation, <br>
 <br>
 
 ## Major Updates History
+
+### October 21, 2026
+- Added a command chooser for configured LinkedIn, preparation-only tests, staged discovery/verification/ranking, and direct employer applications.
+- Documented shared optimizer JSON, content policies, company context, Skills width packing, Luna configuration, API pacing, and explicit original-bullet fallback.
+- Updated configured quotas to 10 per query and 50 confirmed submissions per invocation; manual lane quotas still override the query default.
+- Documented current Easy Apply navigation, Continue applying reminders, stale-field/upload recovery, Not now profile-promotion dismissal, confirmation handling, and retained retry evidence.
+- Refreshed the [Task 11 operating guide](docs/TASK11-README.md) while retaining dated experiments separately.
 
 ### October 12, 2026
 - Added configurable ATS optimization modes: Skills-only, bullet rewrite, and full title alignment.
@@ -803,7 +1046,7 @@ https://discord.gg/fFp7uUzWCY
 - **X/Twitter**: https://x.com/deepakcool3
 
 
-#### ℹ️ Version: [0.1.4.0](VERSION)
+#### ℹ️ Version: [0.1.3.0](VERSION)
 
 ---
 

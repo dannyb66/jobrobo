@@ -674,6 +674,54 @@ def get_search_pagination(driver):
     return pagination, _active_page(pagination) or 1
 
 
+def extend_search_results(driver, observed_ids, *, timeout=2, log=lambda _:None):
+    """Discover lazy-loaded cards before treating missing pagination as the end."""
+    from selenium.common.exceptions import TimeoutException
+    from selenium.webdriver.support.ui import WebDriverWait
+    from .linkedin_search import get_search_cards, search_card_id
+    observed_ids=set(observed_ids)
+    def fresh(_):
+        check_access(driver)
+        return any(str(search_card_id(card)) not in observed_ids
+                   for card in get_search_cards(driver) if search_card_id(card))
+    if fresh(driver):
+        return True
+    more=[node for node in _find(driver,"//button | //*[@role='button']") if _visible(node)
+          and _text(node).casefold() in {'show more results','load more jobs','show more jobs','load more results'}]
+    if len(more)>1:
+        raise SearchUIError('Ambiguous job result load-more controls',stage='pagination')
+    if more:
+        more[0].click()
+        log('Loading more job results through native control')
+        try:
+            WebDriverWait(driver,timeout,poll_frequency=.2).until(fresh)
+            return True
+        except TimeoutException as error:
+            raise SearchUIError('Load-more did not produce new job cards',stage='pagination') from error
+    for _ in range(2):
+        cards=get_search_cards(driver)
+        if not cards:
+            return False
+        state=driver.execute_script('''/* jobrobo-results-scroll */
+            const card=arguments[0];let list=card.parentElement;
+            while(list && !(list.scrollHeight>list.clientHeight+2 &&
+                /auto|scroll/.test(getComputedStyle(list).overflowY))) list=list.parentElement;
+            list=list || document.scrollingElement;
+            list.scrollTop=list.scrollHeight;
+            return {at_end:list.scrollTop+list.clientHeight>=list.scrollHeight-3};
+        ''',cards[-1])
+        if not isinstance(state,dict):
+            raise SearchUIError('Cannot verify end of job results',stage='pagination')
+        try:
+            WebDriverWait(driver,timeout,poll_frequency=.2).until(fresh)
+            log('Additional job cards loaded while scrolling results')
+            return True
+        except TimeoutException:
+            if not state.get('at_end'):
+                raise SearchUIError('Job list scrolling did not reach a verified end',stage='pagination')
+    return False
+
+
 def next_search_page(driver, page, *, timeout=30, wait=None):
     pagination, _ = get_search_pagination(driver)
     if pagination is None:

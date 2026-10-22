@@ -119,8 +119,11 @@ class CareerAdapterTests(unittest.TestCase):
         self.assertEqual(role["description"], "Full-time hybrid engineering role. Complete requirements.")
         self.assertEqual(role["workplace_type"], "Hybrid")
         self.assertEqual(role["employment_type"], "Full-time")
-        self.assertIn("unknown_posted_date", role["exclusion_reasons"])
-        self.assertFalse(role["eligible"])
+        self.assertIn("unknown_posted_date", role["application_exclusion_reasons"])
+        self.assertIn("unknown_posted_date", role["review_notes"])
+        self.assertFalse(role["application_eligible"])
+        self.assertTrue(role["eligible"])
+        self.assertEqual(role["exclusion_reasons"], [])
         self.assertEqual(result["status"], "hiring")
 
     def test_greenhouse_explicit_null_internal_job_id_is_audited_as_unverified_prospect(self):

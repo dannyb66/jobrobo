@@ -142,6 +142,19 @@ class CleanupTests(unittest.TestCase):
         with patch("modules.linkedin_form_cleanup.monotonic", side_effect=lambda: self.browser.now):
             return discard_application(self.browser, wait=self.browser.wait)
 
+    def test_fit_warning_cleanup_closes_without_continuing_or_opening_form(self):
+        application=self.browser.application()
+        for child in list(application): application.remove(child)
+        etree.SubElement(application,'p').text='This job may not be the best fit — position yourself to stand out'
+        etree.SubElement(application,'button',{'aria-label':'Dismiss'})
+        etree.SubElement(application,'button').text='Continue applying'
+        etree.SubElement(application,'button').text='Explore more jobs'
+        self.browser.mode='no-confirm'
+        with patch('modules.linkedin_form_cleanup.wait_for_application_modal') as open_form:
+            self.assertTrue(self.cleanup())
+        open_form.assert_not_called()
+        self.assertEqual(self.browser.clicks,['Dismiss'])
+
     def test_native_dialog_dismisses_then_discards_without_save_or_submit(self):
         self.assertTrue(self.cleanup())
         self.assertEqual(self.browser.clicks, ["Dismiss", "Discard"])

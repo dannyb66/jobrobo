@@ -3,6 +3,12 @@
 # >>>>>>>>>>> LinkedIn Settings <<<<<<<<<<<
 
 # Keep the External Application tabs open?
+# Prepare supported hosted company-page applications with a verified resume and explicit review.
+# Requires easy_apply_only = False in config/search.py. Unsupported sites/controls stay manual.
+external_apply_enabled = False
+# Private local JSON with typed custom answers and optional dedicated-key AI drafts.
+external_questions_config_path = "~/.jobrobo/external-questions.json"
+
 close_tabs = False                  # True or False, Note: True or False are case-sensitive
 '''
 Note: RECOMMENDED TO LEAVE IT AS `True`, if you set it `False`, be sure to CLOSE ALL TABS BEFORE CLOSING THE BROWSER!!!
@@ -61,7 +67,7 @@ safe_mode = False                   # True or False, Note: True or False are cas
 
 # Dedicated Chrome user-data directory. An empty value uses the default below.
 # On macOS, use a dedicated path such as ~/Library/Application Support/JobRobo/ChromeProfile.
-chrome_profile_path = "~/.jobrobo/chrome-profile"
+chrome_profile_path = "~/Library/Application Support/JobRobo/ChromeProfile"
 
 # Do you want scrolling to be smooth or instantaneous? (Can reduce performance if True)
 smooth_scroll = False               # True or False, Note: True or False are case-sensitive

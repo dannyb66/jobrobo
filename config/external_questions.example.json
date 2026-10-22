@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "candidate": {
+    "first_name": "Synthetic",
+    "last_name": "Applicant",
+    "full_name": "Synthetic Applicant",
+    "email": "applicant@example.test",
+    "phone": "5550100",
+    "github": "https://github.com/example",
+    "summary": "Synthetic example only. Replace all candidate values with your own verified information."
+  },
+  "answers": [
+    {
+      "question": "Why are you interested in this role?",
+      "type": "textarea",
+      "answer": "Replace this synthetic example with a truthful role-specific answer."
+    },
+    {
+      "question": "Which engineering area interests you most?",
+      "type": "select",
+      "answer": "Infrastructure"
+    },
+    {
+      "question": "Which languages have you used?",
+      "type": "multiselect",
+      "answer": ["Python", "TypeScript"]
+    }
+  ],
+  "ai": {
+    "enabled": false,
+    "model": "gpt-4o-mini",
+    "base_url": "https://api.openai.com/v1",
+    "max_questions": 6
+  }
+}

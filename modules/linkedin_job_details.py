@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 DETAIL_ROOT = "[data-view-name='job-detail-page']"
 DETAIL_SECTION = "[id^='JobDetails_AboutTheJob_']"
-EASY_APPLY = "button[aria-label='Easy Apply to this job']"
+EASY_APPLY = "button[aria-label='Easy Apply to this job'], a[aria-label='Easy Apply to this job']"
 
 
 class _DescriptionText(HTMLParser):
@@ -214,7 +214,92 @@ def modern_easy_apply_button(driver, expected_job_id=None):
     if root is None:
         return None
     buttons = [button for button in root.find_elements("css selector", EASY_APPLY)
-               if _visible(button) and button.is_enabled()]
+               if _visible(button) and button.is_enabled() and button.get_attribute("aria-disabled") != "true"]
     if len(buttons) > 1:
         raise ValueError("Multiple modern Easy Apply controls")
     return buttons[0] if buttons else None
+
+
+class JobDetailsUnavailable(RuntimeError):
+    """Selected-job readiness exhausted; this job has not reached application entry."""
+
+    def __init__(self, job_id, diagnostics):
+        self.diagnostics = diagnostics
+        super().__init__(f"job_details_ready [{job_id}]: {diagnostics.get('predicate_error', 'readiness timed out')}; "
+                         f"evidence: {diagnostics.get('report_path', 'not saved')}")
+
+
+def wait_for_modern_details(driver, expected_job_id, *, reselect=None, timeout=15,
+                            wait_factory=None, diagnostics_dir=None, log=lambda _: None):
+    """Wait, then reselect the same verified job once; never open an application.
+
+    Capture the actual predicate failure instead of losing it inside a bare
+    TimeoutException. Evidence contains the scoped details pane, never form data.
+    """
+    from datetime import datetime, timezone
+    from pathlib import Path
+    import json
+    import traceback
+    import uuid
+    from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+    from selenium.webdriver.support.ui import WebDriverWait
+    wait_factory = wait_factory or WebDriverWait
+    job_id = str(expected_job_id)
+    diagnostic = dict(stage='job_details_ready', job_id=job_id, attempts=0,
+                      predicate_error='Selected job details did not become ready')
+
+    def ready(browser):
+        try:
+            value = read_modern_details(browser, job_id)
+            if not value:
+                diagnostic['predicate_error'] = 'Modern detail pane not present'
+            return value or False
+        except (ValueError, StaleElementReferenceException) as error:
+            diagnostic['predicate_error'] = f'{type(error).__name__}: {error}'
+            return False
+
+    def capture():
+        if diagnostics_dir is None:
+            return
+        directory = Path(diagnostics_dir)
+        stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S') + '-' + uuid.uuid4().hex[:8]
+        base = directory / f'{job_id}-{stamp}'
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            diagnostic['report_path'] = str(base.with_suffix('.json'))
+            try:
+                driver.save_screenshot(str(base.with_suffix('.png')))
+                diagnostic['screenshot_path'] = str(base.with_suffix('.png'))
+            except Exception as error:
+                diagnostic['screenshot_error'] = type(error).__name__
+            try:
+                roots = driver.find_elements('css selector', DETAIL_ROOT)
+                markup = '\n'.join(root.get_attribute('outerHTML') or '' for root in roots[:2])
+                base.with_suffix('.private.html').write_text(markup, encoding='utf-8')
+                diagnostic['dom_path'] = str(base.with_suffix('.private.html'))
+            except Exception as error:
+                diagnostic['dom_error'] = type(error).__name__
+            base.with_suffix('.json').write_text(json.dumps(diagnostic, indent=2) + '\n', encoding='utf-8')
+        except Exception as error:
+            diagnostic['capture_error'] = type(error).__name__
+            log(f'Job details [{job_id}]: diagnostic save failed ({type(error).__name__})')
+
+    for attempt in range(1, 3):
+        diagnostic['attempts'] = attempt
+        try:
+            return wait_factory(driver, timeout).until(ready)
+        except TimeoutException as error:
+            diagnostic['exception_type'] = type(error).__name__
+            diagnostic['traceback'] = traceback.format_exc()
+            capture()
+            log(f"Job details [{job_id}]: readiness timed out (attempt {attempt}/2): {diagnostic['predicate_error']}")
+            if attempt == 1 and reselect is not None:
+                try:
+                    reselect()
+                    log(f'Job details [{job_id}]: same job reselected; retrying readiness')
+                    continue
+                except Exception as recovery_error:
+                    diagnostic['recovery_error'] = f'{type(recovery_error).__name__}: {recovery_error}'
+                    diagnostic['recovery_traceback'] = traceback.format_exc()
+                    capture()
+            raise JobDetailsUnavailable(job_id, diagnostic) from error

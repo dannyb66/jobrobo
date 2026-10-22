@@ -80,8 +80,26 @@ class _ChooserControl:
             raise ResumeUploadError("Resume file is unavailable") from error
         if not path.is_file():
             raise ResumeUploadError("Resume attachment must be a file")
+        from selenium.common.exceptions import StaleElementReferenceException
+        attempts=3 if self.target.refresh_modal is not None else 1
+        for attempt in range(attempts):
+            try:
+                return self._attach(path)
+            except StaleElementReferenceException:
+                if attempt+1==attempts:
+                    raise ResumeUploadError('Verified PDF upload could not be confirmed: LinkedIn kept replacing the upload controls') from None
+
+    def _attach(self,path):
+        from selenium.common.exceptions import NoSuchElementException
         target = self.target
-        driver, modal = target.driver, target.modal
+        driver, modal = target.driver, target.current_modal()
+        try:
+            legacy=modal.find_element('name','file')
+        except NoSuchElementException:
+            pass
+        else:
+            legacy.send_keys(str(path))
+            return
         before = {_identity(element) for element in driver.find_elements("xpath", FILE_INPUTS)}
         selected_before = {_identity(element) for element in _matching_selected(modal, path.name)}
         selection_changed = not selected_before
@@ -91,7 +109,7 @@ class _ChooserControl:
             driver.execute_cdp_cmd("Page.setInterceptFileChooserDialog", {"enabled": True})
 
             def upload_button():
-                matches = [button for button in modal.find_elements("xpath", UPLOAD_BUTTONS) if _visible(button)]
+                matches = [button for button in target.current_modal().find_elements("xpath", UPLOAD_BUTTONS) if _visible(button)]
                 if len(matches) > 1:
                     raise ResumeUploadError("Multiple Upload resume buttons in the application dialog")
                 return matches[0] if matches else False
@@ -110,7 +128,7 @@ class _ChooserControl:
 
             def selected_attachment():
                 nonlocal selection_changed
-                selected = _matching_selected(modal, path.name)
+                selected = _matching_selected(target.current_modal(), path.name)
                 if len(selected) > 1:
                     raise ResumeUploadError("Multiple selected attachments match the resume filename")
                 if not selected:
@@ -136,8 +154,15 @@ class _ChooserControl:
 
 
 class _ResumeUploadTarget:
-    def __init__(self, driver, modal, timeout, wait):
+    def __init__(self, driver, modal, timeout, wait, refresh_modal=None):
         self.driver, self.modal, self.timeout, self.wait = driver, modal, timeout, wait
+        self.refresh_modal=refresh_modal
+
+    def current_modal(self):
+        modal=self.refresh_modal() if self.refresh_modal is not None else self.modal
+        if modal is None:
+            raise ResumeUploadError('Resume upload form is no longer available')
+        return modal
 
     def find_element(self, by, value):
         if by == "name" and value == "file":
@@ -148,12 +173,15 @@ class _ResumeUploadTarget:
         return getattr(self.modal, name)
 
 
-def resume_upload_target(driver, modal, *, timeout=30, wait=None):
+def resume_upload_target(driver, modal, *, timeout=30, wait=None, refresh_modal=None):
     """Return an upload target, or None when this form page has no upload UI.
 
     ``wait`` can inject a bounded polling callable for tests. The proxy preserves
     modal attributes; only ``find_element('name', 'file').send_keys(path)`` changes.
-    Legacy named inputs return the modal unchanged. A modern proxy is returned
+    Legacy named inputs return the modal unchanged unless refresh_modal is given.
+    A refresh callback reacquires controls after generation and during selection
+    confirmation; stale DOM retries reuse the same file and never regenerate it.
+    A modern proxy is returned
     only when a visible enabled Upload resume button exists within this modal.
     Modern success additionally requires a selected filename radio in this modal.
     Resume content verification remains the caller's responsibility.
@@ -166,5 +194,5 @@ def resume_upload_target(driver, modal, *, timeout=30, wait=None):
     except NoSuchElementException:
         if not any(_visible(button) for button in modal.find_elements("xpath", UPLOAD_BUTTONS)):
             return None
-        return _ResumeUploadTarget(driver, modal, timeout, wait)
-    return modal
+        return _ResumeUploadTarget(driver, modal, timeout, wait, refresh_modal)
+    return _ResumeUploadTarget(driver,modal,timeout,wait,refresh_modal) if refresh_modal is not None else modal

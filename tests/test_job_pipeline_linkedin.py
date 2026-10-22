@@ -87,8 +87,8 @@ class LinkedInPreparationTests(unittest.TestCase):
         frozen_careers.start()
         self.addCleanup(frozen_careers.stop)
 
-    def specs(self, roles=None, search=None):
-        return prepare_specs(roles if roles is not None else [role()], profile(), search or config())
+    def specs(self, roles=None, search=None, *, application=True):
+        return prepare_specs(roles if roles is not None else [role()], profile(), search or config(), application=application)
 
     def test_freshness_accepts_seven_day_boundary_and_rejects_missing_stale_future(self):
         self.assertTrue(fresh_role(role(verified_at=(NOW - timedelta(days=7)).isoformat())))
@@ -184,12 +184,12 @@ class LinkedInPreparationTests(unittest.TestCase):
         current = specs[0]
         for title in ("Principal Systems Engineer", "Member of Technical Staff - Inference Runtime",
                       "Member of Technical Staff - Machines", "Principal Member of Technical Staff - Systems",
-                      "AI Engineer", "Platform Engineer"):
+                      "AI Engineer", "Platform Engineer", "Sales Engineer", "Support Engineer", "SRE", "Engineering Manager"):
             with self.subTest(title=title):
                 self.assertTrue(role_matches(title, "Build production services", current))
         for title in ("Staff Platform Engineer", "Senior Software Engineer", "Junior AI Engineer",
                       "Senior Member of Technical Staff - Systems", "Staff Member of Technical Staff - Systems",
-                      "Software Engineering Intern", "Sales Engineer", "Support Engineer", "Recruiter"):
+                      "Software Engineering Intern", "Recruiter"):
             with self.subTest(title=title):
                 self.assertFalse(role_matches(title, "Build AI platform infrastructure", current))
 

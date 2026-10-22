@@ -10,6 +10,10 @@ This folder is the detailed technical and operating documentation for JobRobo. T
 | [Architecture](architecture.md) | Explanation | You need to understand the browser bot, optimizer, files, and control flow. |
 | [Dynamic search profiles](dynamic-search.md) | How-to + reference | You need profile queries, resumable runs, quotas, or application-history metadata. |
 | [Job discovery pipeline](job-pipeline.md) | How-to + reference | You want reusable company sets, official-careers verification, LinkedIn collection, or selected-job application. |
+| [Task 11 current operating guide](TASK11-README.md) | How-to + reference | You need current optimizer JSON, policy differences, source-bullet fallback, API concurrency, standalone commands and LinkedIn upload behavior. |
+| [Configured LinkedIn run](linkedin-configured-run.md) | How-to + reference | You want a fresh/resumed search, a no-submit form test, retry inventory or dialog recovery. |
+| [Direct URL preparation and submission](generic-url-preparation.md) | How-to + reference | You want employer URL inputs, manual tabs, automatic Submit, Kernel browsing or run reconciliation. |
+| [All-bullets implementation](resume-all-bullets.md) | Reference | You need coverage, Skills width, preserved sections, request budgets and attachment verification. |
 | [Resume optimizer reference](resume-optimizer-reference.md) | Reference | You need exact modes, config fields, bank behavior, or report fields. |
 | [How to ATS-optimize a resume](how-to-ats-optimize.md) | How-to | You want to tailor a two-page resume to a job description. |
 | [Staff/principal positioning](staff-principal-positioning.md) | Explanation + how-to | You are positioning the resume for staff, principal, or senior AI engineering roles. |

@@ -24,6 +24,8 @@ OPTIONS = {
     'resources': [
         'assets',
         ('config', ['config/resume_optimizer_defaults.json']),
+        ('config', ['config/resume_company_context.json']),
+        ('config/prompts', ['config/prompts/resume_bullets.txt']),
         ('config/skills', ['config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md']),
         ('config/bullets', [
             'config/bullets/Trek_Health_Bullet_Bank.md',

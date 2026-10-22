@@ -15,6 +15,8 @@ output_path = run_resume_optimization(
     first_name="first",
     last_name="last",
     optimization_mode="skills",  # optional; otherwise use saved configuration
+    content_policy="grounded",  # or explicit "review_draft"
+    replace_job_title=False,  # independent optional override
 )
 ```
 
@@ -28,7 +30,9 @@ The function returns a PDF path when generation and verification succeed, or `No
 | `bullets` | Updates Skills, rewrites ordinary professional-experience bullets, and replaces matching company/project bullets from configured banks. | Tailor terminology and evidence while preserving titles. |
 | `full` | Runs `bullets` and replaces recognized dated experience titles with the requested job title. | Title replacement has been deliberately reviewed. |
 
-`full` does not rewrite the summary or validate whether the requested title accurately describes each previous job. Review title changes before using the result. Skills selection prioritizes JD guidance, caps the result at both `max_skills` and the original entry count, and deduplicates recognized full-phrase/acronym pairs. For example, `Model Context Protocol (MCP)` and `MCP` become one entry, preferring the expanded display. Parenthetical context such as `Infrastructure (AWS)` remains distinct from `AWS`. The result can contain fewer entries after deduplication; longer replacement terms can still change wrapping.
+The independent `replace_job_title` flag overrides the mode's title behavior: false preserves professional titles even in `full`; true enables replacement in `bullets` or `skills`. When no flag exists, `full` retains its historical title behavior. The GUI checkbox saves this independent override. Replacements preserve title punctuation and dates; they do not establish that the new title accurately describes a previous job. Every title change appears in the review report. Summary and project titles remain unchanged.
+
+Skills selection ranks explicit JD relevance before clipping, then related existing AWS/Docker/Terraform context, then original order. Related-tool relevance is a local presentation heuristic and gives no credit for an unstated JD requirement. Selection caps the result at both `max_skills` and the original entry count and deduplicates proven full-phrase/acronym pairs. Off-JD bank/model vocabulary and terms confined to recognized company-overview/benefits sections do not enter the coverage denominator. The result can contain fewer entries after deduplication; longer terms can change wrapping.
 
 DOCX text replacement retains all source runs and distributes the replacement text across them proportionally, preserving their font properties and character spacing. Skills reuse existing paragraphs and line capacities. This preserves template formatting signals without promising identical rendering.
 
@@ -49,7 +53,13 @@ This is the path used by the loader, including when run outside macOS. Current b
 | Field | Meaning / repository default |
 | --- | --- |
 | `optimization_mode` | `full`; supported values are `skills`, `bullets`, `full`. |
-| `replace_job_title` / `rewrite_bullets` | Legacy flags used to infer a mode when migrating a config without `optimization_mode`: both true gives `full`, only rewriting gives `bullets`, otherwise `skills`. An explicit mode controls the writer. |
+| `replace_job_title` | Independent boolean override for dated professional title replacement; explicit false is preserved. A call argument overrides the saved flag. |
+| `rewrite_bullets` | Legacy mode migration flag. An explicit `optimization_mode` controls bullet rewriting. |
+| `content_policy` | `grounded` by default; `review_draft` explicitly permits proposed unsupported Skills and broader role-appropriate AI content. The GUI exposes both choices. |
+| `rewrite_length_multiplier` | `1.15`, allowed range 1–1.5; each rewrite may use up to this proportion of source characters, capped at 40 extra characters. Final layout verification remains required. |
+| `rewrite_response_attempts` | `2`, allowed 1–2; retry invalid model responses once. A final partially invalid response retains individual source bullets while keeping valid rewrites. |
+| `layout_retry` | `true`; retry the requested mode with bank count/length bounded by source bullets before falling back to Skills only. Valid model rewrites are cached for identical inputs. |
+| `match_weights` | Optional positive `required`, `preferred`, `context` weights; defaults 2, 1, 1 are local heuristics, not empirical ATS weights. |
 | `skill_bank_path` | `config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md`. |
 | `bullet_bank_path` / `bullet_bank_company` | Legacy single-bank settings, normally Trek Health. |
 | `max_bank_bullets` / `allow_unverified_bullet_terms` | Legacy bullet count and marker policy; defaults are `7` and `false`. |
@@ -100,7 +110,11 @@ With `allow_unverified: false`, marked bullet entries are excluded. Required cat
 
 Selected bank text is inserted exactly. Ordinary professional experience follows the existing LLM rewrite path, prompted with the target title, JD, selected skills, and guided keywords. The model is instructed to preserve facts, but the implementation does not independently validate those facts or the bank's source evidence. Review every selected claim and rewritten bullet.
 
-Keyword responses must contain a list of strings. Experience responses must preserve the source entry identities, entry count, and bullet count; each bullet must be nonempty and stay within its source bullet's length limit. Invalid responses preserve the source experience or continue without model-extracted keywords, recording `api_warnings`. These structural checks do not establish factual accuracy.
+Skills selection retains the existing skills pool and ranks only JD terms with bounded evidence in the original resume, including its experience and projects. A proven acronym expansion may change the display wording. A source mention of `vLLM` does not establish a compound serving stack containing other tools. JD extraction and bank markers provide vocabulary guidance; they cannot establish candidate experience. Unsupported terms stay in the report as gaps instead of being inserted into Skills. Original skill count and configured `max_skills` still bound the selection. A Skills-only fallback uses the same grounded selection.
+
+These source restrictions describe `grounded`. With explicit `content_policy: "review_draft"`, unsupported JD terms may be proposed in Skills and the model may propose relevant responsibilities or technologies beyond source statements. The artifact is labeled `manual_review_draft`, and changes, unsupported terms and provenance require review. This makes an editable draft; it does not verify new qualifications or authorize submission. The source is preserved and page/font/content/hyperlink checks still gate the returned PDF.
+
+Keyword responses must contain a list of strings. Experience responses preserve source identities, entry count and bullet count, with nonempty text within per-bullet fit budgets. The prompt supplies those budgets and JD requirement context. Invalid responses receive a bounded compression retry; after the final attempt, valid bullet edits survive while invalid bullets retain source text. Structural identity/count failures retain the source entries. `rewrite_diagnostics` and `api_warnings` expose these outcomes and numerical length failures without repeating candidate text. These checks do not establish factual accuracy.
 
 ## Output and report contract
 
@@ -131,15 +145,39 @@ keywords
 unverified_terms
 pre_optimization
 post_optimization
+keyword_scoring_method
+keyword_provenance
+skills_grounding
+content_policy
+artifact_kind
+review_required
+auto_submission_authorized
+replace_job_title
+title_replacement_applied
+source_sha256
+changes
+discarded_extracted_keywords
+rewrite_diagnostics
+match_analysis
 format_verification
 output_path
 ```
 
-`pre_optimization` and `post_optimization` each contain `score`, `matched`, `missing`, and `total`. The score is weighted keyword coverage: skills-bank Core terms count twice and other terms once; normalized phrases and parenthetical/acronym variants are matched against extracted text. This diagnostic is not an ATS vendor score or a hiring prediction.
+`pre_optimization` and `post_optimization` retain `score`, `matched`, `missing`, and `total`. Coverage counts each unique concept once: skills-bank Core concepts count twice and other concepts once. Matching uses complete normalized tokens/phrases, so Java does not match JavaScript, RAG does not match storage, and C/C++/C# remain distinct. Parenthetical acronyms count as aliases only when they spell the full phrase's initials; contextual parentheses such as `Infrastructure (AWS)` remain part of the phrase. Competing expansions of an acronym are not credited from that ambiguous acronym alone. `keyword_scoring_method` records `bounded-unique-concept-coverage-v1`, since corrected matching and deduplication can change scores from older reports. This is a local lexical diagnostic, not an ATS vendor score, qualification assessment, or hiring probability.
+
+`keyword_provenance` separates `retained_terms`, `introduced_terms`, `removed_terms`, and `absent_terms`, with input terms, weights, and short source/output mention excerpts. An expanded equivalent can retain source provenance from a proven acronym. These are textual mentions, including potentially negated claims, and the report explicitly sets `facts_verified: false`. Introduction signals review rather than proving a falsehood: curated-bank evidence may exist outside the source resume. The diagnostic does not validate work history, durations, employer requirements, or application eligibility, and it does not change the format/hyperlink acceptance gates.
+
+`skills_grounding` records `bounded-source-supported-skills-v1`, the evidence scope, supported/blocked JD terms, and source excerpts or `no_bounded_source_mention` reasons. The full original resume supports pipeline selection; direct `optimize_skills` calls without `source_text` use the supplied current Skills as evidence. All guided terms remain in `keywords`, so blocked Skills terms still count as missing coverage. This guard is lexical source support, not independent factual verification; `facts_verified` remains false. Review negated or historical mentions and all selected bank/rewritten experience claims separately.
+
+In draft policy, `skills_grounding.proposed_keywords` records unsupported proposals; `removed_source_skills` records clipped source terms. `changes` contains paragraph locators and before/after text for review, with `facts_verified: false`. `title_replacement_applied` reports actual title changes, independently of the requested flag. `auto_submission_authorized` is false: the report grants no application-submission authority. Existing application review remains a separate workflow.
+
+`match_analysis` uses `jd-requirement-evidence-v1`. It separates required, preferred and context coverage, source versus output evidence, draft-only mentions, and title-term alignment. Known bare/flattened headings and optional phrases such as “isn't required” influence the heuristic extraction. Repeated requirements do not gain weight; simple OR alternatives count once. Negated-only source mentions are flagged. Weights and title overlap are inspectable local diagnostics, with no vendor-score or qualification claim. Keyword extraction, mixed Boolean clauses, context and negation remain imperfect; inspect the linked JD spans and evidence.
 
 `requested_mode` records the original input and `normalized_mode` records the supported mode used after validation. `unverified_terms` lists guided keywords carrying the skills bank's dagger marker. It is not a complete list of unsupported claims. `format_verification` contains `passed`, `checks`, and `warnings`, with layout details; inspect it even if the keyword score rises.
 
 `attempts` retains each DOCX attempt's mode, output paths, conversion result, verification, and selected bank IDs. PDF editing records its mode, path, and verification without a DOCX conversion step. After a successful Skills-only fallback, top-level bank selections are empty because those bullets are absent from the accepted artifact; the rejected attempt retains its selections in `attempts`.
+
+When compact bank retry succeeds, `effective_mode` adds `-fit-retry` and preserves the requested bullet/title edits. If it fails, the final Skills fallback preserves historical titles. A compact retry reuses identical validated model inputs from memory; changed entry groups can require another bounded model request. With two response attempts, keyword extraction plus both rewrite groups can make up to five requests. Set `rewrite_response_attempts: 1` or `layout_retry: false` to reduce that bound.
 
 `status` is `accepted`, `rejected`, or `failed`. `error` records a handled pipeline failure. `api_warnings` records keyword or bullet-model failures that can allow processing to continue with bank guidance or original experience text. An accepted format result therefore does not prove that every requested model rewrite succeeded.
 
@@ -160,3 +198,5 @@ When a `bullets` or `full` DOCX output fails verification, the pipeline retries 
 DOCX conversion requires LibreOffice. Discovery checks `LIBREOFFICE_PATH`, then `soffice` / `libreoffice` on `PATH`, then the macOS application path. Each conversion uses an isolated profile and temporary output, validates a fresh PDF, and has a 60-second timeout. A stale PDF is not accepted as a successful new conversion.
 
 The bot's treatment of optimizer failure is described in [Architecture](architecture.md#application-flow). Always review the actual attached resume before submission.
+
+If compact bank selections still fail layout or bullet-count checks, the optimizer retries the requested mode while retaining the original bank-target sections. Validated ordinary rewrites and requested title replacements remain active, and the identical rewrite group uses its cache. The report labels this `bullets-source-banks-retry` or `full-source-banks-retry`; it records no bank IDs because those source sections were retained. All PDF verification gates still apply before any Skills fallback.

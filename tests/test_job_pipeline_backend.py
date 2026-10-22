@@ -95,8 +95,30 @@ class SharedBackendTests(unittest.TestCase):
 
     def test_old_eligible_flag_with_new_current_exclusion_does_not_start_browser(self):
         with patch.object(canonical_search, "bad_words", ["production platform"]):
-            result = self.bot.run_pipeline(self.request())
+            result = self.bot.run_pipeline(self.request("apply"))
         self.browser.assert_not_called()
+        self.assertFalse(self.apply.called)
+        self.assertIn("current_config_exclusion", {row["code"] for row in result.errors})
+
+    def test_search_targets_keep_candidate_exclusions_as_notes_without_application_work(self):
+        with patch.object(canonical_search, "bad_words", ["production platform"]):
+            self.bot.run_pipeline(self.request())
+        current = self.collect.call_args.args[0][0].pipeline_context["career_roles"][0]
+        self.assertTrue(current["verification_eligible"])
+        self.assertFalse(current["application_eligible"])
+        self.assertIn("description_exclusion:production platform", current["review_notes"])
+        self.apply.assert_not_called()
+
+    def test_combined_run_rechecks_collected_inventory_parent_before_application(self):
+        def collect(specs, **kwargs):
+            candidate = job()
+            kwargs["result_sink"](candidate)
+            return [candidate], []
+        self.collect.side_effect = collect
+        with patch.object(canonical_search, "bad_words", ["production platform"]):
+            result = self.bot.run_pipeline(self.request("search-and-apply"))
+        self.collect.assert_called_once()
+        self.apply.assert_not_called()
         self.assertIn("current_config_exclusion", {row["code"] for row in result.errors})
 
     def test_imported_application_success_or_uncertainty_is_skipped_across_sets(self):

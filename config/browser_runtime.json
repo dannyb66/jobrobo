@@ -1,0 +1,14 @@
+{
+  "default_backend": "local",
+  "kernel": {
+    "stealth": true,
+    "headless": false,
+    "timeout_seconds": 1800,
+    "challenge_timeout_seconds": 120,
+    "failed_session_retention_seconds": 900,
+    "profile_id": null,
+    "proxy": null,
+    "locale": null,
+    "timezone": null
+  }
+}

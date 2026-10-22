@@ -1,0 +1,67 @@
+{
+  "status": "implemented_and_validated",
+  "created_at": "2026-10-21T20:14:08.440543+00:00",
+  "objective": "Prepare each job in its own retained employer tab, continue filling the batch, and let the user review and submit directly on those tabs without a separate review window.",
+  "observed_current_behavior": {
+    "default_pause": "always",
+    "review": "Blocking per-job Tk ReviewWindow",
+    "navigation": "One WebDriver tab reused sequentially",
+    "cleanup": "driver.quit closes the browser after execution",
+    "guard": "Current manual Submit is armed by the blocking review loop; edits disarm it"
+  },
+  "proposed_behavior": [
+    "Keep pause-before-submit always as the default; interpret it as manual final submission on retained tabs, without blocking preparation of the next job.",
+    "One browser session per independent run; one new tab per posting. Fill sequentially, verify persisted field values and resume attachment, save evidence and awaiting_manual_submit, then prepare the next tab.",
+    "Remove Tk review from direct-submit and its careers pipeline alias. Leave standalone prepare permanently submission-disabled.",
+    "Handed-off tabs allow trusted user final clicks, including after manual corrections; automation never invokes a final click in the default mode. Do not leave the existing edit-disarming guard silently blocking user clicks.",
+    "Record preparation errors separately and keep useful failed/blocked tabs for manual correction; never label an incomplete form ready.",
+    "Keep the process/browser alive after preparation to monitor all handed-off tabs without stealing focus. Record confirmed applied or portal duplicate; known form rejection returns awaiting_correction; unconfirmed possible activation remains uncertain.",
+    "Use per-job tab identity and posting-bound evidence, surviving navigation and supported frame contexts; a click or tab closure alone never proves submission.",
+    "Keep independent run IDs and per-run durable logs. Save tab mapping and review reasons, retry exports and manual review queue. On explicit resume reconnect live manual tabs. If the browser/tab is unavailable, record uncertainty instead of guessing whether a manual Submit happened; unfinished jobs without a handoff can be prepared again.",
+    "Keep explicit unknown/never modes: unknown hands off jobs with unknown answers and auto-submits others; never uses the explicit automated path. New-tab navigation applies consistently.",
+    "Respect limits/cap while counting outstanding manual handoffs, so opening many uncounted tabs cannot bypass the configured run cap."
+  ],
+  "latest_verified_engineering_source": {
+    "tracker": "Task 1 current Phase 2 follow-up",
+    "input": "/Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task1-location-fix/phase2/phase2-engineering-ranked.json",
+    "records": 191,
+    "admitted_by_current_loader": 191,
+    "source_verified_at_min": "2026-10-15T02:37:38.340846+00:00",
+    "source_verified_at_max": "2026-10-15T02:38:15.538610+00:00",
+    "composition": "73 reconfirmed Phase 1 + 118 new retained roles; configured Bay Area geography",
+    "audit_only": "all-current-verified-roles.json contains 1093 records including 902 excluded; not the recommended application input",
+    "superseded_input": "90-engineering-ranked.json is the older pre-location follow-up snapshot",
+    "qualification": "Latest saved verification, not a fresh live check today; ranking is historical lexical overlap and does not refresh verification timestamps."
+  },
+  "validation_plan": [
+    "Local 3-job run: all forms filled in separate tabs before any manual Submit; no Tk window and zero automatic POSTs",
+    "Manual edit then Submit works on an earlier tab after later tabs have been prepared",
+    "Known server validation errors remain editable, successful submission confirms only the corresponding job, duplicate result continues",
+    "Frame/custom widget and upload evidence remain supported; missing required fields are not reported ready",
+    "Unknown/never policy branches, cap with pending tabs, user closed tab, interrupt/resume and browser-loss recovery",
+    "Regression suite retains standalone prepare zero-Submit guarantee; scale retained-tab preparation to ten local jobs"
+  ],
+  "implementation_performed": true,
+  "employer_actions_performed": false,
+  "updated_at": "2026-10-21T20:26:35.602080+00:00",
+  "validation": {
+    "contract_tests": {
+      "passed": 166,
+      "log": "logs/direct_submit_validation/20261021/retained-tabs/contracts.txt"
+    },
+    "browser_regression": {
+      "passed": 38,
+      "duration_seconds": 162.771,
+      "log": "logs/direct_submit_validation/20261021/retained-tabs/browser-regression.txt"
+    },
+    "final_retained_tab_browser": {
+      "passed": 11,
+      "duration_seconds": 50.753,
+      "log": "logs/direct_submit_validation/20261021/retained-tabs/manual-browser-final.txt"
+    },
+    "unique_browser_scenarios": 39,
+    "browser_method_executions": 49,
+    "syntax_and_diff": "py_compile, plan JSON parsing and git diff --check passed",
+    "scope": "Synthetic local HTTP forms and local uploads only. No employer form submissions or live employer preparation runs."
+  }
+}
