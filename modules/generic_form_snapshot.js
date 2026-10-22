@@ -2,7 +2,7 @@ const roots = [document];
 for (let i=0;i<roots.length;i++) for (const e of roots[i].querySelectorAll('*')) if(e.shadowRoot) roots.push(e.shadowRoot);
 const all = selector => roots.flatMap(r => [...r.querySelectorAll(selector)]);
 const visible = e => !!e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.closest('[aria-hidden=true]');
-const clean = e => {if(!e)return '';const c=e.cloneNode(true);c.querySelectorAll('input,textarea,select,button,script,style').forEach(x=>x.remove());return (c.textContent||'').trim();};
+const clean = e => {if(!e)return '';const c=e.cloneNode(true);c.querySelectorAll('input,textarea,select,button,script,style,[role=listbox],.dropdown-container,.dropdown-results,.ashby-application-form-autocomplete-options').forEach(x=>x.remove());return (c.textContent||'').trim();};
 const labelled = e => (e.getAttribute('aria-labelledby')||'').split(/\s+/).map(id=>clean(e.getRootNode().getElementById?.(id)||document.getElementById(id))).join(' ').trim();
 const label = e => e.getAttribute('aria-label') || labelled(e) || [...(e.labels||[])].map(clean).join(' ') || clean(e.closest('.field,.application-question,[data-field-path]')?.querySelector('.application-label,label,[data-question-label]')) || e.placeholder || e.name || e.id || '';
 const groups = new Map();
@@ -30,18 +30,20 @@ const fields = all(fieldSelector+',[aria-required=true]')
  if(choice&&cardTitle&&/how did you hear/i.test(clean(cardTitle))) question=clean(cardTitle)+' '+question;
  const groupChoice=type==='checkbox'&&!!container&&container.querySelectorAll('input[type=checkbox],[role=checkbox]').length>1;
  const required=!!e.required||e.getAttribute('aria-required')==='true'||/[*✱]/.test(question)||choice&&container?.getAttribute('aria-required')==='true'||!!requiredLabel&&/(?:^|[_\s-])required(?:[_\s-]|$)/i.test(requiredLabel.className);
- const combo=e.getAttribute('role')==='combobox'||e.getAttribute('aria-autocomplete')==='list'||e.getAttribute('aria-haspopup')==='listbox';
+ const locationWidget=e.matches('input.location-input')&&!!e.parentElement?.querySelector('.dropdown-results');
+ const combo=e.getAttribute('role')==='combobox'||e.getAttribute('aria-autocomplete')==='list'||e.getAttribute('aria-haspopup')==='listbox'||locationWidget;
  const selectedNode=combo?e.closest('[class*="select__control"],[class*="-control"]')?.querySelector('[class*="single-value"],[class*="singleValue"]'):null;
  const selectedText=e.getAttribute('aria-valuetext')||clean(selectedNode);
+ const committed=locationWidget?!!e.parentElement?.querySelector('input[name=selectedLocation]')?.value:!!selectedText||!!e.getAttribute('data-value')||combo&&e.tagName!=='INPUT'&&!/^(select|choose)(\b|\.{2,})/i.test(clean(e));
  const selectedCountryCode=[...(selectedNode?.querySelector('.iti__flag')?.classList||[])].find(c=>/^iti__[a-z]{2}$/.test(c))||'';
  const value=selectedText||(combo&&e.tagName!=='INPUT'?(e.getAttribute('data-value')||clean(e)):(e.isContentEditable?e.innerText:e.value||''));
  return {element:e,tag:e.tagName.toLowerCase(),type:combo?'text':type,name:role==='radio'&&container?groups.get(container):e.name||e.id||question,id:e.id||'',
  form_id:formKey(e)||'default',form_key:formKey(e),label:label(e),question,option_label:booleanButton?clean(e):label(e),group:choice&&container?groups.get(container):'',
  context_text:clean(container&&isolated?wrapper:e.closest('.application-question,.field')||e.parentElement?.parentElement).slice(0,1600),display_text:clean(e).slice(0,2000),
  required,native_required:!!e.required,control_required:groupChoice?false:required,group_required:groupChoice&&required||choice&&!!header&&/[*✱]/.test(clean(header)),
- visible:visible(e),disabled:!!e.disabled,readonly:!!e.readOnly,combobox:combo,
+ visible:visible(e),disabled:!!e.disabled,readonly:!!e.readOnly,combobox:combo,location_widget:locationWidget,committed:!!committed,
  checked:e.checked??(e.getAttribute('aria-checked')==='true'||booleanButton&&e.getAttribute('aria-pressed')==='true'),value,selected_country_code:selectedCountryCode,boolean_button:booleanButton,
- valid:combo&&required&&/^(select|choose)(\b|\.{2,})/i.test(value)?false:groupChoice?true:e.checkValidity?e.checkValidity():true,multiple:!!e.multiple,max_length:e.maxLength>0?e.maxLength:null,
+ valid:locationWidget&&required&&!committed?false:combo&&required&&/^(select|choose)(\b|\.{2,})/i.test(value)?false:groupChoice?true:e.validity?e.validity.valid:true,multiple:!!e.multiple,max_length:e.maxLength>0?e.maxLength:null,
  min:e.min||'',max:e.max||'',options:e.options?[...e.options].map(o=>({label:o.text.trim(),value:o.value,selected:o.selected,disabled:o.disabled})):[],
  files:[...(e.files||[])].map(f=>({name:f.name,size:f.size}))};
 });
@@ -61,7 +63,10 @@ const visit=x=>{if(!x||typeof x!=='object')return;if(x['@type']==='JobPosting')j
 for(const script of document.querySelectorAll('script[type="application/ld+json"]'))try{visit(JSON.parse(script.textContent));}catch{}
 const description=document.querySelector('[itemprop=description],.job-sections,.posting-page .content,.posting-page,.posting-description,#content .content-intro,.job__description,.job-description,[data-testid=job-description],.ashby-job-posting-description,main');
 return {url:location.href,title:document.title,site_name:document.querySelector('meta[property="og:site_name"]')?.content||'',location:document.querySelector('.job__location,.job-location,[data-testid=job-location],.location')?.innerText||'',fields,buttons,text:text.slice(0,70000),job,file_receipts,frame_count:all('iframe,frame').filter(visible).length,
+ forms:forms.filter(visible).map(f=>({method:f.method,action_path:new URL(f.action||location.href,location.href).pathname})),
+ parser_busy:all('[aria-busy=true],[role=status]').some(e=>visible(e)&&/pars(?:e|ing)|autofill|processing resume/i.test(e.innerText||e.getAttribute('aria-label')||'')),
  alerts:all('[role=alert],[aria-live=assertive]').filter(visible).map(e=>e.innerText.trim()).filter(Boolean),
  description:description?.innerText||'',headings:all('__JOBROBO_CONFIRMATION_SELECTOR__').filter(visible).map(e=>e.innerText.trim()),
+ application_success:all('__JOBROBO_APPLICATION_SUCCESS_SELECTOR__').filter(visible).map(e=>e.innerText.trim()).filter(Boolean),
  challenge:all('iframe').some(e=>visible(e)&&e.getBoundingClientRect().height>100&&/captcha|challenge/i.test((e.src||'')+' '+e.title)),
  guard:window.__jobroboPrepare?{blocked:window.__jobroboPrepare.blocked,actions:window.__jobroboPrepare.actions,uploads:window.__jobroboPrepare.uploads||[]}:null};

@@ -6,10 +6,10 @@ five Ashby employers, two Lever employers, two Greenhouse roles and one generic
 job-site entry. No current form inspection, browser interaction, resume upload
 or application submission was performed while compiling it.
 
-Use [jobs-validation.txt](../jobs-validation.txt) for the URL list, or
-[jobs-validation.json](../jobs-validation.json) to retain the verified role IDs,
+Use [jobs-validation.txt](../jobs-validation.txt) for the URL list, or the local
+`jobs-validation.json` to retain the verified role IDs,
 JDs and original verification metadata. Both load the same URLs in the same
-order. [The manifest](../jobs-validation-manifest.json) records the source file
+order. The raw metadata JSON remains private. [The manifest](../jobs-validation-manifest.json) records the source file
 hash, selected cases, warning details and proposed checks. Validation focuses
 are things to inspect, not claims about widgets already observed on these forms.
 
@@ -35,6 +35,15 @@ providers are outside this sample. The generic listing may require an outbound
 handoff or expose a separate access/navigation gap.
 
 ## Commands
+
+The table records the original frozen sample. During the subsequent authorized
+rerun, the unavailable/mismatched IT Engineer case was retired and replaced by
+a separately verified Ondo Finance Infrastructure Engineer (DevOps) posting.
+That saved run preserves the original input plus the approved replacement and
+skips its confirmed applications on resume. See the
+[implementation and live-validation record](direct-validation-fixes-plan.md).
+The frozen TXT/metadata inputs retain the original case for audit; starting a
+fresh run from them does not silently substitute another role.
 
 Run from the repository root. For the manual Kernel batch:
 
@@ -132,3 +141,10 @@ each gap has evidence or a local passing regression. A blocked generic handoff,
 closed posting or unresolved required fact remains explicit; it is not counted
 as a successful filled application. Actual widget diversity and live posting
 availability can only be established by this manual run.
+
+
+Current follow-up validation: six employer confirmations, two unconfirmed
+hCaptcha attempts, one email-verification hold and one queued intermediary
+handoff. The shared fixes have local regression coverage; this is not a blanket
+ten-job submission success claim. The detailed implementation report records
+which external gates remain.

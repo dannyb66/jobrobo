@@ -8,6 +8,8 @@
 external_apply_enabled = False
 # Private local JSON with typed custom answers and optional dedicated-key AI drafts.
 external_questions_config_path = "~/.jobrobo/external-questions.json"
+# Private overrides used only by direct_apply submit, including its contact email.
+direct_submit_profile_path = "~/.jobrobo/direct-submit-profile.json"
 
 close_tabs = False                  # True or False, Note: True or False are case-sensitive
 '''

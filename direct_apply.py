@@ -36,6 +36,7 @@ def parser():
     source.add_argument('--urls-file')
     source.add_argument('--input', action='append', dest='inputs')
     source.add_argument('--resume', dest='resume_dir', help='Existing submission run directory')
+    submit.add_argument('--retry-failed', action='store_true', help='With --resume, retry eligible failures before submission; confirmed applications are skipped')
     submit.add_argument('--run-dir', help='Optional destination; an existing path gets a unique sibling. Omit for an automatic fresh run')
     submit.add_argument('--pause-before-submit', choices=('always','unknown','never'), default=None, help='Default always: fill separate tabs for manual Submit; resume keeps saved policy')
     submit.add_argument('--role', action='append', default=[])
@@ -133,13 +134,15 @@ def main(argv=None):
             from modules.submit_runner import run_submissions
             if args.resume_dir and (args.role or args.limit):
                 raise ValueError('Resume uses its saved selection; start a new run to change input roles/limit')
+            if args.retry_failed and not args.resume_dir:
+                raise ValueError('--retry-failed requires --resume RUN_DIR')
             jobs = None if args.resume_dir else load_jobs(args.inputs or ([args.urls_file] if args.urls_file else []),
                 url=args.url, db_path=args.db, selected_roles=args.role, limit=args.limit)
             result = run_submissions(jobs,run_dir=args.run_dir,resume_dir=args.resume_dir,config_dir=args.config_dir,
                 output_dir=args.output_dir,chrome_profile=args.chrome_profile,questions_path=args.questions,
                 discovery_source=args.discovery_source,pause=args.pause_before_submit,max_applications=args.max_applications,
                 set_name=args.set_name,export_path=args.export_path,db_path=args.db,ledger_path=args.ledger,
-                browser_backend=args.browser_backend,browser_config=args.browser_config)
+                browser_backend=args.browser_backend,browser_config=args.browser_config,retry_failed=args.retry_failed)
             print(json.dumps(result,indent=2))
             return 0 if all(j['status'] in {'applied','duplicate','discarded'} for j in result['jobs']) else 1
         elif args.command == "prepare":

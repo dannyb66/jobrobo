@@ -16,17 +16,53 @@ import uuid
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from .direct_careers_apply import digest, literal_config, local_candidate, verify_resume, write_json
-from .external_apply import CONFIRMATION_SELECTOR, ExternalApplicationLedger, _current_answer, _fill_question, field_key, identify_ats, missing_required
+from .external_apply import CONFIRMATION_SELECTOR, APPLICATION_SUCCESS_SELECTOR, ExternalApplicationLedger, _current_answer, _fill_question, field_key, identify_ats, missing_required
 from .external_questions import QuestionResolver, collect_questions, load_question_config, normalize_label, validate_answer
 
 GUARD_JS = Path(__file__).with_name('generic_form.js').read_text()
-SNAPSHOT_JS = Path(__file__).with_name('generic_form_snapshot.js').read_text().replace('__JOBROBO_CONFIRMATION_SELECTOR__', CONFIRMATION_SELECTOR)
+SNAPSHOT_JS = Path(__file__).with_name('generic_form_snapshot.js').read_text().replace('__JOBROBO_CONFIRMATION_SELECTOR__', CONFIRMATION_SELECTOR).replace('__JOBROBO_APPLICATION_SUCCESS_SELECTOR__', APPLICATION_SUCCESS_SELECTOR)
 NEXT = re.compile(r'^(?:next|continue|review|review application|save and continue|continue application)(?:\s*[→›»])?$', re.I)
 APPLY = re.compile(r'^(?:apply(?: now| for (?:this|the) (?:job|role|position))?|apply for this job|application|i[\'’]m interested|i am interested)$', re.I)
 FINAL = re.compile(r'submit|send application|finish|complete application|^apply(?: now)?$', re.I)
 ACCESS = re.compile(r'create (?:an? )?account|sign in to apply|log in to apply|verify your email|verification code|verify you are human', re.I)
 CLOSED = re.compile(r'job (?:is )?no longer available|position (?:has been |is )?filled|job (?:has been |is )?closed|no longer accepting applications|job not found', re.I)
 ATTESTATION = re.compile(r'\b(?:acknowledg\w*|confirm\w*|certif\w*|attest\w*|consent|agree\w*|accept|accurate and complete|under penalty|privacy notice|terms (?:and conditions|of service)|i\s+(?:have\s+)?(?:read|reviewed|understand))\b', re.I)
+REGION_ABBREVIATIONS = dict(pair.split(':') for pair in (
+    'alabama:al|alaska:ak|arizona:az|arkansas:ar|california:ca|colorado:co|connecticut:ct|delaware:de|'
+    'district of columbia:dc|florida:fl|georgia:ga|hawaii:hi|idaho:id|illinois:il|indiana:in|iowa:ia|'
+    'kansas:ks|kentucky:ky|louisiana:la|maine:me|maryland:md|massachusetts:ma|michigan:mi|minnesota:mn|'
+    'mississippi:ms|missouri:mo|montana:mt|nebraska:ne|nevada:nv|new hampshire:nh|new jersey:nj|'
+    'new mexico:nm|new york:ny|north carolina:nc|north dakota:nd|ohio:oh|oklahoma:ok|oregon:or|'
+    'pennsylvania:pa|rhode island:ri|south carolina:sc|south dakota:sd|tennessee:tn|texas:tx|utah:ut|'
+    'vermont:vt|virginia:va|washington:wa|west virginia:wv|wisconsin:wi|wyoming:wy|'
+    'alberta:ab|british columbia:bc|manitoba:mb|new brunswick:nb|newfoundland and labrador:nl|'
+    'nova scotia:ns|northwest territories:nt|nunavut:nu|ontario:on|prince edward island:pe|quebec:qc|saskatchewan:sk|yukon:yt'
+).split('|'))
+
+
+def email_verification_required(state):
+    """A human mailbox challenge is separate from the browser CAPTCHA solver."""
+    return bool(re.search(r'verify your email|verification code was sent|8.character code|enter (?:the |your )?(?:verification|one.time|security) code',
+                          state.get('text', ''), re.I) or any(
+        f.get('visible') and str(f.get('id') or f.get('name', '')).startswith('security-input-')
+        for f in state.get('fields', [])))
+
+
+def posting_mismatch(requested_url, observed_url, observed_job, hint=None, *, initial=False):
+    """Never replace a requested posting with a same-company recommendation."""
+    expected, actual = identify_ats(requested_url), identify_ats(observed_url)
+    if expected and actual and expected.key != actual.key:
+        return True
+    if initial and not expected:
+        if canonical_url(requested_url, allow_local=True) != canonical_url(observed_url, allow_local=True):
+            return True
+    title = (hint or {}).get('title', '')
+    normalize = lambda s: re.sub(r'[^a-z0-9]+', ' ', str(s).casefold()).strip()
+    if initial and title and observed_job.get('title'):
+        a, b = normalize(title), normalize(observed_job['title'])
+        if a != b and not (a in b or b in a):
+            return True
+    return False
 
 
 def stamp():
@@ -157,7 +193,11 @@ class PreparationBrowser:
         if kind == 'next':
             if not NEXT.fullmatch(text):
                 raise ValueError('Unidentified non-final navigation control')
-            self.driver.execute_script('window.__jobroboPrepare.nextControl=arguments[0]', button['element'])
+            if not self.driver.execute_script('return window.__jobroboPrepare.armNext(arguments[0])', button['element']):
+                raise ValueError('Intermediate form endpoint could not be verified')
+            before = self.read()
+            before_step = fingerprint({'url':before['url'],'fields':[(f['name'],f['type'],f['visible']) for f in before['fields']],
+                                       'headings':before.get('headings'), 'buttons':[b['text'] for b in before['buttons']]})
         elif kind == 'open':
             if not APPLY.fullmatch(text):
                 raise ValueError('Unidentified application entry control')
@@ -174,7 +214,15 @@ class PreparationBrowser:
         self.actions.append({'action': kind, 'label': text, 'at': stamp()})
         time.sleep(self.settle)
         if kind == 'next':
-            self.driver.execute_script('if(window.__jobroboPrepare)window.__jobroboPrepare.nextControl=null')
+            deadline = time.monotonic()+10
+            while time.monotonic()<deadline:
+                current = self.read()
+                after_step = fingerprint({'url':current['url'],'fields':[(f['name'],f['type'],f['visible']) for f in current['fields']],
+                                          'headings':current.get('headings'), 'buttons':[b['text'] for b in current['buttons']]})
+                if after_step != before_step or missing_required(current['fields']):
+                    break
+                time.sleep(.2)
+            self.driver.execute_script('if(window.__jobroboPrepare){window.__jobroboPrepare.nextControl=null;window.__jobroboPrepare.nextPermit=null}')
             self.form_scope = None
 
 
@@ -218,7 +266,7 @@ def _public_state(state):
     return {'url': state['url'], 'headings': state.get('headings', []),
             'fields': [{k: f.get(k) for k in ('name', 'type', 'label', 'question', 'required', 'visible', 'valid', 'upload_satisfied')} for f in state['fields']],
             'buttons': [{k: b.get(k) for k in ('text', 'type', 'href')} for b in state['buttons']],
-            'guard': state.get('guard')}
+            'guard': state.get('guard'), 'forms': state.get('forms', []), 'application_success':state.get('application_success', [])}
 
 
 def make_question_mapper(client, model):
@@ -430,8 +478,14 @@ class PreparationResolver:
 
     def uses_dei_opt_out(self, question):
         return (self.typed.config.get('dei_choice_policy') == 'prefer_not_to_answer' and
-            bool(re.search(r'\b(?:ethnic\w*|race|racial|communit\w*|diversity|dei|gender|sex|sexual orientation|pronouns?|disabilit\w*|disabled|veteran|demographic\w*|age)\b',
+            bool(re.search(r'\b(?:ethnic\w*|race|racial|hispanic|latin[oa]|indigenous|aboriginal|communit\w*|diversity|dei|gender|transgender|intersex|lgbt\w*|sex|sexual orientation|pronouns?|disabilit\w*|disabled|veteran|demographic\w*|age)\b',
                            question['label'], re.I)))
+
+    def uses_completion_date(self, question):
+        return (self.typed.config.get('signature_date_policy') == 'completion_date'
+                and question.get('kind') in {'date', 'text'} and not question.get('ambiguous')
+                and bool(re.search(r'signature\s*date|date\s*(?:of\s*)?signature|date\s*signed|signed\s*(?:on|date)|completion\s*date',
+                                   question['label'] + ' ' + question.get('name', ''), re.I)))
 
     def resolve(self, question, provider, *, allow_ai=True):
         from .external_questions import Answer
@@ -483,6 +537,19 @@ class PreparationResolver:
                 answer.source = 'resume_profile:' + origin
         if answer.resolved or answer.reason.startswith(('Multiple configured', 'Configured answer')):
             return answer
+        if self.uses_completion_date(question):
+            today = datetime.now().date()
+            value = today.isoformat() if question['kind'] == 'date' else today.strftime('%m/%d/%Y')
+            try:
+                for bound in ('min', 'max'):
+                    limit = question.get(bound)
+                    if limit and ((bound == 'min' and today.isoformat() < limit) or
+                                  (bound == 'max' and today.isoformat() > limit)):
+                        return Answer(reason='Completion date is outside the live signature date bounds')
+                return Answer(validate_answer(question, value), 'user_policy:completion_date',
+                              'User requested the local date the application form is completed')
+            except (ValueError, TypeError):
+                return Answer(reason='Completion date does not satisfy the live signature date control')
         if gpa:
             return Answer(reason='GPA needs an explicit candidate.gpa or exact per-question answer; do not choose among multiple resume GPAs')
         evidence = question['label'] + ' ' + question.get('name', '') + ' ' + ' '.join(question.get('options', []))
@@ -547,6 +614,8 @@ class PreparationResolver:
                 value += '. ' + self.typed.candidate['visa_status']
             return Answer(validate_answer(question, value), 'candidate_config:require_visa', '')
         discovery = self.typed.candidate.get('application_source')
+        if re.search(r'\breferr(?:ed|er|al)\b.*\b(?:name|connection|someone|person)\b|\b(?:someone|person)\b.*\breferr', evidence, re.I):
+            return Answer(reason='A named referral/relationship requires an explicit configured answer; AI prose is not used')
         if discovery and re.search(r'how did you hear|where did you hear|how did you find', evidence, re.I):
             if question['kind'] in {'select', 'radio', 'multiselect'}:
                 options = question.get('options', [])
@@ -598,6 +667,9 @@ def _question_id(question):
 
 def _custom_choice(browser, field, resolver, provider):
     """Retry one transient menu failure with a newly acquired control."""
+    if (field.get('committed') and field.get('value') and field.get('valid') is not False
+            and not resolver.uses_dei_opt_out({'label':field['question']})):
+        return True, 'existing_browser', ''
     for attempt in range(2):
         result = _custom_choice_once(browser, field, resolver, provider)
         if result[0] or not result[2].startswith('No unambiguous configured custom option'):
@@ -621,10 +693,20 @@ def _custom_choice_once(browser, field, resolver, provider):
     probe = {'label': label, 'name': field['name'], 'kind': 'text', 'required': field['required'], 'fields': [field]}
     if normalize_label(label) in {'location', 'location city', 'current location', 'please list your current location',
                                  'which city and country do you intend to work from'}:
-        probe['candidate_key'] = 'city'
+        context = label + ' ' + field.get('context_text', '')
+        country_only = (re.search(r'\bcountr(?:y|ies)\b', context, re.I) and
+                        not re.search(r'\bcit(?:y|ies)\b|\bstreet\b|\bpostal\b|\bstate\b|\bprovince\b', context, re.I))
+        probe['candidate_key'] = 'country' if country_only else 'city'
     if normalize_label(label) == 'which country do you intend to work from':
         probe['candidate_key'] = 'country'
     candidate = resolver.resolve(probe, provider, allow_ai=False)
+    def populated_by_parser():
+        current = [f for f in browser.read()['fields'] if f['name'] == field['name']
+                   and f.get('combobox') and f.get('question') == label]
+        return (len(current) == 1 and current[0].get('committed') and current[0].get('value')
+                and current[0].get('valid') is not False and not resolver.uses_dei_opt_out(probe))
+    if populated_by_parser():
+        return True, 'existing_browser', ''
     browser.driver.execute_script('arguments[0].scrollIntoView({block:"center",inline:"nearest",behavior:"instant"})', element)
     time.sleep(0.15)
     # Some accessible select inputs require their adjacent toggle button;
@@ -647,8 +729,10 @@ def _custom_choice_once(browser, field, resolver, provider):
       const ids=(arguments[0].getAttribute('aria-controls')||arguments[0].getAttribute('aria-owns')||'').split(/\s+/).filter(Boolean);
       let boxes=ids.flatMap(id=>roots.map(r=>r.getElementById?.(id)).filter(Boolean)).filter(visible);
       if(!boxes.length)boxes=roots.flatMap(r=>[...r.querySelectorAll('[role=listbox]')]).filter(visible);
+      const field=arguments[0].closest('.ashby-application-form-field-entry,.application-question,.field,label');
+      if(!boxes.length&&field)boxes=[field];
       if(boxes.length!==1)return [];
-      return [...boxes[0].querySelectorAll('[role=option]')].filter(e=>visible(e)&&e.getAttribute('aria-disabled')!=='true').map(e=>({element:e,label:e.innerText.trim(),country_code:[...(e.querySelector('.iti__flag')?.classList||[])].find(c=>/^iti__[a-z]{2}$/.test(c))||''}));
+      return [...boxes[0].querySelectorAll('[role=option],.ashby-application-form-autocomplete-option,[class*="suggestion"],[class*="Suggestion"],.dropdown-results > *,[class*="autocomplete"] [class*="option"],[class*="autocomplete"] [class*="Option"]')].filter(e=>visible(e)&&e.getAttribute('aria-disabled')!=='true'&&!e.matches('[class*=loading],[class*=no-results]')).map(e=>({element:e,label:e.innerText.trim(),country_code:[...(e.querySelector('.iti__flag')?.classList||[])].find(c=>/^iti__[a-z]{2}$/.test(c))||''}));
         """, element)
     def candidate_matches(options):
         if not candidate.resolved:
@@ -659,8 +743,17 @@ def _custom_choice_once(browser, field, resolver, provider):
         if not matches and probe.get('candidate_key') == 'city':
             city = normalize_label(candidate.value)
             region = normalize_label(resolver.typed.candidate.get('state', ''))
+            regions={region,REGION_ABBREVIATIONS.get(region,region),
+                     next((name for name,short in REGION_ABBREVIATIONS.items() if short==region),region)}
             matches = [o for o in options if normalize_label(o['label'].split(',')[0]) == city
-                       and region and region in normalize_label(o['label'])]
+                       and region and any(r in [normalize_label(part) for part in o['label'].split(',')[1:]] for r in regions)]
+            if not matches:
+                # Accept only one exact city with its configured country; never
+                # choose the first unrelated autocomplete suggestion.
+                country = normalize_label(resolver.typed.candidate.get('country', ''))
+                countries={country, *({'usa','us','united states of america'} if country=='united states' else set())}
+                matches = [o for o in options if normalize_label(o['label'].split(',')[0]) == city
+                           and country and countries.intersection(normalize_label(part) for part in o['label'].split(',')[1:])]
         return matches
     time.sleep(0.15)
     options = read_options()
@@ -671,6 +764,8 @@ def _custom_choice_once(browser, field, resolver, provider):
             time.sleep(0.1)
             options = read_options()
     if candidate.resolved and not candidate_matches(options) and field['tag'] == 'input' and not field.get('readonly'):
+        if populated_by_parser():
+            return True, 'existing_browser', ''
         modifier = Keys.COMMAND if 'mac' in str(browser.driver.capabilities.get('platformName', '')).lower() else Keys.CONTROL
         element.send_keys(modifier, 'a', Keys.NULL)
         element.send_keys(str(candidate.value))
@@ -704,6 +799,9 @@ def _custom_choice_once(browser, field, resolver, provider):
         element.send_keys(Keys.ESCAPE)
         browser.driver.execute_script("arguments[0].blur()", element)
         return False, answer.source, f'No unambiguous configured custom option ({len(labels)} observed, {len(matches)} matching)'
+    refreshed = [f for f in browser.read()['fields'] if f['name'] == field['name'] and f.get('combobox')]
+    if len(refreshed) == 1 and refreshed[0].get('committed') and not resolver.uses_dei_opt_out(question):
+        return True, 'existing_browser', ''
     browser.driver.execute_script('arguments[0].scrollIntoView({block:"nearest",inline:"nearest"})', matches[0]['element'])
     try:
         matches[0]['element'].click()
@@ -712,6 +810,7 @@ def _custom_choice_once(browser, field, resolver, provider):
             raise
         browser.driver.execute_script('arguments[0].click()', matches[0]['element'])
     time.sleep(min(browser.settle, 0.3))
+    browser.driver.execute_script('arguments[0].blur()', element)
     refreshed = [f for f in browser.read()['fields'] if f['name'] == field['name'] and f.get('combobox')]
     selected = normalize_label(answer.value)
     observed = normalize_label(refreshed[0]['value']) if len(refreshed) == 1 else ''
@@ -732,6 +831,51 @@ def _custom_choice_once(browser, field, resolver, provider):
         and normalize_label(resolver.typed.candidate.get('country', '')) == 'united states'):
         resolver.job_country = resolver.job_country or 'US'
     return True, answer.source, ''
+
+
+def _ready_answer(question):
+    value = _current_answer(question)
+    if value in (None, '', [], False) or any(f.get('valid') is False for f in question['fields']):
+        return False
+    return not isinstance(value, str) or not re.fullmatch(r'(?:please )?(?:select|choose|pick)(?: an? option)?[.\s…]*', value, re.I)
+
+
+def _answers_equal(question, observed, expected, *, country=''):
+    """Accept phone display formatting without accepting changed phone digits."""
+    if isinstance(observed, list) and isinstance(expected, list):
+        return sorted(map(str, observed)) == sorted(map(str, expected))
+    actual, wanted = str(observed).strip(), str(expected).strip()
+    phone = question.get('candidate_key') == 'phone' or any(f.get('type') == 'tel' for f in question.get('fields', []))
+    if phone and all(re.fullmatch(r'[+()\d\s.\-]+', value) for value in (actual, wanted)):
+        digits = [re.sub(r'\D', '', value) for value in (actual, wanted)]
+        if normalize_label(country) in {'united states', 'us', 'usa', 'canada'}:
+            digits = [value[1:] if len(value) == 11 and value.startswith('1') else value for value in digits]
+        return bool(digits[0]) and digits[0] == digits[1]
+    return actual == wanted
+
+
+def _refresh_question(browser, question):
+    return next((q for q in collect_questions([f for f in browser.read()['fields']
+        if not f.get('combobox') and not f.get('upload_satisfied')]) if _question_id(q) == _question_id(question)), None)
+
+
+def settle_resume_autofill(browser, *, timeout=10):
+    """Bounded field/parser settling, independent of analytics network traffic."""
+    print('[Prepare] Waiting for resume autofill to settle; preserving populated fields.', flush=True)
+    start = last_change = time.monotonic(); previous = None
+    quiet = max(.3, min(1.2, browser.settle * 2))
+    minimum = max(.5, min(2, browser.settle * 3))
+    while time.monotonic() - start < timeout:
+        state = browser.read()
+        current = fingerprint([(f['name'],f.get('value'),f.get('checked')) for f in state['fields']])
+        if current != previous:
+            last_change = time.monotonic(); previous = current
+        busy = state.get('parser_busy') or bool(getattr(browser.driver, 'resume_parsing', False) is True)
+        if not busy and time.monotonic()-start >= minimum and time.monotonic()-last_change >= quiet:
+            return True
+        time.sleep(.1)
+    print('[Prepare] Resume autofill wait ended; every write will still reread its field.', flush=True)
+    return False
 
 
 def fill_fields(browser, state, resolver, provider, attempted):
@@ -755,31 +899,55 @@ def fill_fields(browser, state, resolver, provider, attempted):
         if key in attempted:
             continue
         attempted.add(key)
+        fresh = _refresh_question(browser, question)
+        if fresh is None:
+            continue
+        question = fresh
         if len(question['fields']) == 1 and not question.get('repeated_label'):
             control = question['fields'][0]
             aliases = {'org': 'current_employer', 'urls[GitHub]': 'github', 'urls[Other]': 'website', 'location': 'city'}
             labels = {'legal first name': 'first_name', 'legal last name': 'last_name', 'preferred first name': 'preferred_first_name',
+                      'email': 'email', 'email address': 'email', 'your email': 'email', 'your email address': 'email',
                       'current company': 'current_employer', 'current location': 'city', 'github url': 'github',
                       'linkedin profile url': 'linkedin', 'github profile url': 'github', 'portfolio url': 'website', 'other website': 'website'}
             question['candidate_key'] = aliases.get(control['name']) or labels.get(normalize_label(question['label'])) or field_key(control, provider)
             if not question['candidate_key'] and (question['label'] == control['name'] or
                 re.fullmatch(r'type (?:your )?(?:answer|response)', question['label'], re.I)):
                 question['ambiguous'] = True
-        current = _current_answer(question)
-        answer = resolver.resolve(question, provider)
-        source, reason = answer.source, answer.reason
         dei_selection = resolver.uses_dei_opt_out(question) and question['kind'] in {'select', 'radio', 'multiselect', 'checkbox'}
-        if current not in (None, '', [], False) and source != 'question_config' and not dei_selection:
+        exact_override = any(normalize_label(e.get('question')) == normalize_label(question['label'])
+                             for e in resolver.typed.config.get('answers', []))
+        replace_current = (question.get('candidate_key') in resolver.typed.config.get('replace_prefilled_candidate_keys', [])
+                           or resolver.uses_completion_date(question))
+        source, reason = 'manual', ''
+        if _ready_answer(question) and not exact_override and not dei_selection and not replace_current:
             source, reason = 'existing_browser', ''
             if ATTESTATION.search(question['label'] + ' ' + ' '.join(question.get('options', []))):
                 source, reason = 'manual', 'Existing attestation requires explicit operator review'
-        elif answer.resolved:
-            try:
-                fill_native(browser.driver, question, answer.value)
-                browser.actions.append({'action': 'fill', 'field': question['label'], 'source': source, 'at': stamp()})
-            except Exception as error:
-                source, reason = 'manual', 'Control did not accept the answer ('+type(error).__name__+')'
+        else:
+            answer = resolver.resolve(question, provider)
+            source, reason = answer.source, answer.reason
+            # The ATS can finish parsing while answer resolution calls AI.
+            fresh = _refresh_question(browser, question)
+            if fresh is None:
+                source, reason = 'manual', 'Control changed during answer resolution; inspect its new state'
+            elif _ready_answer(fresh) and not dei_selection and (not replace_current or _answers_equal(question,_current_answer(fresh),answer.value,country=resolver.typed.candidate.get('country',''))):
+                if exact_override and not _answers_equal(question,_current_answer(fresh),answer.value,country=resolver.typed.candidate.get('country','')):
+                    source, reason = 'manual', 'Existing answer conflicts with explicit configuration; review before changing'
+                else:
+                    source, reason = 'existing_browser', ''
+            elif answer.resolved:
+                try:
+                    fill_native(browser.driver, fresh, answer.value)
+                    browser.actions.append({'action': 'fill', 'field': question['label'], 'source': source, 'at': stamp()})
+                    verified = _refresh_question(browser, question)
+                    if verified is not None and (not _answers_equal(question,_current_answer(verified),answer.value,country=resolver.typed.candidate.get('country','')) or
+                            not _ready_answer(verified) and answer.value not in (False, '', [])):
+                        source, reason = 'manual', 'Answer did not persist after filling/blur'
+                except Exception as error:
+                    source, reason = 'manual', 'Control did not accept the answer ('+type(error).__name__+')'
         metadata.append({'question': question['label'], 'name': question['name'], 'type': question['kind'], 'required': bool(question.get('required')),
+                         'authoritative':replace_current,
                          'label_source': 'ai_observed_context' if any(f.get('label_source') == 'ai_observed_context' for f in question['fields']) else None,
                          'source': source, 'status': 'prepared' if source != 'manual' else 'manual_review', 'reason': reason})
     return metadata
@@ -838,7 +1006,19 @@ def resume_upload_name(binding, *, candidate=None, job=None):
     return prefix + suffix
 
 
-def attach_resume(browser, field, binding, root, *, timeout=20, candidate=None, job=None):
+def _accepted_upload_response(driver, name, expected_hash, *, browser_captured=False):
+    value=getattr(driver,'resume_upload_receipt',None)
+    if not isinstance(value,dict) or value.get('name')!=name or value.get('sha256')!=expected_hash:
+        return None
+    status=value.get('http_status')
+    if type(status) is not int or not 200<=status<300:return None
+    if value.get('request_match') not in {'pdf_bytes','pdf_base64'} and not (
+            (browser_captured or value.get('buffer_verified') is True) and value.get('request_match')=='multipart_filename'):
+        return None
+    return value
+
+
+def attach_resume(browser, field, binding, root, *, timeout=20, processing_timeout=120, candidate=None, job=None, form_url=None):
     """Bind actual browser-selected bytes and the native/UI attachment receipt."""
     pdf = Path(binding['pdf'])
     expected_hash = binding['pdf_sha256']
@@ -850,21 +1030,64 @@ def attach_resume(browser, field, binding, root, *, timeout=20, candidate=None, 
     selected = upload_dir / name
     shutil.copyfile(pdf, selected)
     selected.chmod(0o600)
-    browser.driver.execute_script('window.__jobroboPrepare.uploadControl=arguments[0];window.__jobroboPrepare.uploads=[];arguments[0].addEventListener("change",window.__jobroboPrepare.captureUpload,true)', field['element'])
-    field['element'].send_keys(str(selected.resolve()))
-    browser.actions.append({'action': 'upload', 'filename': name, 'sha256': expected_hash, 'at': stamp()})
-    deadline = time.monotonic() + timeout
+    if callable(getattr(browser.driver,'begin_resume_upload',None)):
+        browser.driver.begin_resume_upload(selected.read_bytes(),name)
+    try:
+        browser.driver.execute_script('window.__jobroboPrepare.uploadControl=arguments[0];window.__jobroboPrepare.uploads=[];arguments[0].addEventListener("change",window.__jobroboPrepare.captureUpload,true)', field['element'])
+        field['element'].send_keys(str(selected.resolve()))
+        browser.actions.append({'action': 'upload', 'filename': name, 'sha256': expected_hash, 'at': stamp()})
+        return _wait_resume_attachment(browser,selected,expected_hash,timeout=timeout,processing_timeout=processing_timeout,
+                                       form_url=form_url or getattr(browser.driver,'current_url',None))
+    finally:
+        if callable(getattr(browser.driver,'end_resume_upload',None)):browser.driver.end_resume_upload()
+
+
+def _wait_resume_attachment(browser, selected, expected_hash, *, timeout, processing_timeout, form_url):
+    name=selected.name;captured=False
+    started = time.monotonic()
+    deadline = started + timeout
+    heartbeat = started
+    last_pending = None
     while True:
-        state = browser.read()
+        try:
+            state = browser.read()
+        except Exception as error:
+            if (type(error).__name__ not in {'BrowserOperationError','JavascriptException','StaleElementReferenceException','NoSuchFrameException'}
+                    or time.monotonic()-started>=max(timeout,processing_timeout)):
+                raise
+            browser.top();time.sleep(.1)
+            continue
         captures = (state.get('guard') or {}).get('uploads', [])
-        hashed = any(f.get('name') == name and f.get('size') == selected.stat().st_size and f.get('sha256') == expected_hash for f in captures)
+        captured = captured or any(f.get('name') == name and f.get('size') == selected.stat().st_size and f.get('sha256') == expected_hash for f in captures)
         current = _resume_field(state['fields'])
         native = bool(current and any(f['name'] == name and f['size'] == selected.stat().st_size for f in current['files']))
         receipt = name in state.get('file_receipts', [])
-        if hashed and (native or receipt):
+        response=_accepted_upload_response(browser.driver,name,expected_hash,browser_captured=captured)
+        advanced=isinstance(form_url,str) and state.get('url') and state['url']!=form_url
+        if captured and (native or receipt) or response and advanced:
+            settle_resume_autofill(browser)
             return {'name': name, 'size': selected.stat().st_size, 'sha256': expected_hash,
-                    'method': 'browser_file_sha256_and_' + ('native_input' if native else 'visible_receipt')}
-        if time.monotonic() >= deadline:
+                    'method': 'browser_file_sha256_and_' + ('native_input' if captured and native else 'visible_receipt' if captured and receipt else 'upload_response'),
+                    'browser_capture_verified':captured,'upload_response':response,'form_url':state.get('url',form_url)}
+        errors = getattr(browser.driver,'resume_upload_errors',[])
+        # Navigation may cancel a response body after its matching upload was
+        # already acknowledged with 2xx. Wait for the bound next step instead
+        # of treating that browser cancellation as an upload rejection.
+        if isinstance(errors,list) and errors and response is None:
+            statuses=[e for e in errors if type(e) is int]
+            if statuses:
+                status=statuses[-1]
+                raise ValueError(f'Resume processing service returned HTTP {status}; exact attachment was not verified')
+            if 'network_error' in errors:
+                raise ValueError('Resume processing network request failed; exact attachment was not verified')
+        pending = getattr(browser.driver,'resume_parsing',False) is True or state.get('parser_busy') is True
+        elapsed = time.monotonic()-started
+        if pending:last_pending=elapsed
+        if elapsed >= timeout and pending and time.monotonic()-heartbeat >= 15:
+            print('[Prepare] Waiting for the resume upload/processing response; attachment is not yet verified.',flush=True)
+            heartbeat=time.monotonic()
+        settling = last_pending is not None and elapsed-last_pending < 2
+        if time.monotonic() >= deadline and (not pending and not settling or elapsed >= processing_timeout):
             raise ValueError('New resume attachment could not be verified')
         time.sleep(0.2)
 
@@ -913,8 +1136,8 @@ def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_p
             if CLOSED.search(top['text']):
                 report['status'], report['blockers'] = 'closed', ['Posting is closed or unavailable']
                 break
-            if getattr(driver,'browser_backend',None)=='kernel' and re.search(r'verify your email|enter (?:the |your )?(?:verification|one.time|security) code',top['text'],re.I):
-                report.update(status='blocked',blockers=['Email or one-time verification requires manual access'],access_outcome='email_verification_required')
+            if email_verification_required(top):
+                report.update(status='awaiting_email_verification',blockers=['Email verification requires completion in the retained employer tab'],access_outcome='email_verification_required',verification_after_submit=False)
                 break
             if (top.get('challenge') or any(f['type'] == 'password' and f['visible'] for s in states for f in s['fields']) or
                 ACCESS.search(top['text']) and not any(f['type'] == 'file' for s in states for f in s['fields'])):
@@ -935,7 +1158,10 @@ def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_p
                 report['status'], report['blockers'] = 'duplicate', ['Posting has a protected application or uncertain submission']
                 break
             observed_job = extract_job(top)
-            if job and browser.actions[-1].get('action') in {'open', 'navigate', 'next'}:
+            if posting_mismatch(url, top['url'], observed_job, job_hint, initial=job is None):
+                report.update(status='blocked',blockers=['Posting identity differs from the requested job; reverify its URL'],access_outcome='posting_identity_changed')
+                break
+            if job and browser.actions[-1].get('action') in {'open', 'navigate', 'next', 'upload_navigation'}:
                 normalized_title = re.sub(r'[^a-z0-9]+', ' ', job['title'].casefold()).strip()
                 observed_heading = re.sub(r'[^a-z0-9]+', ' ', (' '.join(top.get('headings', [])) + ' ' + top.get('title', '')).casefold())
                 if normalized_title and normalized_title not in observed_heading:
@@ -954,7 +1180,7 @@ def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_p
             browser.enter(state['context'])
             state = browser.read()
             report['resolved_url'] = top['url']
-            signature = fingerprint({'url': state['url'], 'fields': [(f['name'], f['type'], f['value'], f['checked']) for f in state['fields'] if f['visible']], 'buttons': [b['text'] for b in state['buttons']]})
+            signature = fingerprint({'url': state['url'], 'forms':state.get('forms', []), 'headings':state.get('headings', []), 'fields': [(f['name'], f['type'], f['value'], f['checked']) for f in state['fields'] if f['visible']], 'buttons': [b['text'] for b in state['buttons']]})
             if signature in visited:
                 report['blockers'] = ['Navigation repeated the same form state']
                 break
@@ -992,10 +1218,14 @@ def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_p
                 report['job_location_context'] = top.get('location', '')
             if upload and not attached:
                 checkpoint('attaching_resume')
-                report['attachment'] = attach_resume(browser, upload, binding, root, candidate=candidate, job=job)
+                report['attachment'] = attach_resume(browser, upload, binding, root, candidate=candidate, job=job,form_url=state['url'])
                 browser.upload_evidence = report['attachment']
                 attached = True
                 report['attachment_verified'] = True
+                if report['attachment'].get('form_url')!=state['url']:
+                    browser.actions.append({'action':'upload_navigation','url':report['attachment']['form_url'],'at':stamp()})
+                    browser.form_scope=None;attempted.clear()
+                    continue
             # Conditional fields often appear after a preceding answer changes.
             for _ in range(4):
                 checkpoint('filling_fields')
@@ -1014,7 +1244,7 @@ def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_p
             state = browser.read()
             required = missing_required([f for f in state['fields'] if not f.get('upload_satisfied')])
             latest = {(q['name'],q['question']):q for q in report['questions']}
-            unresolved = [q['question'] for q in latest.values() if q['status'] == 'manual_review' and any(f['required'] and f['question'] == q['question'] for f in state['fields'])]
+            unresolved = [q['question'] for q in latest.values() if q['status'] == 'manual_review' and (q.get('authoritative') or any(f['required'] and f['question'] == q['question'] for f in state['fields']))]
             if required or unresolved:
                 report['blockers'] = list(dict.fromkeys(required + unresolved))
                 if on_ready and attached:
@@ -1061,6 +1291,8 @@ def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_p
     finally:
         if report['status'] == 'preparing':
             report['status'] = 'blocked'
+        upload_trace=getattr(driver,'resume_upload_trace',None)
+        if isinstance(upload_trace,list) and upload_trace:report['resume_upload_trace']=upload_trace
         latest_questions = {(q['name'], q['question']): q for q in report['questions']}
         report['optional_unanswered'] = list(dict.fromkeys(q['question'] for q in latest_questions.values()
             if q['status'] == 'manual_review' and q.get('required') is False))

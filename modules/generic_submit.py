@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import time
 
-from .generic_prepare import PreparationBrowser, GUARD_JS, FINAL, NEXT, canonical_url, fingerprint, _resume_field, extract_job
+from .generic_prepare import PreparationBrowser, GUARD_JS, FINAL, NEXT, canonical_url, fingerprint, _resume_field, extract_job, email_verification_required, _accepted_upload_response
 from .external_apply import missing_required, identify_ats, confirmation_identity, _confirmed, ExternalApplicationResult
 from .submit_state import now
 
@@ -15,10 +15,18 @@ class SubmissionBrowser(PreparationBrowser):
     guard_script = GUARD_JS.replace('const submissionMode = false;', 'const submissionMode = true;')
 
 
+def external_dispatch_pending(state):
+    """An intermediary's queued handoff is not an employer confirmation."""
+    queued=any(re.search(r"you['’]re in (?:the )?queue|application (?:is )?(?:queued|pending dispatch)",h,re.I)
+               for h in state.get('headings',[]))
+    promised=re.search(r"\b(?:we['’]ll|we will) submit your application\b",state.get('text',''),re.I)
+    return bool(queued and promised and not state.get('forms'))
+
+
 def unknown_answers(report):
     """Classify evidence sources, never the model's own confidence score."""
     latest = {(q['name'], q['question']): q for q in report['questions']}
-    known = ('candidate_config:', 'question_config', 'resume_profile:', 'application_context:', 'user_policy:dei_opt_out')
+    known = ('candidate_config:', 'question_config', 'resume_profile:', 'application_context:', 'user_policy:dei_opt_out', 'user_policy:completion_date')
     return [q['question'] for q in latest.values() if q['status'] == 'prepared' and
             (q.get('label_source') == 'ai_observed_context' or not q['source'].startswith(known))]
 
@@ -48,7 +56,16 @@ def _identity_ok(current_url, expected_url, *, allow_local=False):
     try:
         actual = canonical_url(current_url, allow_local=allow_local, normalize_posting=False)
         initial = canonical_url(expected_url, allow_local=allow_local, normalize_posting=False)
-        return actual == initial or actual.startswith(initial.rstrip('/')+'/')
+        if actual == initial or actual.startswith(initial.rstrip('/')+'/'):return True
+        # UUID application wizards commonly redirect from /confirm to /done.
+        # Bind only that final path segment, never an organization UUID above
+        # another job path or a shared, identifier-free success page.
+        from urllib.parse import urlsplit
+        first,second=urlsplit(initial),urlsplit(actual)
+        match=re.fullmatch(r'(.*/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/(?:confirm|review|application|apply)',first.path,re.I)
+        completion=re.fullmatch(r'(.*/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/(?:success|thanks|thank-you|confirmation|submitted|done|complete|completed|sent)',second.path,re.I)
+        return bool(match and completion and (first.scheme,first.netloc)==(second.scheme,second.netloc)
+                    and match.group(1)==completion.group(1))
     except ValueError:
         return False
 
@@ -72,7 +89,9 @@ def validate_final(browser, report):
             return state,None,'Job description changed; restart preparation before submitting'
     required = missing_required([f for f in state['fields'] if not f.get('upload_satisfied')])
     if required or state.get('challenge'):
-        return state, None, 'Required answers or access challenge remain'
+        reasons=list(dict.fromkeys([*report.get('blockers', []), *required,
+                                   *(['Access challenge remains'] if state.get('challenge') else [])]))
+        return state, None, '; '.join(reasons)
     pdf = Path(report['resume']['pdf'])
     expected = report['resume']['pdf_sha256']
     if not pdf.is_file() or hashlib.sha256(pdf.read_bytes()).hexdigest() != expected:
@@ -83,7 +102,12 @@ def validate_final(browser, report):
     native = upload and any(f['name'] == attachment['name'] and f['size'] == attachment['size'] for f in upload['files'])
     receipt = attachment['name'] in state.get('file_receipts', [])
     hashed = any(f.get('sha256') == expected and f.get('name') == attachment['name'] and not f.get('pending') for f in capture)
-    if not hashed or not (native or receipt):
+    response=_accepted_upload_response(browser.driver,attachment['name'],expected,
+                                      browser_captured=attachment.get('browser_capture_verified',False))
+    network_verified=attachment.get('method')=='browser_file_sha256_and_upload_response' and response is not None
+    if upload and upload.get('files') and not native:
+        return state,None,'A different resume is selected'
+    if not (hashed and (native or receipt) or network_verified):
         return state, None, 'Exact resume attachment is no longer verified'
     buttons = [b for b in state['buttons'] if FINAL.search(b['text']) and not NEXT.fullmatch(b['text']) and
                (b.get('type') == 'submit' or re.search(r'submit|send application|finish|complete application', b['text'], re.I))]
@@ -117,6 +141,7 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
     report['posting_aliases'] = aliases
     initial_state=browser.read()
     baseline = set(initial_state.get('headings', [])+initial_state.get('alerts', []))
+    report['confirmation_baseline']=sorted(baseline)
     outcome = ExternalApplicationResult('submitting', report['url'], attempt_id=attempt_id,
         resume_name=report['attachment']['name'], resume_sha256=report['resume']['pdf_sha256'])
 
@@ -165,6 +190,11 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
             possible_activation = activated or claimed and (not guard or guard['document'] != document_id or guard['activated'])
             fresh_messages=[h for h in state.get('headings', [])+state.get('alerts', []) if h not in baseline]
             portal_duplicate = any(re.search(r'\byou (?:have )?(?:already|previously) (?:applied|submitted an application) (?:for|to) (?:this|the) (?:job|role|position)\b',h,re.I) for h in fresh_messages)
+            if claimed and possible_activation and scoped and external_dispatch_pending(fresh):
+                reason='Application service accepted the request; employer submission is still pending'
+                run.update(job,status='submission_uncertain',stage='external_submission_pending',retryable=False,
+                           external_submission_pending=True,reason=reason)
+                return {'status':'submission_uncertain','external_submission_pending':True,'blockers':[reason]}
             if claimed and possible_activation and scoped and not state.get('challenge') and portal_duplicate:
                 outcome.status='duplicate';outcome.reason='Portal reports an existing application'
                 ledger.record_aliases(outcome,aliases,job['id'])
@@ -177,6 +207,18 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                            retryable=False, attempt_id=attempt_id)
                 return {'status': 'applied', 'submitted_at': outcome.submitted_at, 'confirmation_verified': True,
                         'final_review_verified': True, 'blockers': []}
+            if scoped and email_verification_required(state):
+                target=browser.driver.execute_cdp_cmd('Target.getTargetInfo',{})['targetInfo']['targetId']
+                continuation={'target_id':target,'token':attempt_id,'aliases':aliases,
+                    'resolved_url':report['resolved_url'],'form_url':state['url'],
+                    'baseline':baseline and sorted(baseline) or [],'resume_name':report['attachment']['name'],
+                    'resume_sha256':report['resume']['pdf_sha256'],'report_path':str(Path(root)/'report.json'),
+                    'activations':1 if possible_activation else 0,'initially_complete':True,
+                    'verification_after_submit':bool(possible_activation)}
+                run.update(job,status='awaiting_email_verification',stage='email_verification',retryable=False,
+                    manual_tab=continuation,verification_after_submit=bool(possible_activation),attempt_id=attempt_id)
+                return {'status':'awaiting_email_verification','verification_after_submit':bool(possible_activation),
+                    'blockers':['Complete email verification in the retained employer tab; original Submit will not be replayed']}
             if possible_activation:
                 if scoped and not state.get('challenge') and any(re.search(r'your form needs corrections|missing entry for required field|field is required|invalid (?:email|phone)',message,re.I) for message in fresh_messages):
                     outcome.status='validation_rejected';outcome.reason='Portal explicitly rejected the application form'

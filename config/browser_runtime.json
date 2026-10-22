@@ -1,6 +1,7 @@
 {
   "default_backend": "local",
   "kernel": {
+    "diagnostics": true,
     "stealth": true,
     "headless": false,
     "timeout_seconds": 1800,

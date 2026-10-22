@@ -10,7 +10,7 @@ import time
 from urllib.request import urlopen
 
 from .direct_careers_apply import write_json
-from .external_apply import CONFIRMATION_SELECTOR, ExternalApplicationResult, _confirmed
+from .external_apply import CONFIRMATION_SELECTOR, APPLICATION_SUCCESS_SELECTOR, ExternalApplicationResult, _confirmed
 from .generic_submit import _identity_ok, unknown_answers, validate_final
 from .submit_state import now
 
@@ -22,13 +22,15 @@ PROBE = r"""(() => {
  let record=guard?.manualRecord||null;
  try {if(config)record=JSON.parse(sessionStorage.getItem('jobrobo.manual.'+config.token)||'null')||record;}catch{}
  return {url:location.href,top:window===window.top,headings:texts('__JOBROBO_CONFIRMATION_SELECTOR__'),
+   application_success:texts('__JOBROBO_APPLICATION_SUCCESS_SELECTOR__'),
    alerts:texts('[role=alert],[aria-live=assertive],.ashby-application-form-error-container'),
    rejected:/your form needs corrections|missing entry for required field|unable to submit|could not submit|submission failed/i.test(document.body?.innerText||''),
    invalid:[...document.querySelectorAll('input,textarea,select,[aria-invalid=true]')].filter(visible)
      .some(e=>e.getAttribute('aria-invalid')==='true'||e.validity&&!e.validity.valid),
+   email_verification:/verification code was sent|8.character code|verify your email|enter (?:the |your )?(?:verification|one.time|security) code/i.test(document.body?.innerText||'')||[...document.querySelectorAll('input[id^="security-input-"]')].some(visible),
    challenge:[...document.querySelectorAll('iframe')].some(e=>visible(e)&&e.getBoundingClientRect().height>100&&/captcha|challenge/i.test(e.src+' '+e.title)),
    record};
-})()""".replace('__JOBROBO_CONFIRMATION_SELECTOR__', CONFIRMATION_SELECTOR)
+})()""".replace('__JOBROBO_CONFIRMATION_SELECTOR__', CONFIRMATION_SELECTOR).replace('__JOBROBO_APPLICATION_SUCCESS_SELECTOR__', APPLICATION_SUCCESS_SELECTOR)
 DUPLICATE = re.compile(r'\byou (?:have )?(?:already|previously) (?:applied|submitted an application) (?:for|to) (?:this|the) (?:job|role|position)\b', re.I)
 REJECTED = re.compile(r'form needs corrections|missing entry for required|please (?:complete|correct|fill)|required field|field is required|invalid (?:email|phone)|unable to submit|could not submit|submission failed', re.I)
 
@@ -177,13 +179,23 @@ class ManualTabs:
         """Reconnect live handed-off tabs; never re-fill a possibly submitted tab."""
         for job,state in self.run.rows():
             info=state.get('manual_tab')
-            if not info or state['status'] not in {'awaiting_manual_submit','awaiting_correction','submitting'}:continue
+            if not info or state['status'] not in {'awaiting_manual_submit','awaiting_correction','submitting','awaiting_email_verification'}:continue
+            if job['key'] in self.tabs:continue
             try:reader=self.reader(info['target_id'],info['token'])
             except Exception:
                 self.run.update(job,status='submission_uncertain',stage='manual_tab_unavailable',retryable=False,
                     reason='Manual tab unavailable; inspect employer outcome before retrying')
                 continue
             self.tabs[job['key']]={'job':job,'info':info,'reader':reader,'started':None,'done':False}
+            if state['status']=='awaiting_email_verification':
+                # Enable only trusted human continuation on this retained tab;
+                # do not fill, navigate, upload or repeat automated Submit.
+                try:
+                    self.driver.switch_to.window(info['target_id'])
+                    self.driver.execute_script('return window.__jobroboPrepare?.handoffManual(arguments[0])',{'token':info['token']})
+                except Exception:
+                    self.update(self.tabs[job['key']],'submission_uncertain','verification_tab_unavailable',retryable=False)
+                    self.tabs[job['key']]['done']=True
 
     def update(self, tab, status, stage, **fields):
         self.run.update(tab['job'],status=status,stage=stage,manual_tab=tab['info'],**fields)
@@ -229,6 +241,11 @@ class ManualTabs:
                     submitted_at=outcome.submitted_at,**({'duplicate_source':'portal'} if result=='duplicate' else {}))
                 tab['done']=True;changed=True
                 print('[Submit] '+tab['job'].get('title',tab['job']['url'])+': '+result,flush=True)
+            elif scoped and any(s.get('email_verification') for s in scoped):
+                if previous['status']!='awaiting_email_verification':
+                    self.update(tab,'awaiting_email_verification','email_verification',retryable=False,
+                        verification_after_submit=activated,reason='Complete email verification in the retained tab; original Submit is not replayed');changed=True
+                tab['started']=None
             elif activated and scoped and (any(REJECTED.search(h) for h in messages) or any(s.get('invalid') or s.get('rejected') for s in scoped)):
                 if previous['status']!='awaiting_correction' or new_activation:
                     self.update(tab,'awaiting_correction','portal_validation_rejected',retryable=False,
@@ -236,7 +253,7 @@ class ManualTabs:
                 tab['started']=None
             elif not activated and previous['status']=='awaiting_correction' and scoped and clean and not any(s.get('invalid') or s.get('rejected') for s in scoped) and info['initially_complete']:
                 self.update(tab,'awaiting_manual_submit','manual_tab',retryable=False);changed=True
-            elif activated and previous['status'] not in {'awaiting_correction','submission_uncertain'}:
+            elif activated and previous['status'] not in {'awaiting_correction','submission_uncertain','awaiting_email_verification'}:
                 tab['started']=tab['started'] or time.monotonic()
                 if time.monotonic()-tab['started']>=self.timeout:
                     self.update(tab,'submission_uncertain','manual_confirmation_timeout',retryable=False,

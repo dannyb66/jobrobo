@@ -9,7 +9,7 @@ from .browser_runtime import PlaywrightActions
 
 DEFAULTS={'stealth':True,'headless':False,'timeout_seconds':1800,
           'challenge_timeout_seconds':120,'failed_session_retention_seconds':900,
-          'profile_id':None,'proxy':None,'locale':None,'timezone':None}
+          'profile_id':None,'proxy':None,'locale':None,'timezone':None,'diagnostics':True}
 
 
 def browser_configuration(config_dir=None, *, backend=None, path=None):
@@ -22,7 +22,7 @@ def browser_configuration(config_dir=None, *, backend=None, path=None):
     extra=raw.get('kernel',{})
     if not isinstance(extra,dict) or set(extra)-set(DEFAULTS):raise ValueError('Unknown Kernel runtime setting')
     settings={**deepcopy(DEFAULTS),**extra}
-    for name in ('stealth','headless'):
+    for name in ('stealth','headless','diagnostics'):
         if type(settings[name]) is not bool:raise ValueError('Kernel '+name+' must be boolean')
     for name,low,high in [('timeout_seconds',10,259200),('challenge_timeout_seconds',1,600),('failed_session_retention_seconds',10,259200)]:
         if type(settings[name]) is not int or not low<=settings[name]<=high:raise ValueError('Invalid Kernel '+name)
@@ -52,6 +52,28 @@ def kernel_preflight():
 
 class KernelBrowser(PlaywrightActions):
     browser_backend='kernel'
+    def register_page(self,page):
+        ident=super().register_page(page)
+        if not self.settings.get('diagnostics',True):return ident
+        from urllib.parse import urlsplit
+        count=[0]
+        def emit(kind,request=None,status=None):
+            observer=getattr(self,'session_observer',None)
+            if observer is None or count[0]>=200:return
+            count[0]+=1
+            event={'type':kind,'target_id':ident,'page_correlated':False}
+            if request:
+                parsed=urlsplit(request.url)
+                # Never persist query strings, headers, bodies or long path tokens.
+                path='/'.join('[identifier]' if len(p)>32 else p for p in parsed.path.split('/'))
+                event.update(method=request.method,website_host=parsed.hostname,website_path=path)
+            if status is not None:event['http_status']=status
+            observer(event)
+        page.on('requestfailed',lambda r:emit('request_failed',r))
+        page.on('response',lambda r:emit('http_error',r.request,r.status) if r.status>=400 else None)
+        page.on('pageerror',lambda _:emit('page_error'))
+        page.on('crash',lambda _:emit('page_crash'))
+        return ident
     def __init__(self, *, settings, run_id, session_id=None, client=None, telemetry_offset=0):
         kernel_preflight()
         from kernel import Kernel
@@ -104,7 +126,7 @@ class KernelBrowser(PlaywrightActions):
     @property
     def runtime_metadata(self):
         return {'browser_backend':'kernel','kernel_session_id':self.session_id,'kernel_settings':self.settings,
-                'kernel_telemetry_offset':self.challenges.offset or 0}
+                'kernel_telemetry_offset':self.challenges.offset}
 
     def show_live_view(self):
         import webbrowser

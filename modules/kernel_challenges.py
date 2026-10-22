@@ -36,21 +36,28 @@ class KernelChallenges:
             request={'category':['captcha'],'limit':100,'order':'asc','timeout':5}
             if self.offset is not None:request['offset']=self.offset
             events_page=self.runtime.client.browsers.telemetry.events(self.runtime.session_id,**request)
+            info=events_page.next_page_info()
+            # The API's X-Next-Offset cursor is opaque. A filtered empty page
+            # may still advance it; sequence numbers/counts are not offsets.
+            next_offset=info.params.get('offset') if info else self.offset
             for index,row in enumerate(events_page.items):
                 raw=row.model_dump();seq=raw.get('seq')
                 if seq in self.seen:continue
                 self.seen.add(seq)
                 event=raw.get('event') or {};data=event.get('data') or {}
                 safe={'seq':seq,'type':event.get('type'),**{k:data.get(k) for k in ('captcha_provider','status','duration_ms','error_code','website_host','website_path','inferred') if k in data}}
-                safe['cursor_offset']=(self.offset or 0)+index+1
+                if type(next_offset) is int and next_offset>=0:
+                    safe['cursor_offset']=next_offset
                 target=urlsplit(page.url) if page else None
                 safe['page_correlated']=bool(target and data.get('website_host')==target.hostname and data.get('website_path') in (None,target.path))
                 self.events.append(safe)
                 observer=getattr(self.runtime,'session_observer',None)
                 if observer:observer(safe)
                 if safe['page_correlated'] and self.runtime.challenge_observer:self.runtime.challenge_observer(safe)
-            info=events_page.next_page_info()
-            self.offset=info.params.get('offset') if info else (self.offset or 0)+len(events_page.items)
+            self.offset=next_offset
+            if not events_page.items and info:
+                observer=getattr(self.runtime,'session_observer',None)
+                if observer:observer({'type':'telemetry_cursor','cursor_offset':next_offset,'page_correlated':False})
         except Exception:pass  # Telemetry is best-effort; never infer readiness from silence.
 
     def wait(self, page, *, stage='before_submit', timeout=None):

@@ -83,6 +83,7 @@ LABEL_KEYS = {"first name": "first_name", "last name": "last_name", "full name":
 CONFIRMATION_SELECTOR = ('h1,h2,[role=status],[role=alert],[aria-live=polite],[aria-live=assertive],'
                          '.ashby-application-form-success-container,.application-confirmation,'
                          '.confirmation,[data-testid=application-success]')
+APPLICATION_SUCCESS_SELECTOR = '.ashby-application-form-success-container,[data-testid=application-success]'
 
 SNAPSHOT_JS = r"""
 const visible=e=>Boolean(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden';
@@ -108,8 +109,9 @@ const fields=[...document.querySelectorAll('input,textarea,select')].map(e=>{
 const buttons=[...document.querySelectorAll('button,input[type=submit]')].filter(e=>visible(e)&&!e.disabled).map(e=>({element:e,text:(e.textContent||e.value||'').trim(),type:e.type||'',id:e.id||''}));
 const headings=[...document.querySelectorAll('__JOBROBO_CONFIRMATION_SELECTOR__')].filter(visible).map(e=>e.textContent.trim());
 const challenge=[...document.querySelectorAll('iframe[title*=challenge],iframe[title*=Challenge],iframe[src*=hcaptcha],iframe[src*=recaptcha]')].some(e=>visible(e)&&e.getBoundingClientRect().height>100);
-return {url:location.href,title:document.title,fields,buttons,headings,challenge};
-""".replace('__JOBROBO_CONFIRMATION_SELECTOR__', CONFIRMATION_SELECTOR)
+const application_success=[...document.querySelectorAll('__JOBROBO_APPLICATION_SUCCESS_SELECTOR__')].filter(visible).map(e=>e.textContent.trim()).filter(Boolean);
+return {url:location.href,title:document.title,fields,buttons,headings,challenge,application_success};
+""".replace('__JOBROBO_CONFIRMATION_SELECTOR__', CONFIRMATION_SELECTOR).replace('__JOBROBO_APPLICATION_SUCCESS_SELECTOR__', APPLICATION_SUCCESS_SELECTOR)
 
 
 def snapshot(driver):
@@ -264,7 +266,11 @@ def confirmation_identity(url):
 
 def _confirmed(state):
     phrases = r"thank you for applying|successfully applied|application (?:has been |was )?(?:successfully )?(?:submitted|received)|received your application"
-    return any(re.search(phrases, text, re.I) for text in state.get("headings", []))
+    headings = state.get('headings', [])
+    # Callers filter pre-existing messages out of headings before checking.
+    # Intersect with that fresh list so a stale success container cannot count.
+    declared = any(text.strip() and text in headings for text in state.get('application_success', []))
+    return declared or any(re.search(phrases, text, re.I) for text in headings)
 
 
 def apply_hosted_application(driver, application_url, applicant, resume_pdf, *, verify_pdf,

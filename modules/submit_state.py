@@ -66,6 +66,33 @@ class SubmitRun:
         self.export()
         return state
 
+    def replace_unsubmitted(self, old_key, replacement, *, evidence):
+        """Append an explicitly approved replacement, preserving the old input/history."""
+        matches=[(j,s) for j,s in self.rows() if j['key']==old_key]
+        if len(matches)!=1 or not evidence:
+            raise ValueError('Replacement requires one saved job and verification evidence')
+        original,previous=matches[0]
+        if previous['status'] not in {'pending','blocked','failed_before_submit','interrupted_before_submit','deferred'}:
+            raise ValueError('A confirmed or possibly submitted job cannot be replaced')
+        if self.options.get('ledger_path'):
+            from .external_apply import ExternalApplicationLedger
+            if ExternalApplicationLedger(self.options['ledger_path']).protected(original['url']):
+                raise ValueError('A protected application cannot be replaced')
+        if any(j['key']==replacement['key'] or j['id']==replacement['id'] for j,_ in self.rows()):
+            raise ValueError('Replacement already exists in this run')
+        at=now();state={'status':'pending','stage':'approved_replacement','attempts':0,'updated_at':at,
+                        'replaces_role_id':original['id'],'replacement_evidence':str(evidence)}
+        retired={**previous,'status':'discarded','stage':'replaced_before_submit','retryable':False,'updated_at':at,
+                 'replacement_role_id':replacement['id'],'replacement_evidence':str(evidence)}
+        position=self.db.execute('SELECT COALESCE(MAX(position),-1)+1 FROM jobs').fetchone()[0]
+        with self.db:
+            self.db.execute('INSERT INTO jobs VALUES (?,?,?,?)',(replacement['key'],position,json.dumps(replacement),json.dumps(state)))
+            self.db.execute('UPDATE jobs SET state=? WHERE key=?',(json.dumps(retired),old_key))
+            for key,event in ((old_key,retired),(replacement['key'],state)):
+                self.db.execute('INSERT INTO events(at,job_key,payload) VALUES (?,?,?)',(at,key,json.dumps(event)))
+        self.export()
+        return replacement
+
     def browser_event(self,session_id,event):
         """Session diagnostics without assigning unscoped solver events to a job."""
         with self.db:
@@ -73,7 +100,7 @@ class SubmitRun:
                 (now(),None,json.dumps({'stage':'browser_telemetry','kernel_session_id':session_id,'captcha_event':event})))
             offset=event.get('cursor_offset')
             if self.options.get('kernel_session_id')==session_id and type(offset) is int and offset>=0:
-                self.options['kernel_telemetry_offset']=max(self.options.get('kernel_telemetry_offset',0),offset)
+                self.options['kernel_telemetry_offset']=offset
                 self.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('options',json.dumps(self.options)))
         self.export()
 
@@ -83,14 +110,16 @@ class SubmitRun:
         progress = {'schema': 'direct-submit-progress-v1', 'run_id':self.manifest['id'], 'run_dir': str(self.directory), 'updated_at': now(),
                     'options': self.options if hasattr(self, 'options') else {},
                     'total': len(rows), 'counts': dict(counts),
+                    'active_total':sum(s['status']!='discarded' for _,s in rows),
+                    'active_counts':{k:v for k,v in counts.items() if k!='discarded'},
                     'jobs': [{'id': j['id'], 'url': j['url'], 'title':j.get('title',''),
                               'company':j.get('company',''), 'preference_warnings':j.get('preference_warnings',[]), **s} for j, s in rows]}
         write_json(self.directory/'progress.json', progress)
         retry, uncertain, manual = [], [], []
         for job, state in rows:
-            if state['status'] in {'awaiting_manual_submit','awaiting_correction'}:
+            if state['status'] in {'awaiting_manual_submit','awaiting_correction','awaiting_email_verification'}:
                 manual.append({'job':job, **state})
-            if state['status'] in {'submission_uncertain', 'submitting'}:
+            if state['status'] in {'submission_uncertain', 'submitting','awaiting_email_verification'}:
                 uncertain.append({'job': job, **state})
             elif state['status'] in {'failed_before_submit', 'blocked', 'interrupted_before_submit', 'deferred'}:
                 retry.append({'job': job, 'retryable': bool(state.get('retryable')), **state})

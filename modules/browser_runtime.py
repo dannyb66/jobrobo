@@ -56,7 +56,11 @@ class FormControl:
         handle=self.handle()
         if handle.get_attribute('type')=='file':
             path=Path(str(values[0])).resolve()
-            handle.set_input_files({'name':path.name,'mimeType':'application/pdf','buffer':path.read_bytes()})
+            data=path.read_bytes()
+            handle.set_input_files({'name':path.name,'mimeType':'application/pdf','buffer':data})
+            import hashlib
+            self.runtime.save_states[self.runtime.selected].update(selected_upload_name=path.name,
+                selected_upload_sha256=hashlib.sha256(data).hexdigest())
             return
         keys={'\ue003':'Backspace','\ue004':'Tab','\ue006':'Enter','\ue007':'Enter',
               '\ue00c':'Escape','\ue010':'End','\ue011':'Home','\ue012':'ArrowLeft',
@@ -67,7 +71,8 @@ class FormControl:
             if not buffer:return
             if modifier:handle.press(modifier+'+'+buffer)
             elif handle.get_attribute('type') in {'date','time','datetime-local','month','week','number'}:handle.fill(buffer)
-            elif handle.get_attribute('role')=='combobox':handle.type(buffer)
+            elif (handle.get_attribute('role')=='combobox' or handle.get_attribute('aria-autocomplete')=='list'
+                  or handle.evaluate("e=>e.matches('.location-input')")):handle.type(buffer)
             else:
                 # Native fill dispatches input events without one CDP round trip
                 # per character. The shared engine blurs before readback.
@@ -118,26 +123,68 @@ class PlaywrightActions:
                 if isinstance(event,dict) and isinstance(event.get('token'),str):
                     rows=self.events.setdefault(event['token'],[]);rows.append(event);del rows[:-100]
             except (TypeError,ValueError):pass
-        self.context.expose_binding('jobroboManualEvent',binding)
+        # Context-wide registration can stall a CDP reconnect across retained
+        # employer/CAPTCHA frames. Existing tabs already persist manual events
+        # in sessionStorage; expose a fresh callback only on newly created tabs.
+        self.manual_binding=binding
         pages=self.context.pages or [self.context.new_page()]
         for page in pages:self.register_page(page)
         self.select_page(next(iter(self.pages)))
 
     def register_page(self,page):
+        if page.url in {'','about:blank'}:
+            page.expose_binding('jobroboManualEvent',self.manual_binding)
         session=self.context.new_cdp_session(page)
         ident=session.send('Target.getTargetInfo')['targetInfo']['targetId']
         self.pages[ident]=page;self.cdp[ident]=session
-        saves={'pending':set(),'failed':False};self.save_states[ident]=saves
+        saves={'pending':set(),'failed':False,'parser_pending':set(),'resume_errors':[],
+               'upload_data':None,'upload_requests':{},'upload_receipt':None};self.save_states[ident]=saves
         def relevant(request):
             import re
             return request.method in {'POST','PUT','PATCH'} and re.search('ApiSetFormValue|autosave|/draft',request.url,re.I)
         page.on('request',lambda r:saves['pending'].add(r) if relevant(r) else None)
-        def finished(request):saves['pending'].discard(request)
+        import re
+        resume_request=lambda r:bool(re.search(r'(?:pars|analy[sz]).*resume|resume.*(?:pars|analy[sz])|autofill',r.url,re.I))
+        page.on('request',lambda r:saves['parser_pending'].add(r) if resume_request(r) else None)
+        def upload_request(request):
+            data=saves['upload_data']
+            if not data or request.method not in {'POST','PUT','PATCH'}:return
+            try:body=request.post_data_buffer or b''
+            except Exception:return
+            import base64
+            match=('pdf_bytes' if data in body else 'pdf_base64' if base64.b64encode(data) in body
+                   else 'multipart_filename' if b'filename="'+saves['upload_name'].encode()+b'"' in body else None)
+            if match or resume_request(request):
+                saves.setdefault('upload_trace',[]).append({'body_bytes':len(body),
+                    'body_kind':'json' if body.lstrip().startswith(b'{') else 'multipart' if body.startswith(b'--') else 'binary',
+                    'filename_present':saves['upload_name'].encode() in body,'pdf_marker_present':b'%PDF-' in body,
+                    'request_match':match})
+                saves['upload_trace']=saves['upload_trace'][-20:]
+            if match:saves['upload_requests'][request]=match
+        page.on('request',upload_request)
+        # Chromium can omit multipart File bodies from passive CDP events.
+        # A temporary pass-through Fetch interception supplies those entries;
+        # fallback preserves other routes and never rewrites the request.
+        def upload_route(route):
+            upload_request(route.request)
+            route.fallback()
+        saves['upload_route']=upload_route
+        def finished(request):
+            saves['pending'].discard(request);saves['parser_pending'].discard(request)
+            saves['upload_requests'].pop(request,None)
         def failed(request):
             if relevant(request):saves['failed']=True
+            if resume_request(request) or request in saves['upload_requests']:saves['resume_errors'].append('network_error')
             finished(request)
         page.on('requestfinished',finished);page.on('requestfailed',failed)
         page.on('response',lambda response:saves.update(failed=True) if relevant(response.request) and response.status>=400 else None)
+        def upload_response(response):
+            match=saves['upload_requests'].get(response.request)
+            if (resume_request(response.request) or match) and response.status>=400:saves['resume_errors'].append(response.status)
+            if match and 200<=response.status<300:
+                saves['upload_receipt']={'name':saves['upload_name'],'sha256':saves['upload_sha256'],
+                                         'http_status':response.status,'request_match':match}
+        page.on('response',upload_response)
         return ident
 
     def select_page(self,ident):
@@ -147,6 +194,28 @@ class PlaywrightActions:
 
     @property
     def current_window_handle(self):return self.selected
+    @property
+    def resume_parsing(self):return bool(self.save_states.get(self.selected,{}).get('parser_pending'))
+    @property
+    def resume_upload_errors(self):return list(self.save_states.get(self.selected,{}).get('resume_errors',[]))
+    @property
+    def resume_upload_receipt(self):
+        state=self.save_states.get(self.selected,{})
+        value=state.get('upload_receipt')
+        return {**value,'buffer_verified':state.get('selected_upload_name')==value['name'] and
+                state.get('selected_upload_sha256')==value['sha256']} if value else None
+    @property
+    def resume_upload_trace(self):return list(self.save_states.get(self.selected,{}).get('upload_trace',[]))
+    def begin_resume_upload(self,data,name):
+        import hashlib
+        self.save_states[self.selected].update(resume_errors=[],upload_data=data,upload_name=name,
+            upload_sha256=hashlib.sha256(data).hexdigest(),upload_requests={},upload_receipt=None,
+            selected_upload_name=None,selected_upload_sha256=None,upload_trace=[])
+        self.page.route('**/*',self.save_states[self.selected]['upload_route'])
+    def end_resume_upload(self):
+        state=self.save_states[self.selected]
+        state['upload_data']=None
+        self.page.unroute('**/*',state['upload_route'])
     @property
     def window_handles(self):return [k for k,p in self.pages.items() if not p.is_closed()]
     @property

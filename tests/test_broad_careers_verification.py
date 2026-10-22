@@ -18,7 +18,7 @@ from test_job_pipeline_linkedin import NOW, FrozenDatetime, company, config, job
 
 class BroadVerificationTests(unittest.TestCase):
     def setUp(self):
-        for module in ("careers", "linkedin"):
+        for module in ("careers", "linkedin", "service"):
             frozen = patch("modules.job_pipeline." + module + ".datetime", FrozenDatetime)
             frozen.start()
             self.addCleanup(frozen.stop)

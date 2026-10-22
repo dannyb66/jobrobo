@@ -6,7 +6,7 @@
   const roles = [...document.querySelectorAll('article.role')];
   const labels = {applied:'Submitted', submission_uncertain:'Uncertain', submitting:'Submitting',
     duplicate:'Duplicate / reserved', awaiting_manual_submit:'Awaiting manual Submit',
-    awaiting_correction:'Needs correction', awaiting_review:'Awaiting review', not_started:'Not started'};
+    awaiting_correction:'Needs correction', awaiting_review:'Awaiting review', awaiting_email_verification:'Email verification required', not_started:'Not started'};
   const canonical = value => {
     const u = new URL(value); u.hash = '';
     u.pathname = u.pathname.replace(/\/$/, '');
@@ -52,7 +52,7 @@
     for (const attempt of history.attempts) {
       const item = document.createElement('li');
       item.append((labels[attempt.status] || attempt.status.replaceAll('_',' '))+' · ',link(attempt.run_id, attempt.progress_url),' · '+(attempt.updated_at || 'time unavailable'));
-      if (['submission_uncertain','submitting'].includes(attempt.status)) item.append(' · ',link('Inspect uncertain outcome', attempt.review_url));
+      if (['submission_uncertain','submitting','awaiting_email_verification'].includes(attempt.status)) item.append(' · ',link('Inspect uncertain outcome', attempt.review_url));
       if (attempt.report_url) item.append(' · ',link('Report', attempt.report_url));
       list.append(item);
     }
@@ -67,9 +67,9 @@
         mode.startsWith('status:') && h?.statuses.includes(mode.slice(7)) ||
         mode === 'submitted' && ['applied','duplicate'].includes(state) ||
         mode === 'uncertain' && h?.has_uncertain_attempts ||
-        mode === 'manual' && h?.statuses.some(s=>['awaiting_manual_submit','awaiting_correction','awaiting_review'].includes(s)) ||
+        mode === 'manual' && h?.statuses.some(s=>['awaiting_manual_submit','awaiting_correction','awaiting_review','awaiting_email_verification'].includes(s)) ||
         mode === 'not_started' && !h ||
-        mode === 'other' && h && !['applied','duplicate','submission_uncertain','submitting','awaiting_manual_submit','awaiting_correction','awaiting_review','pending'].includes(state);
+        mode === 'other' && h && !['applied','duplicate','submission_uncertain','submitting','awaiting_manual_submit','awaiting_correction','awaiting_review','awaiting_email_verification','pending'].includes(state);
       role.hidden ||= !match;
     }
     for (const group of document.querySelectorAll('[data-group]')) group.hidden = ![...group.querySelectorAll('.role')].some(r=>!r.hidden);

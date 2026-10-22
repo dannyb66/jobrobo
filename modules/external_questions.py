@@ -158,8 +158,10 @@ def collect_questions(fields):
 # These mappings use explicitly configured values, never inferred legal/personal facts.
 CANDIDATE_LABELS = {
     "first name": "first_name", "last name": "last_name", "full name": "full_name", "name": "full_name",
-    "email": "email", "email address": "email", "phone": "phone", "phone number": "phone",
+    "email": "email", "email address": "email", "your email": "email", "your email address": "email", "phone": "phone", "phone number": "phone",
     "linkedin": "linkedin", "linkedin profile": "linkedin", "linkedin url": "linkedin", "website": "website", "portfolio": "website", "github": "github",
+    "github profile": "github", "github profile url": "github", "github url": "github",
+    "full legal name": "full_name", "please state your full legal name": "full_name",
     "current city": "city", "city": "city", "street address": "street", "state": "state", "zip code": "zipcode", "postal code": "zipcode", "country": "country",
     "current employer": "current_employer", "most recent employer": "current_employer", "years of experience": "years_of_experience",
     "desired salary": "desired_salary", "salary expectations": "desired_salary", "notice period in days": "notice_period",
@@ -171,9 +173,13 @@ CANDIDATE_LABELS = {
 
 def _candidate_key(label):
     normalized = normalize_label(label)
-    key = CANDIDATE_LABELS.get(normalized)
+    key = CANDIDATE_LABELS.get(normalized) or (CANDIDATE_LABELS.get(normalized[5:]) if normalized.startswith('your ') else None)
     if key:
         return key
+    if re.fullmatch(r'(?:(?:please )?(?:state|enter|provide)|what is) (?:your )?(?:full )?legal name', normalized):
+        return 'full_name'
+    if re.fullmatch(r'(?:your )?github(?: profile)?(?: url| link)?', normalized):
+        return 'github'
     if normalized in {"will you require sponsorship", "do you require sponsorship", "do you require visa sponsorship", "will you now or in the future require sponsorship", "do you now or in the future require visa sponsorship"}:
         return "require_visa"
     if normalized in {"are you authorized to work in the us", "are you legally authorized to work in the us", "are you authorized to work in the united states", "are you legally authorized to work in the united states"}:

@@ -29,13 +29,22 @@
     window.__jobroboManualConfig=config;state.manualHandoff=config;
     state.manualEvent('handoff');return true;
   };
-  const submitBinding = button => JSON.stringify({
+  const captchaField = e => /^(?:g-recaptcha-response|h-captcha-response|cf-turnstile-response)$/.test(e.name);
+  const submitBinding = (button, skipCaptcha=false) => JSON.stringify({
     button: [button.type,button.textContent,button.getAttribute('aria-label')],
-    fields: [...(button.form||document).querySelectorAll('input,textarea,select,[role=combobox],[role=radio],[role=checkbox]')].map(e=>[
+    form: [button.form?.action,button.form?.method],
+    fields: [...(button.form||document).querySelectorAll('input,textarea,select,[role=combobox],[role=radio],[role=checkbox]')].filter(e=>!skipCaptcha||!captchaField(e)).map(e=>[
       e.name,e.id,e.type,e.value,e.checked,e.required,e.disabled,e.getAttribute('aria-checked'),e.getAttribute('data-value'),
       [...(e.files||[])].map(f=>[f.name,f.size,f.lastModified]),[...(e.options||[])].map(o=>[o.value,o.selected])]),
     jd: [...document.querySelectorAll('script[type="application/ld+json"]')].map(e=>e.textContent)
   });
+  const captchaReady = form => form && [...form.querySelectorAll('input,textarea')].some(e=>captchaField(e)&&!!e.value);
+  const continuationAllowed = form => {
+    const p=state.captchaContinuation;
+    return submissionMode && state.finalActivated && !state.finalSubmitConsumed && p && p.form===form &&
+      p.button.isConnected && Date.now()<p.until && captchaReady(form) && submitBinding(p.button,true)===p.binding;
+  };
+  const consumeFinal = () => {state.finalSubmitConsumed=true;state.allowedForm=null;state.captchaContinuation=null;};
   state.armSubmit = button => {
     if (!submissionMode || state.finalActivated || !button?.isConnected) return false;
     state.finalControl = button; state.finalBinding = submitBinding(button); return true;
@@ -57,6 +66,23 @@
   const text = e => (e.innerText || e.textContent || e.value || e.getAttribute('aria-label') || '').trim();
   const next = /^(next|continue|review|review application|save and continue|continue application)(\s*[→›»])?$/i;
   const final = /submit|send application|finish|complete application|apply now|^apply$/i;
+  state.armNext = button => {
+    if(!button?.isConnected||!next.test(text(button)))return false;
+    const form=button.form;
+    // A native/server-action transition may POST only to the observed current
+    // step. A different endpoint needs explicit adapter support.
+    const action=form?new URL(form.action||location.href,location.href):null;
+    if(form&&(action.origin!==location.origin||action.pathname!==location.pathname))return false;
+    state.nextControl=button;
+    state.nextPermit=form?{form,action:form.action,method:form.method,binding:submitBinding(button)}:null;
+    return true;
+  };
+  const consumeNext = (form, button) => {
+    const p=state.nextPermit;
+    if(!p||p.form!==form||button!==state.nextControl||!next.test(text(button))||
+       form.action!==p.action||form.method!==p.method||submitBinding(button)!==p.binding)return false;
+    state.nextControl=null;state.nextPermit=null;state.actions.push('next-transition');return true;
+  };
   state.captureUpload = e => {
     if (e.target !== state.uploadControl || e.target.type !== 'file') return;
     state.uploads = [...e.target.files].map(file => {
@@ -73,10 +99,14 @@
       state.manualPermit=false;state.actions.push('manual-submit-event');return;
     }
     if (submissionMode && state.finalActivated && state.allowedForm === e.target) {
-      state.allowedForm = null; state.actions.push('final-submit-event'); return;
+      consumeFinal(); state.actions.push('final-submit-event'); return;
+    }
+    if(continuationAllowed(e.target)){
+      consumeFinal();state.actions.push('captcha-submit-continuation');return;
     }
     if (e.submitter && e.submitter === state.nextControl && next.test(text(e.submitter))) {
-      // Permit the site's client-side Next handler, never native form POST.
+      if(consumeNext(e.target,e.submitter))return;
+      // Legacy/client-only permission cannot authorize a native POST.
       e.preventDefault(); state.nextControl = null; state.actions.push('next-handler'); return;
     }
     e.preventDefault(); e.stopImmediatePropagation(); state.blocked.push('submit-event');
@@ -99,9 +129,15 @@
     }
     if (submissionMode && b && b === state.finalControl && !state.finalActivated && submitBinding(b)===state.finalBinding) {
       state.finalControl=null; state.finalActivated=true; state.allowedForm=b.form;
+      // Solvers may finish well after the original click. Some portals then
+      // click a hidden native submit control. Permit that continuation once,
+      // only for this form with its non-CAPTCHA answers still unchanged.
+      if(b.form&&[...b.form.querySelectorAll('input,textarea')].some(captchaField))
+        state.captchaContinuation={form:b.form,button:b,binding:submitBinding(b,true),until:Date.now()+600000};
       state.actions.push('final-activation');
       setTimeout(()=>{state.allowedForm=null},1000); return;
     }
+    if(b && b.type==='submit' && continuationAllowed(b.form))return;
     if (b && b === state.choiceControl && b.matches('button[aria-pressed][data-option]') && /^(yes|no)$/.test(b.dataset.option)) {
       e.preventDefault(); state.choiceControl = null; state.actions.push('choice-handler'); return;
     }
@@ -113,16 +149,19 @@
   // Block both native methods, which otherwise bypass the submit event.
   const nativeSubmit = HTMLFormElement.prototype.submit;
   HTMLFormElement.prototype.submit = function() {
+    if(state.nextControl&&consumeNext(this,state.nextControl))return nativeSubmit.call(this);
     if(submissionMode && state.manualHandoff && state.manualPermit){state.manualPermit=false;return nativeSubmit.call(this);}
     if (submissionMode && state.finalActivated && state.allowedForm === this) {
-      state.allowedForm=null; return nativeSubmit.call(this);
+      consumeFinal(); return nativeSubmit.call(this);
     }
+    if(continuationAllowed(this)){consumeFinal();state.actions.push('captcha-submit-continuation');return nativeSubmit.call(this);}
     state.blocked.push('form.submit');
   };
   const requestSubmit = HTMLFormElement.prototype.requestSubmit;
   HTMLFormElement.prototype.requestSubmit = function(submitter) {
     if(submissionMode && state.manualHandoff && state.manualPermit)return requestSubmit.call(this,submitter);
     if (submissionMode && state.finalActivated && state.allowedForm === this) return requestSubmit.call(this, submitter);
+    if(continuationAllowed(this))return requestSubmit.call(this,submitter);
     if (submitter && submitter === state.nextControl && next.test(text(submitter))) return requestSubmit.call(this, submitter);
     state.blocked.push('form.requestSubmit');
   };

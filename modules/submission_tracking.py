@@ -15,8 +15,8 @@ from .direct_careers_apply import write_json
 from .search_history import file_lock
 
 REPO = Path(__file__).resolve().parents[1]
-UNCERTAIN = {'submission_uncertain', 'submitting'}
-MANUAL = {'awaiting_manual_submit', 'awaiting_correction', 'awaiting_review'}
+UNCERTAIN = {'submission_uncertain', 'submitting', 'awaiting_email_verification'}
+MANUAL = {'awaiting_manual_submit', 'awaiting_correction', 'awaiting_review', 'awaiting_email_verification'}
 EXCLUDED = {'applied', 'duplicate', *UNCERTAIN}
 BEGIN = '<!-- jobrobo-submission-tracking:start -->'
 END = '<!-- jobrobo-submission-tracking:end -->'
@@ -97,7 +97,7 @@ def aggregate(runs):
         attempts.sort(key=lambda a: (a.get('updated_at', ''), a['run_id']), reverse=True)
         states = {a['status'] for a in attempts}
         # A later failed or pending fresh run cannot erase a confirmed result.
-        status = ('applied' if 'applied' in states else 'submission_uncertain' if states & UNCERTAIN
+        status = ('applied' if 'applied' in states else 'awaiting_email_verification' if 'awaiting_email_verification' in states else 'submission_uncertain' if states & UNCERTAIN
                   else 'duplicate' if 'duplicate' in states else next((a['status'] for a in attempts if a['status'] != 'pending'), 'pending'))
         output[url] = {'status': status, 'statuses': sorted(states), 'exclude_from_remaining': status in EXCLUDED,
                        'has_uncertain_attempts': bool(states & UNCERTAIN), 'attempts': attempts}

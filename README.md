@@ -258,8 +258,9 @@ untested list. Neither filename changes submission behaviour. Shell variable
 names are case-sensitive: use lowercase `"$roles"` consistently.
 
 For a fixed cross-provider sample from the current Task 1 remaining shortlist,
-use [`jobs-validation.txt`](jobs-validation.txt) or
-[`jobs-validation.json`](jobs-validation.json). The ten-case sample covers
+use [`jobs-validation.txt`](jobs-validation.txt) or the local
+`jobs-validation.json` metadata file. The metadata JSON is kept private because
+it contains original scraped descriptions and source data. The ten-case sample covers
 Ashby, Lever, Greenhouse and one generic entry. See the
 [manual validation commands, coverage limits and feedback plan](docs/manual-validation-run.md).
 
@@ -324,6 +325,17 @@ mean an application was submitted. Employer confirmation, including Ashby's
 success banner, establishes `applied`. An unconfirmed possible activation stays
 `submission_uncertain` without an automatic second click.
 
+Some portals complete a solved challenge by clicking a hidden submit control or
+calling the native form method. That single continuation is allowed only for the
+original validated form, with a response token and unchanged application answers.
+A second final activation remains blocked. Solver readiness and employer
+submission confirmation are tracked separately.
+
+A third-party application service may accept a request into its own queue and
+promise to submit later. The run records `external_submission_pending` under
+`submission_uncertain`, protects that attempt on resume, and waits for evidence
+of employer submission before treating it as applied.
+
 `config/browser_runtime.json` controls backend, stealth/headless settings,
 challenge/session timeouts and optional Kernel profile/proxy settings. Use
 `--browser-config PATH` for another file. `--chrome-profile` applies to local
@@ -339,6 +351,9 @@ specific run, copy the actual directory printed by that command:
 RUN_DIR='/absolute/path/printed/by/the/run'
 python3 direct_apply.py status --run "$RUN_DIR"
 python3 direct_apply.py submit --resume "$RUN_DIR"
+
+# Retry only eligible failures proven to have occurred before Submit, in that run.
+python3 direct_apply.py submit --resume "$RUN_DIR" --retry-failed
 
 # Start a fresh run from that run's retry inventory.
 python3 direct_apply.py submit --input "$RUN_DIR/retry.json" --pause-before-submit always
@@ -359,9 +374,15 @@ Each run saves `progress.json`, `events.jsonl`, `applications.json`, its own
 ledger/state database, preparation reports, `retry.json`/`retry.txt`,
 `needs-review.json` and manual-review files. `applied` means confirmed;
 `awaiting_manual_submit` needs your click; `awaiting_correction` needs edits;
+`awaiting_email_verification` retains the original tab for your emailed code;
 `submission_uncertain` needs outcome inspection. Failed pre-submit work is kept
 for retry. `--run-dir` optionally selects a destination; an existing destination
 gets a unique sibling rather than being overwritten.
+
+Email verification is separate from CAPTCHA solving. Automatic mode continues
+other jobs and retains verification tabs without replaying Submit. Explicit
+resume reconnects those tabs. `--retry-failed` requires `--resume` and leaves
+confirmed and possibly submitted attempts protected.
 
 ### Task 1 tracking, profile answers and resume settings
 
@@ -388,6 +409,29 @@ first-option fallback handles otherwise unanswered choices; DEI questions use
 the last available refusal/None option. AI drafts descriptive answers when
 enabled; missing free-text personal facts remain unresolved. `unknown` mode flags
 first-option and AI answers for manual review.
+
+Job-URL submissions can additionally read a private JSON profile from
+`~/.jobrobo/direct-submit-profile.json`, selected by
+`direct_submit_profile_path` in `config/settings.py`. Supported keys are `email`
+and `signature_date_policy`. An explicit email override replaces older resume
+autofill for this workflow. With `"signature_date_policy": "completion_date"`,
+recognized application signature dates use the machine's local completion date
+(ISO for date controls, MM/DD/YYYY for text controls). Birth, employment and
+unidentified dates still require their own answers. The same date policy can
+be set in the private question JSON for both `prepare` and `submit`; it is
+configured there locally too. These submit-profile overrides apply to
+new preparation within `submit`, including resumed pending jobs; they do not
+change LinkedIn settings, historical submissions or pending verification emails.
+
+After resume upload, the runner waits within a bounded budget for parsing and
+preserves valid populated fields. It rechecks fields before writing and verifies
+committed autocomplete choices after selection. Changed posting identities stop
+before applicant data is entered. Kernel diagnostics store bounded error
+categories and sanitized request paths, excluding request bodies and query strings.
+Location controls use country context when they describe eligible countries;
+phone readback accepts formatting while preserving the supplied digits. Resume
+analysis can take up to the bounded processing budget; a service error is saved
+as a pre-submit failure rather than an accepted attachment or application.
 
 Direct applications share LinkedIn's optimizer JSON at
 `~/Library/Application Support/jobrobo/config/resume_optimizer_defaults.json`,

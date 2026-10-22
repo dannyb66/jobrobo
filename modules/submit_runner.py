@@ -17,6 +17,93 @@ from .search_history import file_lock
 from .submit_state import SubmitRun, now
 
 
+def requeue_failed(run, ledger):
+    """Explicitly retry only failures with durable evidence of no submission."""
+    count=0
+    for job,state in run.rows():
+        if (state['status'] in {'blocked','failed_before_submit','interrupted_before_submit','deferred'}
+                and state.get('retryable') and not ledger.protected(job['url'])):
+            run.update(job,status='pending',stage='explicit_retry_before_submit',retryable=False,reason='',
+                       previous_failure={'status':state['status'],'stage':state['stage'],'reason':state.get('reason')})
+            count+=1
+    return count
+
+
+def submit_profile(services, path):
+    """Apply private profile overrides to URL submissions only, never LinkedIn."""
+    if not path or not Path(path).expanduser().is_file():return services
+    import re
+    private=json.loads(Path(path).expanduser().read_text())
+    if not isinstance(private,dict) or set(private)-{'email','signature_date_policy'}:
+        raise ValueError('Unsupported direct submit profile setting')
+    email=private.get('email')
+    if email is not None and (not isinstance(email,str) or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email)):
+        raise ValueError('Direct submit profile needs a valid email address')
+    policy=private.get('signature_date_policy')
+    if policy not in {None,'completion_date'}:
+        raise ValueError('Signature date policy must be completion_date')
+    result={**services,'candidate':deepcopy(services['candidate']),'question_config':deepcopy(services['question_config'])}
+    if email is not None:
+        result['candidate']['email']=email
+        result['question_config'].setdefault('candidate',{})['email']=email
+        result['question_config']['replace_prefilled_candidate_keys']=['email']
+    if policy is not None:
+        result['question_config']['signature_date_policy']=policy
+    result['profile_hash']=fingerprint({'candidate':result['candidate'],'questions':result['question_config']})
+    return result
+
+
+def recover_verification_tabs(driver, run, ledger):
+    """Inspect an existing uncertain tab without repeating any employer action."""
+    from .generic_prepare import email_verification_required
+    from .generic_submit import _identity_ok, external_dispatch_pending
+    from .external_apply import _confirmed, ExternalApplicationResult
+    for job,state in run.rows():
+        if state['status']!='submission_uncertain' or not state.get('tab_handle') or not state.get('preparation_report'):
+            continue
+        try:
+            driver.switch_to.window(state['tab_handle'])
+            browser=SubmissionBrowser(driver)
+            live=browser.read()
+            report=json.loads(Path(state['preparation_report']).read_text())
+            if not _identity_ok(live['url'],report['resolved_url']):continue
+            baseline=report.get('confirmation_baseline')
+            if baseline is None:baseline=[h for step in report.get('steps',[]) for h in step.get('headings',[])]
+            fresh={**live,'headings':[h for h in live.get('headings',[]) if h not in baseline]}
+            if external_dispatch_pending(fresh):
+                reason='Application service accepted the request; employer submission is still pending'
+                run.update(job,status='submission_uncertain',stage='external_submission_pending',retryable=False,
+                    external_submission_pending=True,reason=reason)
+                report.update(status='submission_uncertain',external_submission_pending=True,blockers=[reason])
+                write_json(Path(state['preparation_report']),report)
+                continue
+            if _confirmed(fresh) and not live.get('challenge'):
+                outcome=ExternalApplicationResult('applied',job['url'],attempt_id=state['attempt_id'],
+                    resume_name=report['attachment']['name'],resume_sha256=report['resume']['pdf_sha256'],
+                    submitted_at=now(),reason='Employer confirmation observed on retained attempt tab')
+                ledger.record_aliases(outcome,report.get('posting_aliases',[job['url'],report['resolved_url']]),job['id'])
+                run.update(job,status='applied',stage='retained_confirmation',confirmation_verified=True,
+                    submitted_at=outcome.submitted_at,retryable=False)
+                report.update(status='applied',confirmation_verified=True,confirmation_observed_at=now())
+                write_json(Path(state['preparation_report']),report)
+                continue
+            if not email_verification_required(live):continue
+            info={'target_id':state['tab_handle'],'token':state['attempt_id'],
+                'aliases':report.get('posting_aliases',[job['url'],report['resolved_url']]),
+                'resolved_url':report['resolved_url'],'form_url':live['url'],
+                'baseline':live.get('headings',[])+live.get('alerts',[]),
+                'resume_name':report['attachment']['name'],'resume_sha256':report['resume']['pdf_sha256'],
+                'report_path':state['preparation_report'],'activations':1,'initially_complete':True,
+                'verification_after_submit':True}
+            run.update(job,status='awaiting_email_verification',stage='email_verification',manual_tab=info,
+                verification_after_submit=True,retryable=False,reason='Retained tab requires email verification; original Submit is not replayed')
+            report.update(status='awaiting_email_verification',verification_after_submit=True)
+            write_json(Path(state['preparation_report']),report)
+        except Exception:
+            # Unavailable tabs stay protected uncertain; never create a new one.
+            continue
+
+
 def reconcile_run(directory, job_id, *, outcome, reason):
     """An explicit operator attestation resolves uncertainty without a browser."""
     if outcome not in {'applied','not-submitted'} or not reason or not reason.strip():
@@ -119,12 +206,14 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     review_factory=None, allow_local=False, confirmation_timeout=30,
                     tab_monitor_factory=ManualTabs,
                     preparer=prepare_url, set_name=None, export_path=None, db_path=None,
-                    browser_backend=None,browser_config=None):
+                    browser_backend=None,browser_config=None,retry_failed=False):
     """Each normal invocation is independent; explicit resume retains its own state."""
     if pause is not None and pause not in {'always', 'unknown', 'never'}:
         raise ValueError('Invalid pause mode')
     if resume_dir and (jobs is not None or run_dir):
         raise ValueError('Resume takes its jobs and run directory from saved state')
+    if retry_failed and not resume_dir:
+        raise ValueError('Retrying failures requires an explicit saved run')
     if resume_dir:
         directory, run_id = Path(resume_dir).expanduser().resolve(), None
     else:
@@ -190,9 +279,15 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                 print('Submit uses its run-owned ledger; the supplied --ledger is not used for cross-run blocking.', flush=True)
             print('Optional resume: python3 direct_apply.py submit --resume '+shlex.quote(str(directory)), flush=True)
             print('Pause before submit: '+options['pause'], flush=True)
-            if all(state['status'] in {'applied','discarded','duplicate','blocked','failed_before_submit','deferred','submission_uncertain'} for _,state in run.rows()):
+            ledger = ExternalApplicationLedger(options['ledger_path'])
+            if retry_failed:
+                print('[Resume] Requeued '+str(requeue_failed(run,ledger))+' eligible failures; confirmed jobs remain skipped.',flush=True)
+            if all(state['status'] in {'applied','discarded','duplicate','blocked','failed_before_submit','deferred'} for _,state in run.rows()):
                 return run.export()
             svc = services or preparation_services(config_dir=options['config_dir'], questions_path=options['questions_path'], discovery_source=options['discovery_source'])
+            if services is None:
+                private=literal_config(Path(options['config_dir'])/'settings.py').get('direct_submit_profile_path')
+                svc=submit_profile(svc,private)
             ledger = ExternalApplicationLedger(options['ledger_path'])
             driver_factory_is_default = driver_factory is None
             if driver_factory is None:
@@ -203,14 +298,15 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     from direct_apply import browser_factory
                     profile = options['chrome_profile'] or directory/'chrome-profile'
                     driver_factory = browser_factory(profile, debugger_address=options.get('debugger_address'))
-            if resume_dir and any(s.get('manual_tab') and s['status'] in {'awaiting_manual_submit','awaiting_correction','submitting'} for _,s in run.rows()):
+            if resume_dir and any(s['status'] in {'awaiting_manual_submit','awaiting_correction','submitting','awaiting_email_verification','submission_uncertain'} for _,s in run.rows()):
                 try:
                     driver=driver_factory()
+                    recover_verification_tabs(driver,run,ledger)
                     manual_tabs=tab_monitor_factory(driver,run,ledger,allow_local=allow_local,confirmation_timeout=confirmation_timeout)
                     manual_tabs.restore()
                 except Exception:
                     for job,state in run.rows():
-                        if state.get('manual_tab') and state['status'] in {'awaiting_manual_submit','awaiting_correction','submitting'}:
+                        if state.get('manual_tab') and state['status'] in {'awaiting_manual_submit','awaiting_correction','submitting','awaiting_email_verification'}:
                             run.update(job,status='submission_uncertain',stage='manual_browser_unavailable',retryable=False,
                                 reason='Prior browser unavailable; inspect manual employer outcome before retrying')
                     if driver:
@@ -230,7 +326,7 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                 if saved['status'] in {'applied', 'discarded', 'duplicate', 'blocked', 'failed_before_submit', 'deferred'}:
                     continue
                 if saved['status'] in {'submission_uncertain', 'submitting'}:
-                    run.update(job, status='submission_uncertain', stage='resume_reconciliation', retryable=False)
+                    run.update(job, status='submission_uncertain', stage='external_submission_pending' if saved.get('external_submission_pending') else 'resume_reconciliation', retryable=False)
                     continue
                 if ledger.protected(job['url']):
                     prior = ledger._read().get(job['key'], {})
@@ -244,12 +340,12 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     run.update(job, status='blocked', stage='input_admission', reason='; '.join(blockers), retryable=False)
                     continue
                 cap = options['max_applications']
-                if cap is not None and sum(s['status'] in {'applied','submitting','submission_uncertain','awaiting_manual_submit','awaiting_correction'} for _, s in run.rows()) >= cap:
+                if cap is not None and sum(s['status'] in {'applied','submitting','submission_uncertain','awaiting_manual_submit','awaiting_correction','awaiting_email_verification'} for _, s in run.rows()) >= cap:
                     print('Configured submission cap reached; remaining jobs saved.', flush=True)
                     break
                 attempt = str(uuid.uuid4())
                 started = time.monotonic()
-                run.update(job, status='preparing', stage='starting', attempt_id=attempt, attempts=saved.get('attempts', 0)+1)
+                run.update(job, status='preparing', stage='starting', attempt_id=attempt, attempts=saved.get('attempts', 0)+1,reason='')
                 print(f"[{index}/{total}] {job.get('company','')} {job.get('title') or job['url']}", flush=True)
                 if job.get('preference_warnings'):
                     print('[Input] Candidate preference warnings: '+', '.join(map(str,job['preference_warnings'])),flush=True)
@@ -297,20 +393,36 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     aliases = report.get('posting_aliases', [job['url'],report.get('resolved_url',job['url'])])
                     states = [snapshot.get(ledger.target_key(u),{}) for u in aliases]
                     stored = next((s for s in states if s.get('status')=='applied'), next((s for s in states if s.get('status')=='submitting'),{}))
-                    if report.get('manual_handoff'):
+                    if report['status']=='awaiting_email_verification':
+                        saved_verification=next(s for j,s in run.rows() if j['key']==job['key'])
+                        if not saved_verification.get('manual_tab'):
+                            final=report.get('final_state') or {}
+                            resolved=report.get('resolved_url',job['url'])
+                            info={'target_id':driver.current_window_handle,'token':attempt,'aliases':list(dict.fromkeys([job['url'],resolved])),
+                                'resolved_url':resolved,'form_url':final.get('url',resolved),'baseline':final.get('headings',[]),
+                                'resume_name':report.get('attachment',{}).get('name',''),'resume_sha256':report.get('resume',{}).get('pdf_sha256',''),
+                                'report_path':str(Path(report['output_dir'])/'report.json'),'activations':0,'initially_complete':False,
+                                'verification_after_submit':False}
+                            run.update(job,status='awaiting_email_verification',stage='email_verification',manual_tab=info,retryable=False)
+                        if manual_tabs is None:
+                            manual_tabs=tab_monitor_factory(driver,run,ledger,allow_local=allow_local,confirmation_timeout=confirmation_timeout)
+                        manual_tabs.restore()
+                    elif report.get('manual_handoff'):
                         pass  # Its reserved claim is awaiting a human, not an uncertain automatic click.
                     elif stored.get('status') == 'applied':
                         run.update(job,status='applied' if stored.get('attempt_id')==attempt else 'duplicate',stage='confirmed',submitted_at=stored.get('submitted_at'),retryable=False)
                     elif stored.get('status') == 'submitting' and stored.get('attempt_id')!=attempt and any(s.get('attempt_id')==stored.get('attempt_id') and s['status'] in {'awaiting_manual_submit','awaiting_correction'} for _,s in run.rows()):
                         run.update(job,status='duplicate',stage='reserved_manual_tab',retryable=False,duplicate_source='run_ledger')
                     elif stored.get('status') == 'submitting':
-                        run.update(job,status='submission_uncertain',stage='confirmation_required',retryable=False)
+                        run.update(job,status='submission_uncertain',stage='external_submission_pending' if report.get('external_submission_pending') else 'confirmation_required',retryable=False,
+                                   **({'external_submission_pending':True,'reason':'; '.join(report.get('blockers',[]))} if report.get('external_submission_pending') else {}))
                     elif report['status']=='duplicate':
                         run.update(job,status='duplicate',stage='portal_duplicate' if report.get('portal_duplicate_verified') else 'protected_posting',
                             duplicate_source='portal' if report.get('portal_duplicate_verified') else 'run_ledger',retryable=False)
                     elif report['status'] not in {'applied', 'awaiting_review', 'deferred'}:
                         retryable = bool(report.get('pre_submit_retryable')) or report['status'] in {'failed','blocked','interrupted'} and not any(
                             phrase in ' '.join(report.get('blockers',[])).lower() for phrase in ('captcha','manual access','closed','unsupported','login'))
+                        if report.get('access_outcome')=='posting_identity_changed':retryable=False
                         run.update(job, status='failed_before_submit' if report['status']=='failed' else 'blocked',
                             stage='portal_validation_rejected' if report.get('portal_validation_rejected') else 'captcha_timeout_before_submit' if report.get('pre_submit_retryable') and any('CAPTCHA timeout' in b for b in report.get('blockers',[])) else 'preparation_finished',
                             reason='; '.join(report.get('blockers',[])), retryable=retryable)
@@ -336,13 +448,20 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                         driver=None
                 finally:
                     application_export(run, set_name=set_name, output=export_path, db_path=db_path)
-            if manual_tabs:
+            if driver is not None:
+                # Late employer responses may arrive while later jobs fill.
+                # Inspect retained attempts once more; never replay Submit.
+                recover_verification_tabs(driver,run,ledger)
+            if manual_tabs and options['pause']!='never':
                 def checkpoint():
                     application_export(run,set_name=set_name,output=export_path,db_path=db_path)
                 try:manual_tabs.wait(checkpoint)
                 except KeyboardInterrupt:
                     manual_tabs.poll()
                     print('[Submit] Saved. Chrome tabs remain open; use the printed resume command to reconnect.',flush=True)
+            elif manual_tabs:
+                manual_tabs.poll()
+                print('[Submit] Verification tabs retained. Complete email verification there, then resume this run; no original Submit is replayed.',flush=True)
             return run.export()
         finally:
             try:

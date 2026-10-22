@@ -1,7 +1,97 @@
 # Current validation audit and implementation plan
 
-Status: **investigation verified; production fixes not applied**. The submission
-process and its tabs were not changed by either read-only audit.
+Status: **shared fixes verified; six employer confirmations and four external gates**. The original audits
+below remain historical evidence. Subsequent user-authorized implementation and
+submission recovery are recorded separately here.
+
+## Implementation update, 22 October 2026
+
+The shared engine now preserves valid resume autofill, rereads fields before
+writing, checks committed asynchronous location selections, maps GitHub/legal-name
+variants, reports exact required blockers, and stops initial posting identity
+changes before applicant data is entered. Intermediate native POST/React
+Continue steps receive a single form-bound permission; final Submit remains
+separately guarded. Named referrals require supplied facts rather than AI prose.
+Live follow-up also identified country-only location semantics, formatted phone
+readback, a missing “Your full name” alias, and a resume-analysis service failure.
+Country context and phone formatting now resolve through shared rules rather
+than employer-specific answers. Resume analysis has a bounded wait and surfaces
+HTTP failures without claiming that an unverified file was accepted.
+
+The Lever follow-up uses the same Kernel stealth/solver configuration as the
+successful Ashby cases. The user confirmed hCaptcha beta is already enabled.
+Lever's public client invokes a hidden native submit after its asynchronous
+hCaptcha callback; a retained Shield AI guard also recorded a blocked
+`form.submit`. A local delayed-callback fixture reproduced that incompatibility.
+The final guard now permits one solver continuation for the original validated
+form, with an actual response token and unchanged non-CAPTCHA answers. It does
+not issue a second automated final click or infer application success from a
+solver event. Changed answers, another form and preparation mode stay blocked.
+
+The verified generic replacement now completes its form and reaches the
+service's same-application success route. The uploaded bytes were observed in
+the multipart request and acknowledged with HTTP 200 after auto-advance. Its
+actual message is “You're in the queue” and promises employer submission within
+24 hours. That remains `submission_uncertain` with stage
+`external_submission_pending`; it is not counted as employer-confirmed applied,
+and is not replayed on resume. The shared detector distinguishes a queued
+intermediary handoff from an employer success message.
+
+Email verification has a durable `awaiting_email_verification` state. Resume
+reconnects the existing tab without replaying its original Submit. Automatic
+mode continues the remaining batch and retains the verification tab. Explicit
+`--retry-failed` retries only eligible pre-submit failures within a saved run.
+Kernel cursors use API-provided offsets; bounded diagnostics omit query strings,
+request bodies and raw error messages. Retained-tab reconnect avoids installing
+a binding across every existing frame.
+Fresh declared application-success containers are recognized even when an
+employer customizes its wording. Pre-existing messages and upload-only success
+labels cannot establish a new application. Retained uncertain attempts are
+inspected again at batch end without replaying Submit.
+
+The six independently confirmed applications are preserved and skipped. The
+Baton Data Platform verification remains pending by explicit user direction.
+The mismatched CareerJumpShip IT Engineer case is retired before Submit with its
+original input/history preserved. A separately verified Ondo Finance DevOps
+posting replaces it with user approval. There are ten active cases plus the
+retired audit row; `active_total` and `active_counts` distinguish these.
+
+Future URL-submit preparation reads optional private profile overrides. The
+latest contact override applies only to this workflow. The user also explicitly
+approved `signature_date_policy=completion_date`: signature dates use the local
+completion date, while birth, employment and unidentified dates remain separate.
+DEI opt-out policy is unchanged. Historical submissions and verification emails
+are not rewritten.
+
+Final checks: the fresh full suite passed **1,493 tests, 61 skipped**; the
+focused provider/submission/browser matrix passed **117 tests, 18 skipped**;
+**36 final confirmation contracts** passed after the last reporting changes.
+These checks cover delayed autofill, location commitment, phone formatting,
+scoped Continue, matching upload responses, delayed CAPTCHA callbacks, unchanged
+form bindings, OTP recovery and stale-message rejection.
+
+The ten active live cases now have observed outcomes: **six employer-confirmed,
+two unconfirmed Lever hCaptcha attempts, one Baton email-verification hold and
+one intermediary queued handoff**. Both Lever cases were retried with the same
+Kernel stealth/solver settings used for the working Ashby cases. Their challenge
+UI closed without a response token or employer confirmation; the new continuation
+was armed and not consumed. Instrumentl had no blocked guard actions. Shield's
+native-method block was already present during filling, before final activation;
+it does not establish that a post-activation continuation was blocked.
+The hCaptcha beta is enabled per the user; no missing-account-setup conclusion
+is drawn. CAPTCHA/system queries returned no events and Chromium logs were
+unavailable, so provider-side success or failure cannot be independently inferred.
+
+The approved generic replacement reached a service queue that promises submission
+within 24 hours, not a confirmed employer receipt. It remains protected pending.
+The Baton OTP remains untouched by explicit user direction. No repeat final click
+was made for an uncertain attempt. Private `validation-outcomes.json`, refreshed
+`already-applied.txt`, `remaining-cases.txt` and a factual Kernel evidence note
+are under `logs/direct_submit_validation/20261021/fixes/`. The remaining-case list
+is for inspection; run-owned `retry.txt` excludes these protected outcomes.
+There is **no claim of ten successful employer submissions**.
+
+## Historical audit
 
 Run: `8afd5714-14e2-442f-a65d-9413428932e4`.
 Kernel session: `njgykc7g2g41t2mpz3ig38ly`.
@@ -31,8 +121,9 @@ was an intermediate observation, superseded by the completed batch below.
 
 ### Updated bug register
 
-All fixes below remain **proposed**, not deployed. P0 is the first implementation
-priority; it does not mean that another application was submitted during this audit.
+The following was the **proposed** bug register at audit time. Implementation
+and rerun status are described above. Priority does not imply that another
+application was submitted during the audit.
 
 | ID / priority | Bug and evidence | Proposed fix | Required verification |
 | --- | --- | --- | --- |
@@ -241,7 +332,8 @@ cases individually with preparation or retained manual tabs, followed by the
 same ten-case matrix. Required pass conditions: no preserved-value overwrite,
 correct role identity, specific blockers, working vetted intermediate navigation,
 resumable OTP handoff, and `applied` only after posting-scoped employer success.
-The audited run is not hot-patched or automatically resubmitted by this plan.
+The original read-only audit made no employer actions. Subsequent authorized
+retries and their actual outcomes are recorded in the implementation update above.
 
 ## Evidence
 
