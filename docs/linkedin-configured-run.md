@@ -94,8 +94,8 @@ personal answers are recorded as blockers and the test continues after cleanup.
 Set `references` in `config/personals.py` to your reusable professional-reference
 text, including names, relationships and the contact details you want supplied.
 Native reference textareas use that value. An empty setting cannot supply a
-required reference answer; normal runs can request manual correction, while
-preparation-only runs record the missing data. Existing filled text is preserved
+required reference answer; the current Easy Apply runner retains an unresolved application for retry
+without a Help Needed popup; preparation-only runs record the missing data too. Existing filled text is preserved
 unless a configured replacement is available and overwriting is enabled.
 
 `test_references` contains clearly labeled synthetic data and is available only
@@ -148,10 +148,12 @@ enabling optimization uses a separate optimizer/key path and can incur API cost.
 Changing optimizer defaults alone does not enable resume optimization. Keep
 local credentials out of chat, screenshots, commits and command arguments.
 
-Use `pause_before_submit=True`, `pause_at_failed_question=True`,
+The local `pause_before_submit` is currently `False`. For a reviewed run, use
+`pause_before_submit=True`, `pause_at_failed_question=True`,
 `run_in_background=False` and `run_non_stop=False` for a reviewed finite test.
 `max_applications_per_run` caps confirmed submissions across all queries/cycles;
-the default is one. A cap permits that many submissions, so it is not a no-submit
+the current `config/search.py` value is `50`. `switch_number=10` is the
+per-query quota, overridden by explicit lane quotas such as the manual lane's `quota=1`. A cap permits that many submissions, so it is not a no-submit
 guard. The ordinary pause dialog can disable pauses; do not disable it before
 answers and attachments have been reviewed. Legacy background mode disables pauses.
 
@@ -167,18 +169,38 @@ closed roles or unexpected destinations. Preserve logs under `logs/search_runs`
 and the configured CSV history. Do not infer submission from entering a form or
 reaching its review screen.
 
-## Saved-job validation evidence (2026-10-15)
+## Optimizer settings and current dialog recovery
 
-A submission-disabled replay tested 23 unique saved URLs: 22 reached enabled
-Submit and discarded cleanly. The initial batch had 18 ready and five failures;
-a failed-only follow-up recovered four. One direct posting lacked the employer
-identity hook required by the bounded modern reader and was blocked before
-form entry. Application history remained unchanged and no applications were
-submitted. This does not establish that live submission succeeded.
+The saved optimizer JSON at
+`~/Library/Application Support/jobrobo/config/resume_optimizer_defaults.json`
+overrides bundled defaults. It is shared with direct employer preparation.
+Current saved settings use all-bullets `full` mode, `synthetic_jd_test`, source
+checks disabled, original-bullet fallback enabled, `gpt-6-luna` with reasoning
+`none`, four workers/four-bullet batches, company context and Skills width packing.
+These are dated local choices, not universal defaults. See the
+[Task 11 option table and policy distinctions](TASK11-README.md#current-optimizer-options).
 
-The isolated publishing suite passed 817 offline tests. It covers later-job
-resume attachment for AI prose and verified cleanup after normal form failures.
-Private per-job evidence and retry URLs remain under ignored `logs/` paths.
+The application step optimizes once, verifies that PDF for the current
+job/JD/source/config, uploads it, reacquires rerendered controls, and handles
+Next pages before Review and Submit. Explicit original-bullet fallback can
+qualify a fully verified combined PDF; it does not authorize uploading the
+entire original PDF after an all-bullets generation failure. Progress logs show
+API waits, provisional bullet counts, rendering, verification and upload, with
+a heartbeat every 15 seconds while waiting.
+
+Recognized match warnings use **Continue applying**, including link controls.
+After a confirmed submission, the optional resume-to-profile promotion uses
+**Not now**, including the variant saying the application is in the Applied tab.
+It does not click Update profile. Unknown blocking dialogs remain blockers;
+the runner does not blindly select the rightmost action. Recoverable job failures
+remain pending/retryable and other work continues only after verified cleanup.
+
+Confirmation is saved before optional dialog cleanup. If cleanup still blocks,
+the run can stop with `post_submit_ui_blocked` while the job remains `applied`.
+Close the old Exiting popup before starting a resumed command; changing code
+cannot restart an application loop that has already exited. A platform daily
+limit, uncertain submission or command cap also stops processing rather than
+repeating Submit. Preserve the manifest and diagnostics when investigating.
 
 ## Submission confirmation
 
