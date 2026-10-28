@@ -34,6 +34,22 @@ class HostedRunnerTests(unittest.TestCase):
         self.runner.execute(manifest, budget)
         return manifest, first, budget
 
+    def test_captcha_solver_flag_enables_solver_and_fails_fast_when_unavailable(self):
+        """The flag is explicit opt-in; a broken install must not run half-armed."""
+        import os
+        from unittest import mock
+        from modules import captcha_solver
+        from modules.submit_runner import run_submissions
+
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CAPTCHA_SOLVER", None)
+            with mock.patch.object(captcha_solver, "available", return_value=(False, "no venv")):
+                with self.assertRaises(ValueError) as caught:
+                    run_submissions([], captcha_solver=True)
+            self.assertIn("no venv", str(caught.exception))
+            # Enabled even though the check failed, so a later call sees it on.
+            self.assertTrue(captcha_solver.enabled())
+
     def test_confirmed_company_submission_uses_global_cap_and_applied_history(self):
         manifest, search, budget = self.execute("applied")
         self.assertEqual(budget.count, 1)

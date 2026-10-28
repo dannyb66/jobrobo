@@ -47,6 +47,8 @@ def parser():
     submit.add_argument('--output-dir', help='Shared preparation/resume cache, default logs/url_preparations')
     submit.add_argument('--chrome-profile')
     submit.add_argument('--questions')
+    submit.add_argument('--captcha-solver', action='store_true',
+                        help='Clear vendor access challenges on employer pages (needs CAPTCHA_KRAKEN_API_KEY)')
     submit.add_argument('--discovery-source')
     submit.add_argument('--db')
     submit.add_argument('--ledger', help='Deprecated for submit; each run uses its own ledger')
@@ -144,7 +146,8 @@ def main(argv=None):
                 discovery_source=args.discovery_source,pause=args.pause_before_submit,max_applications=args.max_applications,
                 workers=args.workers,
                 set_name=args.set_name,export_path=args.export_path,db_path=args.db,ledger_path=args.ledger,
-                browser_backend=args.browser_backend,browser_config=args.browser_config,retry_failed=args.retry_failed)
+                browser_backend=args.browser_backend,browser_config=args.browser_config,retry_failed=args.retry_failed,
+                captcha_solver=args.captcha_solver)
             print(json.dumps(result,indent=2))
             return 0 if all(j['status'] in {'applied','duplicate','discarded'} for j in result['jobs']) else 1
         elif args.command == "prepare":

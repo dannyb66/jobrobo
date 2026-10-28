@@ -132,6 +132,26 @@ class ResolverTests(unittest.TestCase):
         resolver.config["answers"].append(dict(resolver.config["answers"][0]))
         self.assertFalse(resolver.resolve(question("Focus", "text"), "lever").resolved)
 
+    def test_provider_scoped_answer_beats_wildcard_for_the_same_question(self):
+        """A scoped entry is the disambiguation, not an extra conflict.
+
+        Boilerplate labels differ between ATSs (one marks the label with a
+        trailing glyph), so a wildcard entry and a provider-scoped entry for the
+        same question are expected together and must not force manual review.
+        """
+        resolver = QuestionResolver({"answers": [
+            {"question": "Authorized to work?", "type": "radio", "answer": "Yes"},
+            {"question": "Authorized to work?", "type": "radio", "answer": "Yes", "provider": "lever"},
+        ]})
+        scoped = dict(question("Authorized to work?", "radio"), options=["Yes", "No"])
+        resolve = resolver.resolve(scoped, "lever")
+        self.assertTrue(resolve.resolved)
+        self.assertEqual(resolve.value, "Yes")
+        # Two entries for the same provider still conflict.
+        resolver.config["answers"].append({"question": "Authorized to work?", "type": "radio",
+                                           "answer": "No", "provider": "lever"})
+        self.assertFalse(resolver.resolve(scoped, "lever").resolved)
+
 
 class LocalAIConfigTests(unittest.TestCase):
     def test_missing_file_disabled_and_malformed_config_fails_without_network(self):

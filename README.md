@@ -1055,9 +1055,15 @@ handing the tab back. It is opt-in and needs a hosted CaptchaKraken key:
 
 ```sh
 CAPTCHA_KRAKEN_API_KEY=...   # and CAPTCHA_KRAKEN_BASE_URL (or VLLM_BASE_URL)
-CAPTCHA_SOLVER=1             # read from .env as well as the environment
 ./scripts/setup_captcha_solver.sh   # builds the 3.11 sidecar venv
+
+python3 direct_apply.py submit --urls-file jobs.txt \
+  --captcha-solver --pause-before-submit never --limit 5
 ```
+
+`--captcha-solver` is the opt-in; `CAPTCHA_SOLVER=1` in `.env` also turns it on
+ambiently. Without the flag the lane hands challenges back for manual work, and
+it fails fast rather than half-arming if the sidecar or key is missing.
 
 The solver runs in a Python 3.11 sidecar because `captchakraken` needs 3.11
 while the app stays on 3.10. It attaches to the already-open tab over CDP and

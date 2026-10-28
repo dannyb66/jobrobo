@@ -561,10 +561,16 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     review_factory=None, allow_local=False, confirmation_timeout=30,
                     tab_monitor_factory=ManualTabs,
                     preparer=prepare_url, set_name=None, export_path=None, db_path=None,
-                    browser_backend=None,browser_config=None,retry_failed=False):
+                    browser_backend=None,browser_config=None,retry_failed=False,captcha_solver=False):
     """Each normal invocation is independent; explicit resume retains its own state."""
     if pause is not None and pause not in {'always', 'unknown', 'never'}:
         raise ValueError('Invalid pause mode')
+    if captcha_solver:
+        from modules import captcha_solver as solver
+        solver.enable()
+        ready, why = solver.available()
+        if not ready:
+            raise ValueError(f'--captcha-solver is unavailable: {why}')
     if resume_dir and (jobs is not None or run_dir):
         raise ValueError('Resume takes its jobs and run directory from saved state')
     if retry_failed and not resume_dir:

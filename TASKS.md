@@ -47,7 +47,7 @@ All exact user requests and later steering: [PROMPTS.md](PROMPTS.md). Historical
 | 34 | Compare long-term career scenarios | Done — owner closed on25 October2026; prior delivery:  private immigration update delivered; All/Tech/Business PhD filters show8/4/7 routes and dependency metric spans14 dimensions/11 paths. Same private report identities nowversion2,27 pages; workbook unchanged. [Private explorer](https://career-paths-explorer-oct26.freshcoot5.chatgpt.site) · [Delivery record](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task34-career-scenarios/README.md>) | Mac functional checks passed, finances unchanged, no overflow at1287×1005. MOBILE visual QA unverified. Dated current/upcoming and court-order caveats explicit; no individual eligibility assumed or filing authorized. |
 | 35 | US accent prep — Clear Voice | DONE — explicit owner instruction. Existing owner-private [Clear Voice · Engineering Practice](https://clear-voice-engineering.freshcoot5.chatgpt.site) filed under its own task and Saved Artifacts; 30 American-English speaking sessions. [Filing record](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task35-us-accent-prep/README.md>) | No Site or privacy changes. No practice-completion, automated grading or microphone-test claims. Preserve all unrelated work. |
 | 29 | Learn and build agents | Done — research delivered. Full guide includes 12 prioritized primary sources, 15 documented runnable examples, durable automation and swarm patterns, framework/trend maturity, evaluations, security and cost controls, two-week/six-week plans, and JobRobo/Soham Hamsa capstones. Examples were not locally executed. [Full guide](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task29-learn-and-build-agents/README.md>) | Review the guide and choose a bounded exercise or capstone before authorizing hands-on work. No installs, accounts, paid services or autonomous workflow activation have started. |
-### IN PROGRESS (1 task)
+### IN PROGRESS (2 tasks)
 
 | # | Task | Current state / latest output | Next step / blocker |
 |---|---|---|---|
@@ -77,6 +77,7 @@ All exact user requests and later steering: [PROMPTS.md](PROMPTS.md). Historical
 
 
 | 22 | Soham Hamso angel pitch | IN PROGRESS — research, [plan v5](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task22-soham-hamsa/README.md>) and same [Pitch Deck v2](https://chatgpt.com/space/page_140c8856069c8191a3a2e53d5419c249) revision ready for Review. V2 sequence 13, 17 slides; producer visual/bounds checks and independent research review passed, budget total 100,000. Original v1 sequence 5 and all fourteen outputs preserved. | Overall live-analytics blocker unchanged; owner Review, not Done. Currency/rights/market-validation limits remain explicit. No duplicate deck, outreach, public publishing or unrelated execution. |
+| 36 | Research and apply to cap-exempt H-1B jobs | Research and application planning requested: verify employer categories and eligibility, fitting software/data/research roles, sponsorship and application feasibility. [Scope and plan entry](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task36-cap-exempt-h1b/README.md>) | Begin with dated official sources and role evidence; further research deliverables pending. No employer contact or applications without clear authorization for specific actions and roles. |
 ### REVIEW — awaiting explicit owner decision
 
 | # | Task | Current state / latest output | Next step / blocker |
@@ -990,3 +991,10 @@ Task26, Task30 and Task31 are Review, not Done. Task26 review covers the bounded
 ## 35. US accent prep — Clear Voice — Done
 
 Owner request `Sentinel_ce0fe85a65048191a4452dd15d3c21cb`: “add the link to the site of us accent prep to saved artifacts in the task tracker under its own task, marked done”. Tracker filing only. Existing owner-private active Site, project `appgprj_6ad033b262748191a43f39882960b8b6`, version 1; verified by the parent Sites connector. It provides 30 American-English speaking practice sessions. No Site content/privacy changes, automatic grading, microphone tests or practice completion claimed. Preserve all unrelated tasks and artifacts.
+
+
+## 36. Research and apply to cap-exempt H-1B jobs — In Progress
+
+Research first: verify current employer categories and eligibility, research fitting software/data/research jobs, assess sponsorship and application feasibility, and prepare a sourced application plan. No individual eligibility, guaranteed stability, employer exemption or current vacancy is assumed. Further research outputs will follow. No employer contact or application submission without clear authorization for the specific actions and roles. All other task states, Saved Artifacts and pauses remain unchanged.
+
+User request relayed by parent `01a171ff-e0ae-76b7-8b5d-b05664f4000d`: “add new task - apply to cap exempt jobs for stable H1B ... research this task, and confirm the option details n job types mentioned, discuss feasibility, research online, gather sources. start task”.

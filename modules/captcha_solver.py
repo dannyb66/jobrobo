@@ -36,6 +36,11 @@ def enabled() -> bool:
     return _env("CAPTCHA_SOLVER").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def enable() -> None:
+    """Turn the solver on for this process, e.g. from an explicit CLI flag."""
+    os.environ["CAPTCHA_SOLVER"] = "1"
+
+
 def _dotenv() -> dict:
     """Read .env directly so callers never have to export it.
 
