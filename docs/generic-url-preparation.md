@@ -226,6 +226,24 @@ instead when you intentionally want the complete shortlist, including repeats.
 If the remaining file has not been generated yet, run
 `python3 -m modules.submission_tracking` first.
 
+Parallel workers are opt-in, bounded to four, and require the Kernel backend so
+each worker owns an isolated browser session. A worker reuses that session for
+its URLs, opening a separate tab per job. Local Chrome stays sequential because
+its profile cannot be shared safely across workers:
+
+```sh
+python3 direct_apply.py submit --input "$roles" --browser kernel \
+  --workers 3 --pause-before-submit always
+```
+
+The default worker count remains 1. With `always`, several jobs can be filled
+at once in separate retained worker sessions, while the final Submit stays
+manual. `--pause-before-submit never` also runs the final Submit concurrently.
+Each URL still has an independent checkpoint, worker ID, and tab reference in
+the run, and `--resume` reconnects unresolved worker sessions. The configured
+application cap counts reservations across workers, preventing parallel jobs
+from exceeding the run limit.
+
 Repeat the same command to start another independent run. Previously applied,
 failed or uncertain jobs can be attempted again when selected through the
 original input or explicit URLs; the refreshed remaining input omits submitted

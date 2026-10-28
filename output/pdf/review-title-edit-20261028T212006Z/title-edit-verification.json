@@ -1,0 +1,2928 @@
+{
+  "source_docx": "/Users/deepakbasavaraju/Documents/GitHub/jobrobo/all resumes/temp/task11/full-width-review-20261028T205717Z-saved-candidates/optimized.docx",
+  "download_target": "/Users/deepakbasavaraju/Downloads/Danny_Basavaraju_AI_Architect_review_2026-10-28.pdf",
+  "root": "/Users/deepakbasavaraju/Documents/GitHub/jobrobo/output/pdf/review-title-edit-20261028T212006Z",
+  "changes": [
+    {
+      "paragraph_index": 13,
+      "before": "AI Architect \u2013 Hybrid 3 Days in office-San Jose , CA\tJune 2025 - Present",
+      "after": "AI Architect\tJune 2025 - Present"
+    },
+    {
+      "paragraph_index": 23,
+      "before": "AI Architect \u2013 Hybrid 3 Days in office-San Jose , CA\tJanuary 2024 - June 2025",
+      "after": "AI Architect\tJanuary 2024 - June 2025"
+    },
+    {
+      "paragraph_index": 28,
+      "before": "AI Architect \u2013 Hybrid 3 Days in office-San Jose , CA\tMay 2023 - January 2024",
+      "after": "AI Architect\tMay 2023 - January 2024"
+    },
+    {
+      "paragraph_index": 35,
+      "before": "AI Architect \u2013 Hybrid 3 Days in office-San Jose , CA\tJanuary 2022 - May 2023",
+      "after": "AI Architect\tJanuary 2022 - May 2023"
+    },
+    {
+      "paragraph_index": 43,
+      "before": "AI Architect \u2013 Hybrid 3 Days in office-San Jose , CA\tJanuary 2020 - January 2022",
+      "after": "Senior AI/ML Engineer\tJanuary 2020 - January 2022"
+    },
+    {
+      "paragraph_index": 50,
+      "before": "AI Architect \u2013 Hybrid 3 Days in office-San Jose , CA\tJanuary 2016 - January 2018",
+      "after": "Senior AI/ML Engineer\tJanuary 2016 - January 2018"
+    },
+    {
+      "paragraph_index": 72,
+      "before": "Advisor and Consultant (Part-time)\t\tOctober 2021 - Present",
+      "after": "AI Architect\t\tOctober 2021 - Present"
+    },
+    {
+      "paragraph_index": 78,
+      "before": "Chief Product & Technology Officer\t\tJanuary 2022 \u2013 May 2022",
+      "after": "AI Architect\t\tJanuary 2022 \u2013 May 2022"
+    }
+  ],
+  "non_title_paragraphs_unchanged": true,
+  "run_format_preserved": true,
+  "pdf_text_changed_only_at_requested_roles": true,
+  "pdf_title": "DANNY BASAVARAJU",
+  "pages": 2,
+  "role_counts": {
+    "AI Architect": 6,
+    "Senior AI/ML Engineer": 2
+  },
+  "format_verification": {
+    "passed": true,
+    "checks": {
+      "academic_distinctions_preserved": true,
+      "all_pages_have_text": true,
+      "no_horizontal_clipping": true,
+      "no_vertical_clipping": true,
+      "page_count": true,
+      "page_count_value": 2,
+      "expected_page_count": 2,
+      "source_page_count": 2,
+      "no_empty_rendered_pages": true,
+      "bullets_fit_page": true,
+      "section_order_preserved": true,
+      "section_count_stable": true,
+      "bullet_count_stable": true,
+      "margins_similar": true,
+      "font_sizes_similar": true,
+      "rendered_headings_present": true,
+      "rendered_section_order_preserved": true,
+      "docx_pdf_content_consistent": true,
+      "no_new_orphaned_headings": true,
+      "rendered_density_preserved": true,
+      "hyperlinks_preserved": true,
+      "passed": true
+    },
+    "warnings": [],
+    "details": {
+      "docx_pdf_token_coverage": 1.0,
+      "density": {
+        "passed": true,
+        "comparable": true,
+        "source": [
+          {
+            "paragraph_index": 10,
+            "kind": "skills",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 561.9699999999998,
+                "width": 521.87
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 570.68,
+                "width": 530.58
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 557.9,
+                "width": 517.8
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 566.2199999999997,
+                "width": 526.12
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 572.01,
+                "width": 531.91
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 567.8399999999999,
+                "width": 527.74
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 566.9499999999999,
+                "width": 526.85
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 573.3799999999999,
+                "width": 533.28
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 570.6699999999997,
+                "width": 530.57
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 572.4399999999998,
+                "width": 532.34
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 568.3699999999997,
+                "width": 528.27
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 560.8499999999998,
+                "width": 520.75
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 571.5999999999998,
+                "width": 531.5
+              }
+            ],
+            "line_count": 13,
+            "width": 6859.58
+          },
+          {
+            "paragraph_index": 14,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 569.4799999999999,
+                "width": 500.93
+              }
+            ],
+            "line_count": 1,
+            "width": 500.93
+          },
+          {
+            "paragraph_index": 15,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 528.7499999999999,
+                "width": 460.2
+              }
+            ],
+            "line_count": 1,
+            "width": 460.2
+          },
+          {
+            "paragraph_index": 16,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 525.14,
+                "width": 456.59
+              }
+            ],
+            "line_count": 1,
+            "width": 456.59
+          },
+          {
+            "paragraph_index": 17,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 572.3599999999996,
+                "width": 503.81
+              }
+            ],
+            "line_count": 1,
+            "width": 503.81
+          },
+          {
+            "paragraph_index": 18,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 572.5799999999997,
+                "width": 504.03
+              }
+            ],
+            "line_count": 1,
+            "width": 504.03
+          },
+          {
+            "paragraph_index": 19,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 551.0099999999998,
+                "width": 482.46
+              }
+            ],
+            "line_count": 1,
+            "width": 482.46
+          },
+          {
+            "paragraph_index": 20,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 560.9299999999997,
+                "width": 492.38
+              }
+            ],
+            "line_count": 1,
+            "width": 492.38
+          },
+          {
+            "paragraph_index": 21,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 555.4699999999998,
+                "width": 486.92
+              }
+            ],
+            "line_count": 1,
+            "width": 486.92
+          },
+          {
+            "paragraph_index": 24,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 524.85,
+                "width": 456.3
+              }
+            ],
+            "line_count": 1,
+            "width": 456.3
+          },
+          {
+            "paragraph_index": 25,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 565.1,
+                "width": 496.55
+              }
+            ],
+            "line_count": 1,
+            "width": 496.55
+          },
+          {
+            "paragraph_index": 26,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 548.4,
+                "width": 479.85
+              }
+            ],
+            "line_count": 1,
+            "width": 479.85
+          },
+          {
+            "paragraph_index": 29,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 566.05,
+                "width": 497.5
+              }
+            ],
+            "line_count": 1,
+            "width": 497.5
+          },
+          {
+            "paragraph_index": 30,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 522.55,
+                "width": 454.0
+              }
+            ],
+            "line_count": 1,
+            "width": 454.0
+          },
+          {
+            "paragraph_index": 31,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 561.8499999999999,
+                "width": 493.3
+              }
+            ],
+            "line_count": 1,
+            "width": 493.3
+          },
+          {
+            "paragraph_index": 32,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 522.8,
+                "width": 454.25
+              }
+            ],
+            "line_count": 1,
+            "width": 454.25
+          },
+          {
+            "paragraph_index": 33,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 545.55,
+                "width": 477.0
+              }
+            ],
+            "line_count": 1,
+            "width": 477.0
+          },
+          {
+            "paragraph_index": 36,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.5,
+                "x1": 565.55,
+                "width": 497.05
+              }
+            ],
+            "line_count": 1,
+            "width": 497.05
+          },
+          {
+            "paragraph_index": 37,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.5,
+                "x1": 539.95,
+                "width": 471.45
+              }
+            ],
+            "line_count": 1,
+            "width": 471.45
+          },
+          {
+            "paragraph_index": 38,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.5,
+                "x1": 541.2699999999998,
+                "width": 472.77
+              }
+            ],
+            "line_count": 1,
+            "width": 472.77
+          },
+          {
+            "paragraph_index": 39,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.5,
+                "x1": 551.2,
+                "width": 482.7
+              }
+            ],
+            "line_count": 1,
+            "width": 482.7
+          },
+          {
+            "paragraph_index": 40,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.5,
+                "x1": 554.0999999999999,
+                "width": 485.6
+              }
+            ],
+            "line_count": 1,
+            "width": 485.6
+          },
+          {
+            "paragraph_index": 41,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.5,
+                "x1": 526.1,
+                "width": 457.6
+              }
+            ],
+            "line_count": 1,
+            "width": 457.6
+          },
+          {
+            "paragraph_index": 44,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 557.75,
+                "width": 489.2
+              }
+            ],
+            "line_count": 1,
+            "width": 489.2
+          },
+          {
+            "paragraph_index": 45,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 562.7,
+                "width": 494.15
+              }
+            ],
+            "line_count": 1,
+            "width": 494.15
+          },
+          {
+            "paragraph_index": 46,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 549.35,
+                "width": 480.8
+              }
+            ],
+            "line_count": 1,
+            "width": 480.8
+          },
+          {
+            "paragraph_index": 47,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 536.6500000000001,
+                "width": 468.1
+              }
+            ],
+            "line_count": 1,
+            "width": 468.1
+          },
+          {
+            "paragraph_index": 48,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 510.2,
+                "width": 441.65
+              }
+            ],
+            "line_count": 1,
+            "width": 441.65
+          },
+          {
+            "paragraph_index": 51,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 544.75,
+                "width": 476.2
+              }
+            ],
+            "line_count": 1,
+            "width": 476.2
+          },
+          {
+            "paragraph_index": 52,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 563.15,
+                "width": 494.6
+              }
+            ],
+            "line_count": 1,
+            "width": 494.6
+          },
+          {
+            "paragraph_index": 53,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 572.6999999999999,
+                "width": 504.15
+              }
+            ],
+            "line_count": 1,
+            "width": 504.15
+          },
+          {
+            "paragraph_index": 57,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 517.4499999999999,
+                "width": 448.9
+              }
+            ],
+            "line_count": 1,
+            "width": 448.9
+          },
+          {
+            "paragraph_index": 58,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 552.56,
+                "width": 484.01
+              }
+            ],
+            "line_count": 1,
+            "width": 484.01
+          },
+          {
+            "paragraph_index": 59,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 546.5999999999998,
+                "width": 478.05
+              }
+            ],
+            "line_count": 1,
+            "width": 478.05
+          },
+          {
+            "paragraph_index": 60,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 555.8199999999998,
+                "width": 487.27
+              }
+            ],
+            "line_count": 1,
+            "width": 487.27
+          },
+          {
+            "paragraph_index": 61,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 574.63,
+                "width": 506.08
+              }
+            ],
+            "line_count": 1,
+            "width": 506.08
+          },
+          {
+            "paragraph_index": 64,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 537.7199999999998,
+                "width": 469.17
+              }
+            ],
+            "line_count": 1,
+            "width": 469.17
+          },
+          {
+            "paragraph_index": 65,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 562.0899999999999,
+                "width": 493.54
+              }
+            ],
+            "line_count": 1,
+            "width": 493.54
+          },
+          {
+            "paragraph_index": 66,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 548.4699999999997,
+                "width": 479.92
+              }
+            ],
+            "line_count": 1,
+            "width": 479.92
+          },
+          {
+            "paragraph_index": 69,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 547.9599999999998,
+                "width": 479.41
+              }
+            ],
+            "line_count": 1,
+            "width": 479.41
+          },
+          {
+            "paragraph_index": 70,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 555.8799999999997,
+                "width": 487.33
+              }
+            ],
+            "line_count": 1,
+            "width": 487.33
+          },
+          {
+            "paragraph_index": 73,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 551.8599999999999,
+                "width": 483.31
+              }
+            ],
+            "line_count": 1,
+            "width": 483.31
+          },
+          {
+            "paragraph_index": 74,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 560.5299999999999,
+                "width": 491.98
+              }
+            ],
+            "line_count": 1,
+            "width": 491.98
+          },
+          {
+            "paragraph_index": 75,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 537.2099999999999,
+                "width": 468.66
+              }
+            ],
+            "line_count": 1,
+            "width": 468.66
+          },
+          {
+            "paragraph_index": 76,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 560.1499999999997,
+                "width": 491.6
+              }
+            ],
+            "line_count": 1,
+            "width": 491.6
+          },
+          {
+            "paragraph_index": 79,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 547.2199999999998,
+                "width": 478.67
+              }
+            ],
+            "line_count": 1,
+            "width": 478.67
+          },
+          {
+            "paragraph_index": 80,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 557.9499999999998,
+                "width": 489.4
+              }
+            ],
+            "line_count": 1,
+            "width": 489.4
+          },
+          {
+            "paragraph_index": 81,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 556.7399999999997,
+                "width": 488.19
+              }
+            ],
+            "line_count": 1,
+            "width": 488.19
+          },
+          {
+            "paragraph_index": 84,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 574.0699999999998,
+                "width": 505.52
+              }
+            ],
+            "line_count": 1,
+            "width": 505.52
+          },
+          {
+            "paragraph_index": 85,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 571.5699999999997,
+                "width": 503.02
+              }
+            ],
+            "line_count": 1,
+            "width": 503.02
+          },
+          {
+            "paragraph_index": 86,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 570.95,
+                "width": 502.4
+              }
+            ],
+            "line_count": 1,
+            "width": 502.4
+          },
+          {
+            "paragraph_index": 87,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 564.7199999999997,
+                "width": 496.17
+              }
+            ],
+            "line_count": 1,
+            "width": 496.17
+          },
+          {
+            "paragraph_index": 88,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 566.9999999999999,
+                "width": 498.45
+              }
+            ],
+            "line_count": 1,
+            "width": 498.45
+          },
+          {
+            "paragraph_index": 89,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 567.1299999999999,
+                "width": 498.58
+              }
+            ],
+            "line_count": 1,
+            "width": 498.58
+          },
+          {
+            "paragraph_index": 90,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 563.87,
+                "width": 495.32
+              }
+            ],
+            "line_count": 1,
+            "width": 495.32
+          }
+        ],
+        "output": [
+          {
+            "paragraph_index": 10,
+            "kind": "skills",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 561.9699999999998,
+                "width": 521.87
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 570.68,
+                "width": 530.58
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 557.9,
+                "width": 517.8
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 566.2199999999997,
+                "width": 526.12
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 572.01,
+                "width": 531.91
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 567.8399999999999,
+                "width": 527.74
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 566.9499999999999,
+                "width": 526.85
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 573.3799999999999,
+                "width": 533.28
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 570.6699999999997,
+                "width": 530.57
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 572.4399999999998,
+                "width": 532.34
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 568.3699999999997,
+                "width": 528.27
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 560.8499999999998,
+                "width": 520.75
+              },
+              {
+                "page": 1,
+                "x0": 40.1,
+                "x1": 571.5999999999998,
+                "width": 531.5
+              }
+            ],
+            "line_count": 13,
+            "width": 6859.58
+          },
+          {
+            "paragraph_index": 14,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 569.4799999999999,
+                "width": 500.93
+              }
+            ],
+            "line_count": 1,
+            "width": 500.93
+          },
+          {
+            "paragraph_index": 15,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 528.7499999999999,
+                "width": 460.2
+              }
+            ],
+            "line_count": 1,
+            "width": 460.2
+          },
+          {
+            "paragraph_index": 16,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 525.14,
+                "width": 456.59
+              }
+            ],
+            "line_count": 1,
+            "width": 456.59
+          },
+          {
+            "paragraph_index": 17,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 572.3599999999996,
+                "width": 503.81
+              }
+            ],
+            "line_count": 1,
+            "width": 503.81
+          },
+          {
+            "paragraph_index": 18,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 572.5799999999997,
+                "width": 504.03
+              }
+            ],
+            "line_count": 1,
+            "width": 504.03
+          },
+          {
+            "paragraph_index": 19,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 551.0099999999998,
+                "width": 482.46
+              }
+            ],
+            "line_count": 1,
+            "width": 482.46
+          },
+          {
+            "paragraph_index": 20,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 560.9299999999997,
+                "width": 492.38
+              }
+            ],
+            "line_count": 1,
+            "width": 492.38
+          },
+          {
+            "paragraph_index": 21,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 555.4699999999998,
+                "width": 486.92
+              }
+            ],
+            "line_count": 1,
+            "width": 486.92
+          },
+          {
+            "paragraph_index": 24,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 524.85,
+                "width": 456.3
+              }
+            ],
+            "line_count": 1,
+            "width": 456.3
+          },
+          {
+            "paragraph_index": 25,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 565.1,
+                "width": 496.55
+              }
+            ],
+            "line_count": 1,
+            "width": 496.55
+          },
+          {
+            "paragraph_index": 26,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 548.4,
+                "width": 479.85
+              }
+            ],
+            "line_count": 1,
+            "width": 479.85
+          },
+          {
+            "paragraph_index": 29,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 566.05,
+                "width": 497.5
+              }
+            ],
+            "line_count": 1,
+            "width": 497.5
+          },
+          {
+            "paragraph_index": 30,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 522.55,
+                "width": 454.0
+              }
+            ],
+            "line_count": 1,
+            "width": 454.0
+          },
+          {
+            "paragraph_index": 31,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 561.8499999999999,
+                "width": 493.3
+              }
+            ],
+            "line_count": 1,
+            "width": 493.3
+          },
+          {
+            "paragraph_index": 32,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 522.8,
+                "width": 454.25
+              }
+            ],
+            "line_count": 1,
+            "width": 454.25
+          },
+          {
+            "paragraph_index": 33,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.55,
+                "x1": 545.55,
+                "width": 477.0
+              }
+            ],
+            "line_count": 1,
+            "width": 477.0
+          },
+          {
+            "paragraph_index": 36,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.5,
+                "x1": 565.55,
+                "width": 497.05
+              }
+            ],
+            "line_count": 1,
+            "width": 497.05
+          },
+          {
+            "paragraph_index": 37,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 1,
+                "x0": 68.5,
+                "x1": 539.95,
+                "width": 471.45
+              }
+            ],
+            "line_count": 1,
+            "width": 471.45
+          },
+          {
+            "paragraph_index": 38,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.5,
+                "x1": 541.2699999999998,
+                "width": 472.77
+              }
+            ],
+            "line_count": 1,
+            "width": 472.77
+          },
+          {
+            "paragraph_index": 39,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.5,
+                "x1": 551.2,
+                "width": 482.7
+              }
+            ],
+            "line_count": 1,
+            "width": 482.7
+          },
+          {
+            "paragraph_index": 40,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.5,
+                "x1": 554.0999999999999,
+                "width": 485.6
+              }
+            ],
+            "line_count": 1,
+            "width": 485.6
+          },
+          {
+            "paragraph_index": 41,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.5,
+                "x1": 526.1,
+                "width": 457.6
+              }
+            ],
+            "line_count": 1,
+            "width": 457.6
+          },
+          {
+            "paragraph_index": 44,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 557.75,
+                "width": 489.2
+              }
+            ],
+            "line_count": 1,
+            "width": 489.2
+          },
+          {
+            "paragraph_index": 45,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 562.7,
+                "width": 494.15
+              }
+            ],
+            "line_count": 1,
+            "width": 494.15
+          },
+          {
+            "paragraph_index": 46,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 549.35,
+                "width": 480.8
+              }
+            ],
+            "line_count": 1,
+            "width": 480.8
+          },
+          {
+            "paragraph_index": 47,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 536.6500000000001,
+                "width": 468.1
+              }
+            ],
+            "line_count": 1,
+            "width": 468.1
+          },
+          {
+            "paragraph_index": 48,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 510.2,
+                "width": 441.65
+              }
+            ],
+            "line_count": 1,
+            "width": 441.65
+          },
+          {
+            "paragraph_index": 51,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 544.75,
+                "width": 476.2
+              }
+            ],
+            "line_count": 1,
+            "width": 476.2
+          },
+          {
+            "paragraph_index": 52,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 563.15,
+                "width": 494.6
+              }
+            ],
+            "line_count": 1,
+            "width": 494.6
+          },
+          {
+            "paragraph_index": 53,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 572.6999999999999,
+                "width": 504.15
+              }
+            ],
+            "line_count": 1,
+            "width": 504.15
+          },
+          {
+            "paragraph_index": 57,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 517.4499999999999,
+                "width": 448.9
+              }
+            ],
+            "line_count": 1,
+            "width": 448.9
+          },
+          {
+            "paragraph_index": 58,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 552.56,
+                "width": 484.01
+              }
+            ],
+            "line_count": 1,
+            "width": 484.01
+          },
+          {
+            "paragraph_index": 59,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 546.5999999999998,
+                "width": 478.05
+              }
+            ],
+            "line_count": 1,
+            "width": 478.05
+          },
+          {
+            "paragraph_index": 60,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 555.8199999999998,
+                "width": 487.27
+              }
+            ],
+            "line_count": 1,
+            "width": 487.27
+          },
+          {
+            "paragraph_index": 61,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 574.63,
+                "width": 506.08
+              }
+            ],
+            "line_count": 1,
+            "width": 506.08
+          },
+          {
+            "paragraph_index": 64,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 537.7199999999998,
+                "width": 469.17
+              }
+            ],
+            "line_count": 1,
+            "width": 469.17
+          },
+          {
+            "paragraph_index": 65,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 562.0899999999999,
+                "width": 493.54
+              }
+            ],
+            "line_count": 1,
+            "width": 493.54
+          },
+          {
+            "paragraph_index": 66,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 548.4699999999997,
+                "width": 479.92
+              }
+            ],
+            "line_count": 1,
+            "width": 479.92
+          },
+          {
+            "paragraph_index": 69,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 547.9599999999998,
+                "width": 479.41
+              }
+            ],
+            "line_count": 1,
+            "width": 479.41
+          },
+          {
+            "paragraph_index": 70,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 555.8799999999997,
+                "width": 487.33
+              }
+            ],
+            "line_count": 1,
+            "width": 487.33
+          },
+          {
+            "paragraph_index": 73,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 551.8599999999999,
+                "width": 483.31
+              }
+            ],
+            "line_count": 1,
+            "width": 483.31
+          },
+          {
+            "paragraph_index": 74,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 560.5299999999999,
+                "width": 491.98
+              }
+            ],
+            "line_count": 1,
+            "width": 491.98
+          },
+          {
+            "paragraph_index": 75,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 537.2099999999999,
+                "width": 468.66
+              }
+            ],
+            "line_count": 1,
+            "width": 468.66
+          },
+          {
+            "paragraph_index": 76,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 560.1499999999997,
+                "width": 491.6
+              }
+            ],
+            "line_count": 1,
+            "width": 491.6
+          },
+          {
+            "paragraph_index": 79,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 547.2199999999998,
+                "width": 478.67
+              }
+            ],
+            "line_count": 1,
+            "width": 478.67
+          },
+          {
+            "paragraph_index": 80,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 557.9499999999998,
+                "width": 489.4
+              }
+            ],
+            "line_count": 1,
+            "width": 489.4
+          },
+          {
+            "paragraph_index": 81,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 556.7399999999997,
+                "width": 488.19
+              }
+            ],
+            "line_count": 1,
+            "width": 488.19
+          },
+          {
+            "paragraph_index": 84,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 574.0699999999998,
+                "width": 505.52
+              }
+            ],
+            "line_count": 1,
+            "width": 505.52
+          },
+          {
+            "paragraph_index": 85,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 571.5699999999997,
+                "width": 503.02
+              }
+            ],
+            "line_count": 1,
+            "width": 503.02
+          },
+          {
+            "paragraph_index": 86,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 570.95,
+                "width": 502.4
+              }
+            ],
+            "line_count": 1,
+            "width": 502.4
+          },
+          {
+            "paragraph_index": 87,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 564.7199999999997,
+                "width": 496.17
+              }
+            ],
+            "line_count": 1,
+            "width": 496.17
+          },
+          {
+            "paragraph_index": 88,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 566.9999999999999,
+                "width": 498.45
+              }
+            ],
+            "line_count": 1,
+            "width": 498.45
+          },
+          {
+            "paragraph_index": 89,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 567.1299999999999,
+                "width": 498.58
+              }
+            ],
+            "line_count": 1,
+            "width": 498.58
+          },
+          {
+            "paragraph_index": 90,
+            "kind": "bullet",
+            "matched": true,
+            "lines": [
+              {
+                "page": 2,
+                "x0": 68.55,
+                "x1": 563.87,
+                "width": 495.32
+              }
+            ],
+            "line_count": 1,
+            "width": 495.32
+          }
+        ],
+        "violations": []
+      },
+      "source_layout": {
+        "page_count": 2,
+        "all_pages_have_text": true,
+        "no_horizontal_clipping": true,
+        "no_vertical_clipping": true,
+        "heading_pages": {
+          "EDUCATION": [
+            1
+          ],
+          "SKILLS": [
+            1
+          ],
+          "PROFESSIONAL EXPERIENCE": [
+            1
+          ],
+          "ENTREPRENEURIAL VENTURES & PROJECTS": [
+            2
+          ],
+          "ACADEMIC DISTINCTIONS": [
+            2
+          ]
+        },
+        "orphaned_headings": [],
+        "bullet_wrapping": [
+          {
+            "text": "Built Agent-to-Agent orchestration for payer negotiations, delegating contract analysis across 100+ clients and 5TB+ of data.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Designed state-managed agents to delegate contract review and negotiation tasks across provider-payer workflows.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Implemented MCP servers with scoped tools and state management for secure LLM access to payer-contract data.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered Python MCP servers and clients for secure LLM access to contract data, negotiation tools, and enterprise systems.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered MCP clients for LLM-powered contract analysis, streamlining access to payer intelligence across the AI platform.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Designed high-throughput AI workflows that reduced latency in payer-contract analysis and reimbursement intelligence.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Accelerated contract-analysis AI development with low-latency pipelines for training and testing production-ready models.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Established production-ready AI practices for contract intelligence, guiding teams through model testing and deployment.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered production-ready LangGraph agents for sales workflows, lifting engagement 30% and efficiency 15%.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Integrated LangGraph, AutoGen, and CrewAI for agent-driven sales summaries, CRM workflows, and follow-up assistance.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Applied CrewAI, prompt engineering, and RAG pipelines to automate sales CRM updates, reducing manual effort 25%.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Optimized financial research with RAG pipelines, vector databases, and secure context sharing, reducing decision time 35%.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built Python MCP clients and tool-calling protocols for secure LLM access to financial data, cutting latency 50%.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Guided 5 engineers in Python AI platform development, streamlining model testing and deployment to speed releases 30%.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered Go microservices on AWS and GCP for scalable AI inference across quantitative research workflows.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Architected a GCP/Azure AI development platform on Kubernetes for investment research, boosting productivity 50%.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Deployed Dockerized retail AI SDKs on Kubernetes, maintaining 99.9% uptime through production-ready release practices.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Defined architecture RFCs for multi-agent retail workflows, guiding AI SDK adoption and reusable platform patterns.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built multi-agent orchestration for personalized retail journeys, lifting retention 25% and cutting support queries 40%.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Implemented agent state management and task delegation to tailor retail recommendations, driving 30% revenue growth.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered retail engagement agents with shared state and secure inter-agent communication, cutting release cycles 50%.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Delivered secure MCP clients and servers for LLM-powered retail engagement and customer-retention workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Integrated enterprise commerce sources into LLM workflows through secure MCP clients for AI application development.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built a high-throughput, low-latency platform to train, test, and deploy models powering personalized learning applications.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built low-latency model training and testing pipelines to tune commerce recommendations and accelerate release cycles.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built production-ready code for commerce AI, automating model tests and Kubernetes-based deployment workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered production-ready LangGraph agents for personalized lessons, practice, and assessment workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Designed CrewAI agents for autonomous task delegation across shipment routing and pickup operations in 100+ cities.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Optimized prompt engineering and RAG pipelines for logistics workflows, supporting 300,000+ pickups across 100+ cities.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built RAG pipelines and vector databases with secure context-sharing for real-time shipment dashboards serving 100+ clients.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built Python context-sharing and tool-calling protocols for secure, self-hosted LLM inference in a coding client.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Applied speculative decoding to Python GenAI tool-calling, delivering 100 tokens/sec from 14 on 27B models in vLLM.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Benchmarked five 14B\u201330B models on Go-based AWS and GCP inference services to select low-latency deployments.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered Go services and AWS GPU automation for 14B\u201327B model serving, scaling to zero between coding sessions.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered a Kubernetes and Docker serving stack with AI SDKs, scaling GPU-backed LLM inference for coding workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Defined architecture RFCs and AI SDK patterns for multilingual corpus ingestion, translation, and reader workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Designed LangGraph agents to negotiate translation choices and delegate Sanskrit corpus tasks across language workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered persistent agent state to coordinate delegated Sanskrit translation and narration workflows across languages.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Designed MCP context-sharing protocols for agents, securing inter-agent communication and persistent workflow state.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Prototyped MCP servers and clients linking LLMs to YouTube transcripts for sponsor detection and skipping in 24 hours.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Integrated MCP clients with LLMs and startup tools, enabling secure context-sharing across AI development workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Designed an AI development platform for high throughput and low latency across model training, testing, and deployment.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built low-latency model training and testing pipelines, aligning AI delivery with startup product growth and revenue.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Shipped production-ready AI application code and model deployment workflows, establishing repeatable release practices.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered LangGraph workflows for production-ready AI tutoring, personalizing learning for 100M students by 2030.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Integrated LangGraph, AutoGen, and CrewAI into an education MVP, coordinating specialized agents for learner support.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Applied prompt engineering and CrewAI to build RAG-powered tutors that tailor lessons to each student's learning needs.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Member of MBA Dean\u2019s list for Semester 1 at Hult International Business School with a GPA of 3.8/4 excelling academically",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "1/22 recipients of Institute Awards; honored prestigious DVC award for Credible & Outstanding Performance in the first year ",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Secured CGPA Rank 3 in 2nd term with a GPA of 3.9/4 and held CGPA Rank 14 until the 2nd term with overall CGPA 3.6/4",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Achieved All India Rank 30 in IIT-JEE, placing in the top 0.6% out of 479,651 applicants; securing 1/848 seats in IIT Delhi",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Achieved All India Rank 35 (B.Arch) and Rank 68 (B.Tech) in AIEEE, placing in the top 0.11% out of 1,137,256 applicants",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Achieved State Rank 8 in highly competitive & prestigious Mathematics Olympiad by Association of Mathematics Teachers",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "School Topper; consistently ranking 1st and 2nd across 10 consecutive years at Atomic Energy Central School (CBSE), India",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          }
+        ],
+        "text": "DANNY BASAVARAJU +1 (628) 310-5660 | DANNY.BASAVARAJU@GMAIL.COM | SAN FRANCISCO, CA, USA | LINKEDIN | GITHUB | PORTFOLIO | YOUTUBE EDUCATION INDIAN INSTITUTE OF TECHNOLOGY DELHI (IITD) AUGUST 2012 - MAY 2016 BACHELOR'S, COMPUTER SCIENCE GPA: 3.5 INDIAN INSTITUTE OF MANAGEMENT CALCUTTA AUGUST 2018 - MAY 2020 MBA INSTITUTE AWARD, GPA: 3.7 HULT INTERNATIONAL BUSINESS SCHOOL, SAN FRANCISCO SEPTEMBER 2025 - MAY 2026 GLOBAL MBA, TECHNOLOGY & ENTREPRENEURSHIP FULL SCHOLARSHIP & DEAN\u2019S LIST, GPA: 3.8 SKILLS AGENT-TO-AGENT FRAMEWORKS, MULTI-AGENT ORCHESTRATION, AUTONOMOUS NEGOTIATION, TASK DELEGATION, STATE MANAGEMENT, MCP SERVERS, SECURE INTER-AGENT COMMUNICATION, MODEL CONTEXT PROTOCOL (MCP), MCP CLIENTS, LLMS, AI DEVELOPMENT PLATFORM, HIGH THROUGHPUT, LOW LATENCY, TRAINING MODELS, TESTING MODELS, DEPLOYING MODELS, PRODUCTION-READY CODE, AI APPLICATION DEVELOPMENT, LANGGRAPH, AUTOGEN, CREWAI, PROMPT ENGINEERING, RAG PIPELINES, VECTOR DATABASES, CONTEXT-SHARING PROTOCOLS, TOOL-CALLING PROTOCOLS, PYTHON, TYPESCRIPT, GO, AWS, GCP, AZURE, KUBERNETES, DOCKER, AI SDKS, ARCHITECTURE RFCS, AGENT-TO-AGENT (A2A) ARCHITECTURE, MLOPS, MULTI-AGENT SYSTEMS, AUTONOMOUS AGENT NEGOTIATION, AGENT TASK DELEGATION, AGENT COORDINATION, AGENT STATE MANAGEMENT, API DESIGN, INTER-AGENT COMMUNICATION, AGENT COMMUNICATION PROTOCOLS, AGENT WORKFLOW DESIGN, AGENT LIFECYCLE MANAGEMENT, LLM INTEGRATION, AGENT MEMORY MANAGEMENT, AGENT OBSERVABILITY, MCP SERVER DEVELOPMENT, MCP CLIENT DEVELOPMENT, MCP SERVER ARCHITECTURE, SQL, MCP CLIENT INTEGRATION, CONTEXT-SHARING PROTOCOL DESIGN, TOOL-CALLING PROTOCOL DESIGN, LLM APPLICATION DEVELOPMENT, PROMPT DESIGN, PRODUCTION LLM SYSTEMS, GENERATIVE AI APPLICATION DEVELOPMENT, AI SYSTEMS ARCHITECTURE, AI PLATFORM ARCHITECTURE, API INTEGRATION, AI DEVELOPMENT PLATFORMS, INTERNAL DEVELOPER PLATFORMS, AI PLATFORM ENGINEERING, AI PLATFORM SCALABILITY, HIGH-THROUGHPUT SYSTEMS, LOW-LATENCY SYSTEMS, PERFORMANCE OPTIMIZATION, LATENCY OPTIMIZATION, THROUGHPUT OPTIMIZATION, DISTRIBUTED SYSTEMS, VECTOR SEARCH, SCALABLE SYSTEM DESIGN, CLOUD-NATIVE ARCHITECTURE, MICROSERVICES ARCHITECTURE, SECURE API DESIGN, ENTERPRISE SYSTEM INTEGRATION, REACT PROFESSIONAL EXPERIENCE TREK HEALTH SAN FRANCISCO, CA, USA AI ARCHITECT \u2013 HYBRID 3 DAYS IN OFFICE-SAN JOSE , CA JUNE 2025 - PRESENT \u2022 BUILT AGENT-TO-AGENT ORCHESTRATION FOR PAYER NEGOTIATIONS, DELEGATING CONTRACT ANALYSIS ACROSS 100+ CLIENTS AND 5TB+ OF DATA. \u2022 DESIGNED STATE-MANAGED AGENTS TO DELEGATE CONTRACT REVIEW AND NEGOTIATION TASKS ACROSS PROVIDER-PAYER WORKFLOWS. \u2022 IMPLEMENTED MCP SERVERS WITH SCOPED TOOLS AND STATE MANAGEMENT FOR SECURE LLM ACCESS TO PAYER-CONTRACT DATA. \u2022 ENGINEERED PYTHON MCP SERVERS AND CLIENTS FOR SECURE LLM ACCESS TO CONTRACT DATA, NEGOTIATION TOOLS, AND ENTERPRISE SYSTEMS. \u2022 ENGINEERED MCP CLIENTS FOR LLM-POWERED CONTRACT ANALYSIS, STREAMLINING ACCESS TO PAYER INTELLIGENCE ACROSS THE AI PLATFORM. \u2022 DESIGNED HIGH-THROUGHPUT AI WORKFLOWS THAT REDUCED LATENCY IN PAYER-CONTRACT ANALYSIS AND REIMBURSEMENT INTELLIGENCE. \u2022 ACCELERATED CONTRACT-ANALYSIS AI DEVELOPMENT WITH LOW-LATENCY PIPELINES FOR TRAINING AND TESTING PRODUCTION-READY MODELS. \u2022 ESTABLISHED PRODUCTION-READY AI PRACTICES FOR CONTRACT INTELLIGENCE, GUIDING TEAMS THROUGH MODEL TESTING AND DEPLOYMENT. SYBILL MOUNTAIN VIEW, CA, USA AI ARCHITECT \u2013 HYBRID 3 DAYS IN OFFICE-SAN JOSE , CA JANUARY 2024 - JUNE 2025 \u2022 ENGINEERED PRODUCTION-READY LANGGRAPH AGENTS FOR SALES WORKFLOWS, LIFTING ENGAGEMENT 30% AND EFFICIENCY 15%. \u2022 INTEGRATED LANGGRAPH, AUTOGEN, AND CREWAI FOR AGENT-DRIVEN SALES SUMMARIES, CRM WORKFLOWS, AND FOLLOW-UP ASSISTANCE. \u2022 APPLIED CREWAI, PROMPT ENGINEERING, AND RAG PIPELINES TO AUTOMATE SALES CRM UPDATES, REDUCING MANUAL EFFORT 25%. QUANTGRO WEALTH MANAGEMENT BANGALORE, KA, INDIA AI ARCHITECT \u2013 HYBRID 3 DAYS IN OFFICE-SAN JOSE , CA MAY 2023 - JANUARY 2024 \u2022 OPTIMIZED FINANCIAL RESEARCH WITH RAG PIPELINES, VECTOR DATABASES, AND SECURE CONTEXT SHARING, REDUCING DECISION TIME 35%. \u2022 BUILT PYTHON MCP CLIENTS AND TOOL-CALLING PROTOCOLS FOR SECURE LLM ACCESS TO FINANCIAL DATA, CUTTING LATENCY 50%. \u2022 GUIDED 5 ENGINEERS IN PYTHON AI PLATFORM DEVELOPMENT, STREAMLINING MODEL TESTING AND DEPLOYMENT TO SPEED RELEASES 30%. \u2022 ENGINEERED GO MICROSERVICES ON AWS AND GCP FOR SCALABLE AI INFERENCE ACROSS QUANTITATIVE RESEARCH WORKFLOWS. \u2022 ARCHITECTED A GCP/AZURE AI DEVELOPMENT PLATFORM ON KUBERNETES FOR INVESTMENT RESEARCH, BOOSTING PRODUCTIVITY 50%. CHILL PANDA TECH SAN FRANCISCO, CA, USA AI ARCHITECT \u2013 HYBRID 3 DAYS IN OFFICE-SAN JOSE , CA JANUARY 2022 - MAY 2023 \u2022 DEPLOYED DOCKERIZED RETAIL AI SDKS ON KUBERNETES, MAINTAINING 99.9% UPTIME THROUGH PRODUCTION-READY RELEASE PRACTICES. \u2022 DEFINED ARCHITECTURE RFCS FOR MULTI-AGENT RETAIL WORKFLOWS, GUIDING AI SDK ADOPTION AND REUSABLE PLATFORM PATTERNS. \u2022 BUILT MULTI-AGENT ORCHESTRATION FOR PERSONALIZED RETAIL JOURNEYS, LIFTING RETENTION 25% AND CUTTING SUPPORT QUERIES 40%. \u2022 IMPLEMENTED AGENT STATE MANAGEMENT AND TASK DELEGATION TO TAILOR RETAIL RECOMMENDATIONS, DRIVING 30% REVENUE GROWTH. \u2022 ENGINEERED RETAIL ENGAGEMENT AGENTS WITH SHARED STATE AND SECURE INTER-AGENT COMMUNICATION, CUTTING RELEASE CYCLES 50%. \u2022 DELIVERED SECURE MCP CLIENTS AND SERVERS FOR LLM-POWERED RETAIL ENGAGEMENT AND CUSTOMER-RETENTION WORKFLOWS. BYJUS PALO ALTO, CA, USA AI ARCHITECT \u2013 HYBRID 3 DAYS IN OFFICE-SAN JOSE , CA JANUARY 2020 - JANUARY 2022 \u2022 INTEGRATED ENTERPRISE COMMERCE SOURCES INTO LLM WORKFLOWS THROUGH SECURE MCP CLIENTS FOR AI APPLICATION DEVELOPMENT. \u2022 BUILT A HIGH-THROUGHPUT, LOW-LATENCY PLATFORM TO TRAIN, TEST, AND DEPLOY MODELS POWERING PERSONALIZED LEARNING APPLICATIONS. \u2022 BUILT LOW-LATENCY MODEL TRAINING AND TESTING PIPELINES TO TUNE COMMERCE RECOMMENDATIONS AND ACCELERATE RELEASE CYCLES. \u2022 BUILT PRODUCTION-READY CODE FOR COMMERCE AI, AUTOMATING MODEL TESTS AND KUBERNETES-BASED DEPLOYMENT WORKFLOWS. \u2022 ENGINEERED PRODUCTION-READY LANGGRAPH AGENTS FOR PERSONALIZED LESSONS, PRACTICE, AND ASSESSMENT WORKFLOWS. RIVIGO BANGALORE, KA, INDIA AI ARCHITECT \u2013 HYBRID 3 DAYS IN OFFICE-SAN JOSE , CA JANUARY 2016 - JANUARY 2018 \u2022 DESIGNED CREWAI AGENTS FOR AUTONOMOUS TASK DELEGATION ACROSS SHIPMENT ROUTING AND PICKUP OPERATIONS IN 100+ CITIES. \u2022 OPTIMIZED PROMPT ENGINEERING AND RAG PIPELINES FOR LOGISTICS WORKFLOWS, SUPPORTING 300,000+ PICKUPS ACROSS 100+ CITIES. \u2022 BUILT RAG PIPELINES AND VECTOR DATABASES WITH SECURE CONTEXT-SHARING FOR REAL-TIME SHIPMENT DASHBOARDS SERVING 100+ CLIENTS. ENTREPRENEURIAL VENTURES & PROJECTS CODEX SELF-HOSTED SAN FRANCISCO, CA, USA OPEN-SOURCE LLM INFERENCE PLATFORM SEPTEMBER 2026 \u2013 PRESENT \u2022 BUILT PYTHON CONTEXT-SHARING AND TOOL-CALLING PROTOCOLS FOR SECURE, SELF-HOSTED LLM INFERENCE IN A CODING CLIENT. \u2022 APPLIED SPECULATIVE DECODING TO PYTHON GENAI TOOL-CALLING, DELIVERING 100 TOKENS/SEC FROM 14 ON 27B MODELS IN VLLM. \u2022 BENCHMARKED FIVE 14B\u201330B MODELS ON GO-BASED AWS AND GCP INFERENCE SERVICES TO SELECT LOW-LATENCY DEPLOYMENTS. \u2022 ENGINEERED GO SERVICES AND AWS GPU AUTOMATION FOR 14B\u201327B MODEL SERVING, SCALING TO ZERO BETWEEN CODING SESSIONS. \u2022 ENGINEERED A KUBERNETES AND DOCKER SERVING STACK WITH AI SDKS, SCALING GPU-BACKED LLM INFERENCE FOR CODING WORKFLOWS. SOHAMHAMSO SAN FRANCISCO, CA, USA AI-ASSISTED MULTILINGUAL SANSKRIT READER DECEMBER 2022 \u2013 PRESENT \u2022 DEFINED ARCHITECTURE RFCS AND AI SDK PATTERNS FOR MULTILINGUAL CORPUS INGESTION, TRANSLATION, AND READER WORKFLOWS. \u2022 DESIGNED LANGGRAPH AGENTS TO NEGOTIATE TRANSLATION CHOICES AND DELEGATE SANSKRIT CORPUS TASKS ACROSS LANGUAGE WORKFLOWS. \u2022 ENGINEERED PERSISTENT AGENT STATE TO COORDINATE DELEGATED SANSKRIT TRANSLATION AND NARRATION WORKFLOWS ACROSS LANGUAGES. SPONSORSKIP SAN FRANCISCO, CA, USA AGENTIC AI HACKATHON SEPTEMBER 2024 \u2022 DESIGNED MCP CONTEXT-SHARING PROTOCOLS FOR AGENTS, SECURING INTER-AGENT COMMUNICATION AND PERSISTENT WORKFLOW STATE. \u2022 PROTOTYPED MCP SERVERS AND CLIENTS LINKING LLMS TO YOUTUBE TRANSCRIPTS FOR SPONSOR DETECTION AND SKIPPING IN 24 HOURS. MULTIPLE EARLY-STAGE STARTUPS BANGALORE, KA, INDIA ADVISOR AND CONSULTANT (PART-TIME) OCTOBER 2021 - PRESENT \u2022 INTEGRATED MCP CLIENTS WITH LLMS AND STARTUP TOOLS, ENABLING SECURE CONTEXT-SHARING ACROSS AI DEVELOPMENT WORKFLOWS. \u2022 DESIGNED AN AI DEVELOPMENT PLATFORM FOR HIGH THROUGHPUT AND LOW LATENCY ACROSS MODEL TRAINING, TESTING, AND DEPLOYMENT. \u2022 BUILT LOW-LATENCY MODEL TRAINING AND TESTING PIPELINES, ALIGNING AI DELIVERY WITH STARTUP PRODUCT GROWTH AND REVENUE. \u2022 SHIPPED PRODUCTION-READY AI APPLICATION CODE AND MODEL DEPLOYMENT WORKFLOWS, ESTABLISHING REPEATABLE RELEASE PRACTICES. ARICEUM (COURSERA FOR HIGH-SCHOOLERS) SAN FRANCISCO, CA, USA CHIEF PRODUCT & TECHNOLOGY OFFICER JANUARY 2022 \u2013 MAY 2022 \u2022 ENGINEERED LANGGRAPH WORKFLOWS FOR PRODUCTION-READY AI TUTORING, PERSONALIZING LEARNING FOR 100M STUDENTS BY 2030. \u2022 INTEGRATED LANGGRAPH, AUTOGEN, AND CREWAI INTO AN EDUCATION MVP, COORDINATING SPECIALIZED AGENTS FOR LEARNER SUPPORT. \u2022 APPLIED PROMPT ENGINEERING AND CREWAI TO BUILD RAG-POWERED TUTORS THAT TAILOR LESSONS TO EACH STUDENT'S LEARNING NEEDS. ACADEMIC DISTINCTIONS \u2022 MEMBER OF MBA DEAN\u2019S LIST FOR SEMESTER 1 AT HULT INTERNATIONAL BUSINESS SCHOOL WITH A GPA OF 3.8/4 EXCELLING ACADEMICALLY \u2022 1/22 RECIPIENTS OF INSTITUTE AWARDS; HONORED PRESTIGIOUS DVC AWARD FOR CREDIBLE & OUTSTANDING PERFORMANCE IN THE FIRST YEAR \u2022 SECURED CGPA RANK 3 IN 2ND TERM WITH A GPA OF 3.9/4 AND HELD CGPA RANK 14 UNTIL THE 2ND TERM WITH OVERALL CGPA 3.6/4 \u2022 ACHIEVED ALL INDIA RANK 30 IN IIT-JEE, PLACING IN THE TOP 0.6% OUT OF 479,651 APPLICANTS; SECURING 1/848 SEATS IN IIT DELHI \u2022 ACHIEVED ALL INDIA RANK 35 (B.ARCH) AND RANK 68 (B.TECH) IN AIEEE, PLACING IN THE TOP 0.11% OUT OF 1,137,256 APPLICANTS \u2022 ACHIEVED STATE RANK 8 IN HIGHLY COMPETITIVE & PRESTIGIOUS MATHEMATICS OLYMPIAD BY ASSOCIATION OF MATHEMATICS TEACHERS \u2022 SCHOOL TOPPER; CONSISTENTLY RANKING 1ST AND 2ND ACROSS 10 CONSECUTIVE YEARS AT ATOMIC ENERGY CENTRAL SCHOOL (CBSE), INDIA",
+        "max_bullet_lines": 1
+      },
+      "optimized_layout": {
+        "page_count": 2,
+        "all_pages_have_text": true,
+        "no_horizontal_clipping": true,
+        "no_vertical_clipping": true,
+        "heading_pages": {
+          "EDUCATION": [
+            1
+          ],
+          "SKILLS": [
+            1
+          ],
+          "PROFESSIONAL EXPERIENCE": [
+            1
+          ],
+          "ENTREPRENEURIAL VENTURES & PROJECTS": [
+            2
+          ],
+          "ACADEMIC DISTINCTIONS": [
+            2
+          ]
+        },
+        "orphaned_headings": [],
+        "bullet_wrapping": [
+          {
+            "text": "Built Agent-to-Agent orchestration for payer negotiations, delegating contract analysis across 100+ clients and 5TB+ of data.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Designed state-managed agents to delegate contract review and negotiation tasks across provider-payer workflows.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Implemented MCP servers with scoped tools and state management for secure LLM access to payer-contract data.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered Python MCP servers and clients for secure LLM access to contract data, negotiation tools, and enterprise systems.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered MCP clients for LLM-powered contract analysis, streamlining access to payer intelligence across the AI platform.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Designed high-throughput AI workflows that reduced latency in payer-contract analysis and reimbursement intelligence.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Accelerated contract-analysis AI development with low-latency pipelines for training and testing production-ready models.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Established production-ready AI practices for contract intelligence, guiding teams through model testing and deployment.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered production-ready LangGraph agents for sales workflows, lifting engagement 30% and efficiency 15%.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Integrated LangGraph, AutoGen, and CrewAI for agent-driven sales summaries, CRM workflows, and follow-up assistance.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Applied CrewAI, prompt engineering, and RAG pipelines to automate sales CRM updates, reducing manual effort 25%.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Optimized financial research with RAG pipelines, vector databases, and secure context sharing, reducing decision time 35%.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built Python MCP clients and tool-calling protocols for secure LLM access to financial data, cutting latency 50%.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Guided 5 engineers in Python AI platform development, streamlining model testing and deployment to speed releases 30%.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered Go microservices on AWS and GCP for scalable AI inference across quantitative research workflows.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Architected a GCP/Azure AI development platform on Kubernetes for investment research, boosting productivity 50%.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Deployed Dockerized retail AI SDKs on Kubernetes, maintaining 99.9% uptime through production-ready release practices.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Defined architecture RFCs for multi-agent retail workflows, guiding AI SDK adoption and reusable platform patterns.",
+            "matches": [
+              {
+                "page": 1,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built multi-agent orchestration for personalized retail journeys, lifting retention 25% and cutting support queries 40%.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Implemented agent state management and task delegation to tailor retail recommendations, driving 30% revenue growth.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered retail engagement agents with shared state and secure inter-agent communication, cutting release cycles 50%.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Delivered secure MCP clients and servers for LLM-powered retail engagement and customer-retention workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Integrated enterprise commerce sources into LLM workflows through secure MCP clients for AI application development.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built a high-throughput, low-latency platform to train, test, and deploy models powering personalized learning applications.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built low-latency model training and testing pipelines to tune commerce recommendations and accelerate release cycles.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built production-ready code for commerce AI, automating model tests and Kubernetes-based deployment workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered production-ready LangGraph agents for personalized lessons, practice, and assessment workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Designed CrewAI agents for autonomous task delegation across shipment routing and pickup operations in 100+ cities.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Optimized prompt engineering and RAG pipelines for logistics workflows, supporting 300,000+ pickups across 100+ cities.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built RAG pipelines and vector databases with secure context-sharing for real-time shipment dashboards serving 100+ clients.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built Python context-sharing and tool-calling protocols for secure, self-hosted LLM inference in a coding client.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Applied speculative decoding to Python GenAI tool-calling, delivering 100 tokens/sec from 14 on 27B models in vLLM.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Benchmarked five 14B\u201330B models on Go-based AWS and GCP inference services to select low-latency deployments.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered Go services and AWS GPU automation for 14B\u201327B model serving, scaling to zero between coding sessions.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered a Kubernetes and Docker serving stack with AI SDKs, scaling GPU-backed LLM inference for coding workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Defined architecture RFCs and AI SDK patterns for multilingual corpus ingestion, translation, and reader workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Designed LangGraph agents to negotiate translation choices and delegate Sanskrit corpus tasks across language workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered persistent agent state to coordinate delegated Sanskrit translation and narration workflows across languages.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Designed MCP context-sharing protocols for agents, securing inter-agent communication and persistent workflow state.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Prototyped MCP servers and clients linking LLMs to YouTube transcripts for sponsor detection and skipping in 24 hours.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Integrated MCP clients with LLMs and startup tools, enabling secure context-sharing across AI development workflows.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Designed an AI development platform for high throughput and low latency across model training, testing, and deployment.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Built low-latency model training and testing pipelines, aligning AI delivery with startup product growth and revenue.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Shipped production-ready AI application code and model deployment workflows, establishing repeatable release practices.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Engineered LangGraph workflows for production-ready AI tutoring, personalizing learning for 100M students by 2030.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Integrated LangGraph, AutoGen, and CrewAI into an education MVP, coordinating specialized agents for learner support.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Applied prompt engineering and CrewAI to build RAG-powered tutors that tailor lessons to each student's learning needs.",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Member of MBA Dean\u2019s list for Semester 1 at Hult International Business School with a GPA of 3.8/4 excelling academically",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "1/22 recipients of Institute Awards; honored prestigious DVC award for Credible & Outstanding Performance in the first year ",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Secured CGPA Rank 3 in 2nd term with a GPA of 3.9/4 and held CGPA Rank 14 until the 2nd term with overall CGPA 3.6/4",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Achieved All India Rank 30 in IIT-JEE, placing in the top 0.6% out of 479,651 applicants; securing 1/848 seats in IIT Delhi",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Achieved All India Rank 35 (B.Arch) and Rank 68 (B.Tech) in AIEEE, placing in the top 0.11% out of 1,137,256 applicants",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "Achieved State Rank 8 in highly competitive & prestigious Mathematics Olympiad by Association of Mathematics Teachers",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "text": "School Topper; consistently ranking 1st and 2nd across 10 consecutive years at Atomic Energy Central School (CBSE), India",
+            "matches": [
+              {
+                "page": 2,
+                "lines": 1
+              }
+            ]
+          }
+        ],
+        "text": "DANNY BASAVARAJU +1 (628) 310-5660 | DANNY.BASAVARAJU@GMAIL.COM | SAN FRANCISCO, CA, USA | LINKEDIN | GITHUB | PORTFOLIO | YOUTUBE EDUCATION INDIAN INSTITUTE OF TECHNOLOGY DELHI (IITD) AUGUST 2012 - MAY 2016 BACHELOR'S, COMPUTER SCIENCE GPA: 3.5 INDIAN INSTITUTE OF MANAGEMENT CALCUTTA AUGUST 2018 - MAY 2020 MBA INSTITUTE AWARD, GPA: 3.7 HULT INTERNATIONAL BUSINESS SCHOOL, SAN FRANCISCO SEPTEMBER 2025 - MAY 2026 GLOBAL MBA, TECHNOLOGY & ENTREPRENEURSHIP FULL SCHOLARSHIP & DEAN\u2019S LIST, GPA: 3.8 SKILLS AGENT-TO-AGENT FRAMEWORKS, MULTI-AGENT ORCHESTRATION, AUTONOMOUS NEGOTIATION, TASK DELEGATION, STATE MANAGEMENT, MCP SERVERS, SECURE INTER-AGENT COMMUNICATION, MODEL CONTEXT PROTOCOL (MCP), MCP CLIENTS, LLMS, AI DEVELOPMENT PLATFORM, HIGH THROUGHPUT, LOW LATENCY, TRAINING MODELS, TESTING MODELS, DEPLOYING MODELS, PRODUCTION-READY CODE, AI APPLICATION DEVELOPMENT, LANGGRAPH, AUTOGEN, CREWAI, PROMPT ENGINEERING, RAG PIPELINES, VECTOR DATABASES, CONTEXT-SHARING PROTOCOLS, TOOL-CALLING PROTOCOLS, PYTHON, TYPESCRIPT, GO, AWS, GCP, AZURE, KUBERNETES, DOCKER, AI SDKS, ARCHITECTURE RFCS, AGENT-TO-AGENT (A2A) ARCHITECTURE, MLOPS, MULTI-AGENT SYSTEMS, AUTONOMOUS AGENT NEGOTIATION, AGENT TASK DELEGATION, AGENT COORDINATION, AGENT STATE MANAGEMENT, API DESIGN, INTER-AGENT COMMUNICATION, AGENT COMMUNICATION PROTOCOLS, AGENT WORKFLOW DESIGN, AGENT LIFECYCLE MANAGEMENT, LLM INTEGRATION, AGENT MEMORY MANAGEMENT, AGENT OBSERVABILITY, MCP SERVER DEVELOPMENT, MCP CLIENT DEVELOPMENT, MCP SERVER ARCHITECTURE, SQL, MCP CLIENT INTEGRATION, CONTEXT-SHARING PROTOCOL DESIGN, TOOL-CALLING PROTOCOL DESIGN, LLM APPLICATION DEVELOPMENT, PROMPT DESIGN, PRODUCTION LLM SYSTEMS, GENERATIVE AI APPLICATION DEVELOPMENT, AI SYSTEMS ARCHITECTURE, AI PLATFORM ARCHITECTURE, API INTEGRATION, AI DEVELOPMENT PLATFORMS, INTERNAL DEVELOPER PLATFORMS, AI PLATFORM ENGINEERING, AI PLATFORM SCALABILITY, HIGH-THROUGHPUT SYSTEMS, LOW-LATENCY SYSTEMS, PERFORMANCE OPTIMIZATION, LATENCY OPTIMIZATION, THROUGHPUT OPTIMIZATION, DISTRIBUTED SYSTEMS, VECTOR SEARCH, SCALABLE SYSTEM DESIGN, CLOUD-NATIVE ARCHITECTURE, MICROSERVICES ARCHITECTURE, SECURE API DESIGN, ENTERPRISE SYSTEM INTEGRATION, REACT PROFESSIONAL EXPERIENCE TREK HEALTH SAN FRANCISCO, CA, USA AI ARCHITECT JUNE 2025 - PRESENT \u2022 BUILT AGENT-TO-AGENT ORCHESTRATION FOR PAYER NEGOTIATIONS, DELEGATING CONTRACT ANALYSIS ACROSS 100+ CLIENTS AND 5TB+ OF DATA. \u2022 DESIGNED STATE-MANAGED AGENTS TO DELEGATE CONTRACT REVIEW AND NEGOTIATION TASKS ACROSS PROVIDER-PAYER WORKFLOWS. \u2022 IMPLEMENTED MCP SERVERS WITH SCOPED TOOLS AND STATE MANAGEMENT FOR SECURE LLM ACCESS TO PAYER-CONTRACT DATA. \u2022 ENGINEERED PYTHON MCP SERVERS AND CLIENTS FOR SECURE LLM ACCESS TO CONTRACT DATA, NEGOTIATION TOOLS, AND ENTERPRISE SYSTEMS. \u2022 ENGINEERED MCP CLIENTS FOR LLM-POWERED CONTRACT ANALYSIS, STREAMLINING ACCESS TO PAYER INTELLIGENCE ACROSS THE AI PLATFORM. \u2022 DESIGNED HIGH-THROUGHPUT AI WORKFLOWS THAT REDUCED LATENCY IN PAYER-CONTRACT ANALYSIS AND REIMBURSEMENT INTELLIGENCE. \u2022 ACCELERATED CONTRACT-ANALYSIS AI DEVELOPMENT WITH LOW-LATENCY PIPELINES FOR TRAINING AND TESTING PRODUCTION-READY MODELS. \u2022 ESTABLISHED PRODUCTION-READY AI PRACTICES FOR CONTRACT INTELLIGENCE, GUIDING TEAMS THROUGH MODEL TESTING AND DEPLOYMENT. SYBILL MOUNTAIN VIEW, CA, USA AI ARCHITECT JANUARY 2024 - JUNE 2025 \u2022 ENGINEERED PRODUCTION-READY LANGGRAPH AGENTS FOR SALES WORKFLOWS, LIFTING ENGAGEMENT 30% AND EFFICIENCY 15%. \u2022 INTEGRATED LANGGRAPH, AUTOGEN, AND CREWAI FOR AGENT-DRIVEN SALES SUMMARIES, CRM WORKFLOWS, AND FOLLOW-UP ASSISTANCE. \u2022 APPLIED CREWAI, PROMPT ENGINEERING, AND RAG PIPELINES TO AUTOMATE SALES CRM UPDATES, REDUCING MANUAL EFFORT 25%. QUANTGRO WEALTH MANAGEMENT BANGALORE, KA, INDIA AI ARCHITECT MAY 2023 - JANUARY 2024 \u2022 OPTIMIZED FINANCIAL RESEARCH WITH RAG PIPELINES, VECTOR DATABASES, AND SECURE CONTEXT SHARING, REDUCING DECISION TIME 35%. \u2022 BUILT PYTHON MCP CLIENTS AND TOOL-CALLING PROTOCOLS FOR SECURE LLM ACCESS TO FINANCIAL DATA, CUTTING LATENCY 50%. \u2022 GUIDED 5 ENGINEERS IN PYTHON AI PLATFORM DEVELOPMENT, STREAMLINING MODEL TESTING AND DEPLOYMENT TO SPEED RELEASES 30%. \u2022 ENGINEERED GO MICROSERVICES ON AWS AND GCP FOR SCALABLE AI INFERENCE ACROSS QUANTITATIVE RESEARCH WORKFLOWS. \u2022 ARCHITECTED A GCP/AZURE AI DEVELOPMENT PLATFORM ON KUBERNETES FOR INVESTMENT RESEARCH, BOOSTING PRODUCTIVITY 50%. CHILL PANDA TECH SAN FRANCISCO, CA, USA AI ARCHITECT JANUARY 2022 - MAY 2023 \u2022 DEPLOYED DOCKERIZED RETAIL AI SDKS ON KUBERNETES, MAINTAINING 99.9% UPTIME THROUGH PRODUCTION-READY RELEASE PRACTICES. \u2022 DEFINED ARCHITECTURE RFCS FOR MULTI-AGENT RETAIL WORKFLOWS, GUIDING AI SDK ADOPTION AND REUSABLE PLATFORM PATTERNS. \u2022 BUILT MULTI-AGENT ORCHESTRATION FOR PERSONALIZED RETAIL JOURNEYS, LIFTING RETENTION 25% AND CUTTING SUPPORT QUERIES 40%. \u2022 IMPLEMENTED AGENT STATE MANAGEMENT AND TASK DELEGATION TO TAILOR RETAIL RECOMMENDATIONS, DRIVING 30% REVENUE GROWTH. \u2022 ENGINEERED RETAIL ENGAGEMENT AGENTS WITH SHARED STATE AND SECURE INTER-AGENT COMMUNICATION, CUTTING RELEASE CYCLES 50%. \u2022 DELIVERED SECURE MCP CLIENTS AND SERVERS FOR LLM-POWERED RETAIL ENGAGEMENT AND CUSTOMER-RETENTION WORKFLOWS. BYJUS PALO ALTO, CA, USA SENIOR AI/ML ENGINEER JANUARY 2020 - JANUARY 2022 \u2022 INTEGRATED ENTERPRISE COMMERCE SOURCES INTO LLM WORKFLOWS THROUGH SECURE MCP CLIENTS FOR AI APPLICATION DEVELOPMENT. \u2022 BUILT A HIGH-THROUGHPUT, LOW-LATENCY PLATFORM TO TRAIN, TEST, AND DEPLOY MODELS POWERING PERSONALIZED LEARNING APPLICATIONS. \u2022 BUILT LOW-LATENCY MODEL TRAINING AND TESTING PIPELINES TO TUNE COMMERCE RECOMMENDATIONS AND ACCELERATE RELEASE CYCLES. \u2022 BUILT PRODUCTION-READY CODE FOR COMMERCE AI, AUTOMATING MODEL TESTS AND KUBERNETES-BASED DEPLOYMENT WORKFLOWS. \u2022 ENGINEERED PRODUCTION-READY LANGGRAPH AGENTS FOR PERSONALIZED LESSONS, PRACTICE, AND ASSESSMENT WORKFLOWS. RIVIGO BANGALORE, KA, INDIA SENIOR AI/ML ENGINEER JANUARY 2016 - JANUARY 2018 \u2022 DESIGNED CREWAI AGENTS FOR AUTONOMOUS TASK DELEGATION ACROSS SHIPMENT ROUTING AND PICKUP OPERATIONS IN 100+ CITIES. \u2022 OPTIMIZED PROMPT ENGINEERING AND RAG PIPELINES FOR LOGISTICS WORKFLOWS, SUPPORTING 300,000+ PICKUPS ACROSS 100+ CITIES. \u2022 BUILT RAG PIPELINES AND VECTOR DATABASES WITH SECURE CONTEXT-SHARING FOR REAL-TIME SHIPMENT DASHBOARDS SERVING 100+ CLIENTS. ENTREPRENEURIAL VENTURES & PROJECTS CODEX SELF-HOSTED SAN FRANCISCO, CA, USA OPEN-SOURCE LLM INFERENCE PLATFORM SEPTEMBER 2026 \u2013 PRESENT \u2022 BUILT PYTHON CONTEXT-SHARING AND TOOL-CALLING PROTOCOLS FOR SECURE, SELF-HOSTED LLM INFERENCE IN A CODING CLIENT. \u2022 APPLIED SPECULATIVE DECODING TO PYTHON GENAI TOOL-CALLING, DELIVERING 100 TOKENS/SEC FROM 14 ON 27B MODELS IN VLLM. \u2022 BENCHMARKED FIVE 14B\u201330B MODELS ON GO-BASED AWS AND GCP INFERENCE SERVICES TO SELECT LOW-LATENCY DEPLOYMENTS. \u2022 ENGINEERED GO SERVICES AND AWS GPU AUTOMATION FOR 14B\u201327B MODEL SERVING, SCALING TO ZERO BETWEEN CODING SESSIONS. \u2022 ENGINEERED A KUBERNETES AND DOCKER SERVING STACK WITH AI SDKS, SCALING GPU-BACKED LLM INFERENCE FOR CODING WORKFLOWS. SOHAMHAMSO SAN FRANCISCO, CA, USA AI-ASSISTED MULTILINGUAL SANSKRIT READER DECEMBER 2022 \u2013 PRESENT \u2022 DEFINED ARCHITECTURE RFCS AND AI SDK PATTERNS FOR MULTILINGUAL CORPUS INGESTION, TRANSLATION, AND READER WORKFLOWS. \u2022 DESIGNED LANGGRAPH AGENTS TO NEGOTIATE TRANSLATION CHOICES AND DELEGATE SANSKRIT CORPUS TASKS ACROSS LANGUAGE WORKFLOWS. \u2022 ENGINEERED PERSISTENT AGENT STATE TO COORDINATE DELEGATED SANSKRIT TRANSLATION AND NARRATION WORKFLOWS ACROSS LANGUAGES. SPONSORSKIP SAN FRANCISCO, CA, USA AGENTIC AI HACKATHON SEPTEMBER 2024 \u2022 DESIGNED MCP CONTEXT-SHARING PROTOCOLS FOR AGENTS, SECURING INTER-AGENT COMMUNICATION AND PERSISTENT WORKFLOW STATE. \u2022 PROTOTYPED MCP SERVERS AND CLIENTS LINKING LLMS TO YOUTUBE TRANSCRIPTS FOR SPONSOR DETECTION AND SKIPPING IN 24 HOURS. MULTIPLE EARLY-STAGE STARTUPS BANGALORE, KA, INDIA AI ARCHITECT OCTOBER 2021 - PRESENT \u2022 INTEGRATED MCP CLIENTS WITH LLMS AND STARTUP TOOLS, ENABLING SECURE CONTEXT-SHARING ACROSS AI DEVELOPMENT WORKFLOWS. \u2022 DESIGNED AN AI DEVELOPMENT PLATFORM FOR HIGH THROUGHPUT AND LOW LATENCY ACROSS MODEL TRAINING, TESTING, AND DEPLOYMENT. \u2022 BUILT LOW-LATENCY MODEL TRAINING AND TESTING PIPELINES, ALIGNING AI DELIVERY WITH STARTUP PRODUCT GROWTH AND REVENUE. \u2022 SHIPPED PRODUCTION-READY AI APPLICATION CODE AND MODEL DEPLOYMENT WORKFLOWS, ESTABLISHING REPEATABLE RELEASE PRACTICES. ARICEUM (COURSERA FOR HIGH-SCHOOLERS) SAN FRANCISCO, CA, USA AI ARCHITECT JANUARY 2022 \u2013 MAY 2022 \u2022 ENGINEERED LANGGRAPH WORKFLOWS FOR PRODUCTION-READY AI TUTORING, PERSONALIZING LEARNING FOR 100M STUDENTS BY 2030. \u2022 INTEGRATED LANGGRAPH, AUTOGEN, AND CREWAI INTO AN EDUCATION MVP, COORDINATING SPECIALIZED AGENTS FOR LEARNER SUPPORT. \u2022 APPLIED PROMPT ENGINEERING AND CREWAI TO BUILD RAG-POWERED TUTORS THAT TAILOR LESSONS TO EACH STUDENT'S LEARNING NEEDS. ACADEMIC DISTINCTIONS \u2022 MEMBER OF MBA DEAN\u2019S LIST FOR SEMESTER 1 AT HULT INTERNATIONAL BUSINESS SCHOOL WITH A GPA OF 3.8/4 EXCELLING ACADEMICALLY \u2022 1/22 RECIPIENTS OF INSTITUTE AWARDS; HONORED PRESTIGIOUS DVC AWARD FOR CREDIBLE & OUTSTANDING PERFORMANCE IN THE FIRST YEAR \u2022 SECURED CGPA RANK 3 IN 2ND TERM WITH A GPA OF 3.9/4 AND HELD CGPA RANK 14 UNTIL THE 2ND TERM WITH OVERALL CGPA 3.6/4 \u2022 ACHIEVED ALL INDIA RANK 30 IN IIT-JEE, PLACING IN THE TOP 0.6% OUT OF 479,651 APPLICANTS; SECURING 1/848 SEATS IN IIT DELHI \u2022 ACHIEVED ALL INDIA RANK 35 (B.ARCH) AND RANK 68 (B.TECH) IN AIEEE, PLACING IN THE TOP 0.11% OUT OF 1,137,256 APPLICANTS \u2022 ACHIEVED STATE RANK 8 IN HIGHLY COMPETITIVE & PRESTIGIOUS MATHEMATICS OLYMPIAD BY ASSOCIATION OF MATHEMATICS TEACHERS \u2022 SCHOOL TOPPER; CONSISTENTLY RANKING 1ST AND 2ND ACROSS 10 CONSECUTIVE YEARS AT ATOMIC ENERGY CENTRAL SCHOOL (CBSE), INDIA",
+        "max_bullet_lines": 1
+      },
+      "hyperlinks": {
+        "passed": true,
+        "expected_count": 8,
+        "clickable_count": 8,
+        "missing": [],
+        "invalid_click_areas": []
+      }
+    }
+  },
+  "download_updated": true,
+  "download_sha256": "b18b7fcc73bfea8c35fddf3aefc19472f688a1ea99983e9511f4049ed0feb04f",
+  "both_pages_visually_verified": true
+}

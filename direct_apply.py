@@ -42,6 +42,7 @@ def parser():
     submit.add_argument('--role', action='append', default=[])
     submit.add_argument('--limit', type=positive)
     submit.add_argument('--max-applications', type=positive)
+    submit.add_argument('--workers', type=positive, help='Parallel isolated browser workers (1-4; >1 requires --browser kernel; default 1)')
     submit.add_argument('--config-dir')
     submit.add_argument('--output-dir', help='Shared preparation/resume cache, default logs/url_preparations')
     submit.add_argument('--chrome-profile')
@@ -141,6 +142,7 @@ def main(argv=None):
             result = run_submissions(jobs,run_dir=args.run_dir,resume_dir=args.resume_dir,config_dir=args.config_dir,
                 output_dir=args.output_dir,chrome_profile=args.chrome_profile,questions_path=args.questions,
                 discovery_source=args.discovery_source,pause=args.pause_before_submit,max_applications=args.max_applications,
+                workers=args.workers,
                 set_name=args.set_name,export_path=args.export_path,db_path=args.db,ledger_path=args.ledger,
                 browser_backend=args.browser_backend,browser_config=args.browser_config,retry_failed=args.retry_failed)
             print(json.dumps(result,indent=2))

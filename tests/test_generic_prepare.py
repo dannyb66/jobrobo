@@ -42,6 +42,28 @@ class GenericPreparationTests(unittest.TestCase):
         self.assertEqual(PreparationResolver({'require_visa': 'No'}, {}).resolve(q, 'generic').value, 'No')
         self.assertFalse(PreparationResolver({'visa_status': 'H-1B approved'}, {}).resolve(q, 'generic').resolved)
 
+    def test_common_portal_sponsorship_wordings_use_explicit_config(self):
+        resolver = PreparationResolver({'require_visa': 'No'}, {})
+        questions = [
+            {'label': 'Will you now or in the future require employment visa sponsorship (e.g., H-1B visa) to legally work for our company?', 'name': 'lever_sponsor', 'kind': 'text'},
+            {'label': 'Will you require sponsorship for employment now or in the future?', 'name': 'shield_sponsor', 'kind': 'radio', 'options': ['Yes', 'No']},
+        ]
+        for question in questions:
+            with self.subTest(label=question['label']):
+                answer = resolver.resolve(question, 'lever')
+                self.assertTrue(answer.resolved)
+                self.assertEqual(answer.value, 'No')
+                self.assertEqual(answer.source, 'candidate_config:require_visa')
+
+    def test_online_discovery_can_truthfully_answer_no_referral_question(self):
+        resolver = PreparationResolver({'application_source': 'Web'}, {})
+        question = {'label': 'If someone at Solace referred you, please share their name and your connection.',
+                    'name': 'referral', 'kind': 'textarea', 'required': True}
+        answer = resolver.resolve(question, 'ashby')
+        self.assertTrue(answer.resolved)
+        self.assertIn('found this opening online', answer.value)
+        self.assertIn('no personal referral', answer.value)
+
     def test_us_authorization_uses_only_explicit_employment_eligibility(self):
         q = {'label': 'Are you legally authorized to work in the US?', 'name': 'auth', 'kind': 'radio', 'options': ['Yes', 'No']}
         self.assertEqual(PreparationResolver({'employment_eligibility_statement': 'Non-citizen allowed to work for any employer'}, {}).resolve(q, 'generic').value, 'Yes')

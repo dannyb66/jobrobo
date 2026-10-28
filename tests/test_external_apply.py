@@ -1,7 +1,9 @@
 """Hosted application contracts use synthetic fields/PDFs; no live applications."""
 from pathlib import Path
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from reportlab.pdfgen import canvas
 
 from modules.application_budget import ApplicationBudget
@@ -22,6 +24,7 @@ class Element:
 
     def clear(self):
         self.data["value"] = ""
+        self.data["combo_value"] = ""
         self.actions.append("clear")
 
     def send_keys(self, value):
@@ -30,12 +33,26 @@ class Element:
             path = Path(value)
             self.data["files"] = [{"name": path.name, "size": path.stat().st_size}]
         else:
-            self.data["value"] = value
+            # Selenium appends keystrokes; paced typing arrives one character
+            # per call, so the field must accumulate rather than be replaced.
+            self.data["value"] = (self.data.get("value") or "") + value
 
     def click(self):
+        if self.data.get("combobox"):
+            # A click on a closed control opens it (react-select semantics); the
+            # pre-click scroll only scrolls. Closing is done by blur.
+            self.data["combo_open"] = True
+            self.browser.open_combobox = self if self.data["combo_open"] else None
+            self.browser.combobox_trace.append(("click", self.data["name"]))
+            return
         self.browser.clicks += 1
         if self.browser.click_error:
             raise RuntimeError("click interrupted")
+        if self.browser.ignore_choice_clicks and self.data.get("type") in {"radio", "checkbox"}:
+            self.native_noop = True
+            return
+        if self.browser.intercept:
+            raise RuntimeError("element click intercepted")
         self.browser.after_click = True
 
 
@@ -46,10 +63,15 @@ class Browser:
         self.fields = []
         self.clicks, self.after_click = 0, False
         self.challenge = False
+        self.rejection = []
+        self.intercept = False
+        self.ignore_choice_clicks = False
         self.click_error = False
         self.confirm = True
         self.confirm_url = None
         self.prior_confirmation = False
+        self.open_combobox = None
+        self.combobox_trace = []
         for name in (["first_name", "last_name", "email", "phone"] if provider == "greenhouse" else ["_systemfield_name", "_systemfield_email", "phone"] if provider == "ashby" else ["name", "email", "phone"]):
             self.add_field(name, "text", required=True)
         self.resume = self.add_field("_systemfield_resume" if provider == "ashby" else "resume", "file", required=True)
@@ -63,22 +85,100 @@ class Browser:
         self.fields.append(data)
         return data
 
+    def add_combobox(self, name, label, options, required=True):
+        data = {"name": name, "id": name, "type": "text", "required": required, "visible": True,
+                "disabled": False, "label": label, "question": label, "value": "", "files": [],
+                "combobox": True, "combo_open": False, "combo_value": "",
+                "combo_options": [{"label": option, "disabled": False} for option in options]}
+        data["element"] = Element(data, self)
+        self.fields.append(data)
+        return data
+
     def get(self, url):
         self.url = url
         self.navigations.append(url)
 
-    def execute_script(self, script):
+    def execute_script(self, script, *args):
         headings = ["Staff Platform Engineer"]
         if self.prior_confirmation or self.after_click and self.confirm:
             headings.append("Thank you for applying")
-        return {"url": self.confirm_url if self.after_click and self.confirm_url else self.url,
-                "title": self.title, "fields": self.fields,
-                "buttons": [{"element": self.submit, "text": "Submit application"}],
-                "headings": headings, "challenge": self.challenge}
+        # The snapshot has its own return shape and mentions the probe keywords,
+        # so identify it first and never fall through to a probe branch.
+        if "return {url:location.href" in script:
+            fields = [{**data,
+                       "value": data.get("combo_value", "") if data.get("combobox") else data["value"],
+                       "options": [{"label": option["label"], "value": option["label"],
+                                    "selected": data.get("combo_value") == option["label"],
+                                    "disabled": option.get("disabled", False)}
+                                   for option in data.get("combo_options", [])]
+                       if data.get("combo_open") else data.get("options", [])}
+                      for data in self.fields]
+            return {"url": self.confirm_url if self.after_click and self.confirm_url else self.url,
+                    "title": self.title, "fields": fields,
+                    "buttons": [{"element": self.submit, "text": "Submit application"}],
+                    "headings": headings, "challenge": self.challenge, "rejection": self.rejection,
+                    "attached_files": []}
+        if "scrollIntoView" in script:
+            args[0].data["combo_open"] = True
+            self.open_combobox = args[0]
+            self.combobox_trace.append(("open", args[0].data["name"]))
+            return True
+        if "aria-expanded" in script:
+            return bool(args[0].data.get("combo_open"))
+        if "blur()" in script:
+            args[0].data["combo_open"] = False
+            self.open_combobox = None
+            self.combobox_trace.append(("blur", args[0].data["name"]))
+            return None
+        if "single-value" in script:
+            chosen = args[0].data.get("combo_value") or ""
+            self.combobox_trace.append(("value", chosen))
+            return [chosen] if chosen else None
+        if "role=option" in script and "arguments[1]" in script:
+            # Pick fires after the list is open and reports the label it clicked.
+            hit = next((option for option in args[0].data["combo_options"]
+                        if option["label"] == args[1] and not option.get("disabled")), None)
+            self.combobox_trace.append(("pick", args[1] if hit else None))
+            if hit is None:
+                return None
+            args[0].data["combo_value"] = hit["label"]
+            args[0].data["combo_open"] = False
+            self.open_combobox = None
+            return hit["label"]
+        if "role=option" in script:
+            # Options only exist in the DOM while the list is open.
+            opened = self.open_combobox
+            self.combobox_trace.append(("read", bool(opened)))
+            if opened is None or not opened.data.get("combo_open"):
+                return []
+            return [{"label": option["label"],
+                     "selected": opened.data.get("combo_value") == option["label"],
+                     "disabled": option.get("disabled", False)} for option in opened.data["combo_options"]]
+        if script.strip().startswith("arguments[0].click()"):
+            # A DOM click is not subject to WebDriver's hit test, so it lands
+            # even while the button is covered.
+            if args[0].data.get("combobox"):
+                # Toggling a list is not a submission, so it does not count.
+                args[0].data["combo_open"] = not args[0].data.get("combo_open")
+                self.open_combobox = args[0] if args[0].data["combo_open"] else None
+                return None
+            self.clicks += 1
+            if args[0].data.get("type") in {"radio", "checkbox"}:
+                args[0].data["checked"] = not args[0].data.get("checked")
+            self.after_click = True
+            return None
+        if script.strip().startswith("return arguments[0].checked"):
+            return bool(args[0].data.get("checked"))
+        return None
 
 
 class HostedApplicationTests(unittest.TestCase):
     def setUp(self):
+        # Pacing is wall-clock only; keep the unit suite fast.
+        for name, value in {"JOBROBO_TYPING_DELAY": "0", "JOBROBO_SUBMIT_DWELL_MS": "0"}.items():
+            patcher = patch.dict(os.environ, {name: value})
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.pdf = Path(self.temp.name) / "synthetic-resume.pdf"
@@ -208,7 +308,51 @@ class HostedApplicationTests(unittest.TestCase):
                 self.browser.click_error, self.browser.confirm = click_error, False
                 result = self.apply(review=lambda details: "Submit application")
                 self.assertEqual(result.status, "submitting")
-                self.assertEqual(self.browser.clicks, 1)
+                # The first click plus the bounded re-click both went out; an
+                # intercepted native click also spends its DOM fallback.
+                self.assertEqual(self.browser.clicks, 4 if click_error else 2)
+
+    def test_intercepted_submit_click_falls_back_to_a_dom_click(self):
+        self.browser.intercept = True
+        result = self.apply(review=lambda details: "Submit application")
+        self.assertEqual(result.status, "applied")
+        self.assertTrue(self.browser.after_click)
+
+    def test_no_op_native_choice_click_falls_back_to_a_dom_click(self):
+        self.browser.ignore_choice_clicks = True
+        for value in ("Yes", "No"):
+            data = self.browser.add_field("work_auth", "radio", required=True, label="Authorized to work?")
+            data["value"] = data["option_label"] = value
+            data["group"] = "work_auth"
+        result = self.apply(review=lambda details: "Submit application",
+                            question_config={"answers": [{"question": "Authorized to work?", "type": "radio", "answer": "Yes"}]})
+        self.assertEqual(result.manual_questions, [])
+        self.assertTrue([f for f in self.browser.fields if f.get("value") == "Yes"][0]["checked"])
+
+    def test_employer_rejection_after_clear_is_reported_not_mislabelled(self):
+        self.browser.confirm = False
+        self.browser.rejection = ["We couldn't submit your application. Flagged as possible spam."]
+        base = self.browser.execute_script
+
+        def script(text, *args):
+            if not text.strip().startswith("arguments[0].click()"):
+                self.browser.after_click = False
+            return base(text, *args)
+
+        self.browser.execute_script = script
+        # A blocked submission repaints the page without the Submit button.
+        original = self.browser.execute_script
+
+        def no_buttons(text, *args):
+            state = original(text, *args)
+            if isinstance(state, dict) and self.browser.after_click:
+                state = {**state, "buttons": []}
+            return state
+
+        self.browser.execute_script = no_buttons
+        result = self.apply(review=lambda details: "Submit application")
+        self.assertEqual(result.status, "handoff")
+        self.assertIn("possible spam", result.reason)
 
     def test_preexisting_thank_you_heading_cannot_confirm_submission(self):
         self.browser.prior_confirmation, self.browser.confirm = True, False
@@ -256,6 +400,31 @@ class HostedApplicationTests(unittest.TestCase):
     def test_combobox_and_arbitrary_question_labels_are_not_auto_answered(self):
         self.assertIsNone(field_key({"type": "text", "name": "question_1", "label": "Work authorization"}, "greenhouse"))
         self.assertIsNone(field_key({"type": "text", "id": "country", "label": "Country", "combobox": True}, "greenhouse"))
+
+    def test_paced_typing_accumulates_a_multi_character_value(self):
+        name = next(field for field in self.browser.fields if field["name"] == "name")
+        with patch.dict(os.environ, {"JOBROBO_TYPING_DELAY": "0.001"}):
+            self.assertEqual(self.apply().status, "awaiting_review")
+        # Paced typing calls send_keys once per character; each call must
+        # extend the field rather than replace what the previous one wrote.
+        self.assertEqual(name["value"], "Test Applicant")
+        typing = [action for action in name["element"].actions if action != "clear"]
+        self.assertEqual(typing, list("Test Applicant"))
+
+    def test_combobox_question_answered_from_config_is_prepared(self):
+        country = self.browser.add_combobox("country", "Country", ["Canada", "United States of America"])
+        result = self.apply(question_config={"answers": [{"question": "Country", "type": "select", "answer": "United States of America"}]})
+        self.assertEqual(result.status, "awaiting_review")
+        self.assertEqual(result.manual_questions, [])
+        self.assertEqual(country["combo_value"], "United States of America")
+        self.assertIn(("click", "country"), self.browser.combobox_trace)
+        self.assertIn(("read", True), self.browser.combobox_trace)
+        self.assertIn(("pick", "United States of America"), self.browser.combobox_trace)
+        # The chosen value is read back and must match, or the answer goes manual.
+        self.assertIn(("value", "United States of America"), self.browser.combobox_trace)
+        self.assertNotIn(("pick", None), self.browser.combobox_trace)
+        # Opening the list is a real click, but no native *option* click is used.
+        self.assertEqual(self.browser.clicks, 0)
 
 
 class ATSIdentityTests(unittest.TestCase):

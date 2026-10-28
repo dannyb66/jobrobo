@@ -103,6 +103,44 @@ class FileChooserUploadTests(unittest.TestCase):
         target = resume_upload_target(self.browser, self.browser.modal, wait=bounded_wait)
         target.find_element("name", "file").send_keys(str(self.pdf))
 
+    def test_slow_upload_extends_wait_without_duplicate_attachment(self):
+        self.browser.selection = None
+        spinner = etree.SubElement(self.browser.modal.node, 'span')
+        spinner.text = 'Uploading'
+        polls = 0
+        messages = []
+        def wait(predicate):
+            nonlocal polls
+            if not self.browser.sent:
+                return bounded_wait(predicate)
+            for _ in range(5):
+                polls += 1
+                if polls == 7:
+                    spinner.getparent().remove(spinner)
+                    etree.SubElement(self.browser.modal.node, 'div', {'id':'ready', 'role':'radio',
+                        'aria-label':self.pdf.name,'aria-checked':'true'})
+                result = predicate(None)
+                if result:
+                    return result
+            raise TimeoutException('Upload still processing')
+        target = resume_upload_target(self.browser, self.browser.modal, wait=wait, log=messages.append)
+        target.find_element('name', 'file').send_keys(str(self.pdf))
+        self.assertEqual(len(self.browser.sent), 1)
+        self.assertEqual(self.browser.button_clicks, 1)
+        self.assertTrue(any('90s total' in message for message in messages))
+        self.assert_cleaned()
+
+    def test_uploading_spinner_is_not_success_even_with_matching_selected_filename(self):
+        spinner = etree.SubElement(self.browser.modal.node, 'span')
+        spinner.text = 'Uploading'
+        messages = []
+        target = resume_upload_target(self.browser, self.browser.modal, wait=bounded_wait, log=messages.append)
+        with self.assertRaisesRegex(ResumeUploadError, 'exact uploaded PDF.*uploading observed: True'):
+            target.find_element('name', 'file').send_keys(str(self.pdf))
+        self.assertEqual(len(self.browser.sent), 1)
+        self.assertEqual(len(messages), 1)  # Only one bounded extension.
+        self.assert_cleaned()
+
     def test_long_generation_refreshes_stale_modal_and_reuses_verified_pdf(self):
         from modules.resume_upload import upload_verified_resume
         original=self.browser.modal
@@ -246,14 +284,14 @@ class FileChooserUploadTests(unittest.TestCase):
 
     def test_missing_new_input_times_out_and_restores_interception(self):
         self.browser.new_inputs = []
-        with self.assertRaises(TimeoutException):
+        with self.assertRaisesRegex(ResumeUploadError, 'timed out'):
             self.attach()
         self.assertEqual(self.browser.sent, [])
         self.assert_cleaned()
 
     def test_disabled_new_input_is_not_used(self):
         self.browser.new_inputs[0]["disabled"] = ""
-        with self.assertRaises(TimeoutException):
+        with self.assertRaisesRegex(ResumeUploadError, 'timed out'):
             self.attach()
         self.assertEqual(self.browser.sent, [])
         self.assert_cleaned()
@@ -308,19 +346,19 @@ class FileChooserUploadTests(unittest.TestCase):
 
     def test_unselected_new_attachment_does_not_report_success(self):
         self.browser.selected = False
-        with self.assertRaises(TimeoutException):
+        with self.assertRaisesRegex(ResumeUploadError, 'timed out'):
             self.attach()
         self.assert_cleaned()
 
     def test_selected_different_filename_does_not_report_success(self):
         self.browser.selection = "old resume.pdf"
-        with self.assertRaises(TimeoutException):
+        with self.assertRaisesRegex(ResumeUploadError, 'timed out'):
             self.attach()
         self.assert_cleaned()
 
     def test_selected_filename_outside_modal_does_not_report_success(self):
         self.browser.outside_selection = True
-        with self.assertRaises(TimeoutException):
+        with self.assertRaisesRegex(ResumeUploadError, 'timed out'):
             self.attach()
         self.assert_cleaned()
 
@@ -328,7 +366,7 @@ class FileChooserUploadTests(unittest.TestCase):
         etree.SubElement(self.browser.modal.node, "div", {"id": "old-selected", "role": "radio",
                          "aria-label": self.pdf.name, "aria-checked": "true"})
         self.browser.selection = None
-        with self.assertRaises(TimeoutException):
+        with self.assertRaisesRegex(ResumeUploadError, 'timed out'):
             self.attach()
         self.assert_cleaned()
 

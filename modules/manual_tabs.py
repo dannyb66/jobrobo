@@ -35,6 +35,33 @@ DUPLICATE = re.compile(r'\byou (?:have )?(?:already|previously) (?:applied|submi
 REJECTED = re.compile(r'form needs corrections|missing entry for required|please (?:complete|correct|fill)|required field|field is required|invalid (?:email|phone)|unable to submit|could not submit|submission failed', re.I)
 
 
+def close_browser_tab(driver, handle):
+    """Close one known-complete job tab without disturbing retained review tabs."""
+    if not handle:
+        return False
+    try:
+        handles=list(driver.window_handles)
+        if handle not in handles:
+            return False
+        try: current=driver.current_window_handle
+        except Exception: current=None
+        driver.switch_to.window(handle)
+        driver.close()
+        remaining=list(driver.window_handles)
+        if current in remaining:
+            driver.switch_to.window(current)
+        elif remaining:
+            index=handles.index(handle)
+            following=next((candidate for candidate in handles[index+1:] if candidate in remaining),None)
+            preceding=next((candidate for candidate in reversed(handles[:index]) if candidate in remaining),None)
+            driver.switch_to.window(following or preceding or remaining[0])
+        return True
+    except Exception:
+        # Tab cleanup is best-effort; never replace a confirmed application
+        # outcome with a browser-cleanup failure.
+        return False
+
+
 class TargetReader:
     """Read main/child frame contexts and trusted-click events on one target."""
     def __init__(self, address, target, *, token=None):
@@ -120,14 +147,17 @@ class TargetReader:
 
 
 class ManualTabs:
-    def __init__(self, driver, run, ledger, *, allow_local=False, confirmation_timeout=30):
+    def __init__(self, driver, run, ledger, *, allow_local=False, confirmation_timeout=30,
+                 job_keys=None, persist_run_options=True):
         self.driver=driver; self.run=run; self.ledger=ledger
         self.allow_local=allow_local; self.timeout=confirmation_timeout
+        self.job_keys=set(job_keys) if job_keys is not None else None
         self.address=driver.capabilities['goog:chromeOptions']['debuggerAddress']
         self.tabs={}; self.last_heartbeat=time.monotonic()
-        if getattr(driver,'browser_backend',None)=='kernel':
-            run.set_options({**run.options,**driver.runtime_metadata})
-        else:run.set_options({**run.options,'debugger_address':self.address})
+        if persist_run_options:
+            if getattr(driver,'browser_backend',None)=='kernel':
+                run.set_options({**run.options,**driver.runtime_metadata})
+            else:run.set_options({**run.options,'debugger_address':self.address})
 
     def reader(self,target,token):
         if getattr(self.driver,'browser_backend',None) in {'kernel','playwright'}:
@@ -175,9 +205,11 @@ class ManualTabs:
         return {'status':'awaiting_manual_submit' if info['initially_complete'] else 'awaiting_correction',
             'manual_handoff':True,'posting_aliases':aliases}
 
-    def restore(self):
+    def restore(self, job_keys=None):
         """Reconnect live handed-off tabs; never re-fill a possibly submitted tab."""
+        selected=set(job_keys) if job_keys is not None else self.job_keys
         for job,state in self.run.rows():
+            if selected is not None and job['key'] not in selected:continue
             info=state.get('manual_tab')
             if not info or state['status'] not in {'awaiting_manual_submit','awaiting_correction','submitting','awaiting_email_verification'}:continue
             if job['key'] in self.tabs:continue
@@ -240,6 +272,11 @@ class ManualTabs:
                 self.update(tab,result,'confirmed' if result=='applied' else 'portal_duplicate',retryable=False,
                     submitted_at=outcome.submitted_at,**({'duplicate_source':'portal'} if result=='duplicate' else {}))
                 tab['done']=True;changed=True
+                if result=='applied':
+                    tab['reader'].close()
+                    state=next((saved for job,saved in self.run.rows() if job['key']==tab['job']['key']),{})
+                    if close_browser_tab(self.driver,state.get('tab_handle')):
+                        print('[Submit] Closed confirmed application tab: '+tab['job'].get('title',tab['job']['url']),flush=True)
                 print('[Submit] '+tab['job'].get('title',tab['job']['url'])+': '+result,flush=True)
             elif scoped and any(s.get('email_verification') for s in scoped):
                 if previous['status']!='awaiting_email_verification':

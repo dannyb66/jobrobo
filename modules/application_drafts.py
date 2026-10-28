@@ -29,7 +29,8 @@ INSTRUCTIONS = (
     "Provide the best usable answer in the initial response; citation and review metadata are advisory."
 )
 PROTECTED = re.compile(
-    r"\b(?:references?|refs|referees?|citizen\w*|nationality|visa|sponsor\w*|work authori\w*|authorized to work|"
+    r"\b(?:references?|refs|referees?)(?!\s+(?:architectures?|implementations?|designs?|patterns?|systems?)\b)|"
+    r"\b(?:citizen\w*|nationality|visa|sponsor\w*|work authori\w*|authorized to work|"
     r"legally|legal status|clearance|consent|agree|acknowledge|certify|attest|signature|sign here|privacy policy|"
     r"terms of|subscribe|opt in|opt out|gender|pronouns?|race|racial|ethnic\w*|disab\w*|veteran|military|"
     r"religion|sexual|marital|criminal|convict\w*|felon\w*|arrest\w*|salary|compensation|notice period|"
@@ -148,8 +149,8 @@ class ApplicationDrafts:
     def answer(self, question, kind="descriptive", max_length=None):
         if not isinstance(question, str) or not question.strip():
             raise DraftError("The exact application question is required")
-        if kind not in {"cover_letter", "descriptive"}:
-            raise DraftError("Only cover letters and descriptive prose may be drafted")
+        if kind not in {"cover_letter", "descriptive", "numeric"}:
+            raise DraftError("Only cover letters, descriptive or numeric answers may be drafted")
         if (PROTECTED.search(question) or re.fullmatch(r"\s*(?:professional\s+)?reference\s*\*?\s*", question, re.I)):
             raise DraftError("This question requires explicit personal input; drafting is disabled")
         limit = 12_000 if max_length is None else max_length
@@ -160,6 +161,21 @@ class ApplicationDrafts:
             payload = {"instructions": INSTRUCTIONS, "question": question, "kind": kind, "max_length": limit,
                        "job": {"job_id": self.job_id, "title": self.job_title, "company": self.company},
                        "sources": sources}
+            if kind == "numeric":
+                payload["answer_format"] = (
+                    "LinkedIn rejected prose for this numeric screening field. Return only a nonnegative number. "
+                    "If the question is a skill label, it asks years of experience with that skill. "
+                    "Use a conservative estimate supported by dated relevant work in the candidate resume. "
+                    "Never use the job's required years as candidate evidence. If no supported number can be "
+                    "determined, return an explanation rather than inventing one; the caller will retain it for retry."
+                )
+            elif kind == "descriptive":
+                payload["answer_format"] = (
+                    "Answer the question directly. Omit introductions, the job title, employer name and repeated question. "
+                    "For a short skill-label field, give a concise resume-supported skill phrase. "
+                    "For an explicitly numeric question give only the supported number. "
+                    f"The field accepts at most {limit} characters; compose a complete answer within that limit."
+                )
             fingerprint = _sha(json.dumps({**payload, "resume_sha256": _sha(data)}, sort_keys=True, ensure_ascii=False, allow_nan=False))
             path = self.output_dir / "answers.json"
             records = []
@@ -186,6 +202,8 @@ class ApplicationDrafts:
 
             response = request(payload)
             answer, ids = self._validate(response, sources, limit)
+            if kind == "numeric" and not re.fullmatch(r'\d+(?:\.\d+)?', answer):
+                raise DraftError("Numeric screening answer needs a supported number")
             metadata = json.loads(response) if isinstance(response, str) else response
             record = {"question": question, "kind": kind, "max_length": limit, "answer": answer, "source_ids": ids,
                       "manual_review": metadata.get("manual_review"), "input_hash": fingerprint, "resume_path": str(self.resume_path),

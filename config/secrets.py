@@ -2,7 +2,7 @@
 
 
 # Login Credentials for LinkedIn (Optional)
-username = "deepakbasavaraju7@gmail.com"       # Enter your username in the quotes
+username = "danny.basavaraju@gmail.com"       # Enter your username in the quotes
 password = "Adarsh*11"           # Enter your password in the quotes
 
 
@@ -10,7 +10,7 @@ password = "Adarsh*11"           # Enter your password in the quotes
 # Use AI
 use_AI = False                          # True or False, Note: True or False are case-sensitive
 # Use AI for optimizing resume
-use_AI_for_resume = True               # True or False, Note: True or False are case-sensitive. OPENAI API KEY is required for this feature.
+use_AI_for_resume = True              # Tailor and upload the per-job resume using optimizer config.
 '''
 Note: Set it as True only if you want to use AI, and If you either have a
 1. Local LLM model running on your local machine, with it's APIs exposed. Example softwares to achieve it are:

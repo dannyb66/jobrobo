@@ -37,6 +37,19 @@ class Node:
         return self.enabled
 
 
+class HeaderComparisonTests(unittest.TestCase):
+    def test_whitespace_difference_preserves_identity(self):
+        from modules.linkedin_job_details import header_identity_matches
+        self.assertTrue(header_identity_matches({'title': 'Principal Engineer  - GPUaaS ', 'company': 'CyberCoders'},
+                                                'Principal Engineer - GPUaaS', 'CyberCoders'))
+
+    def test_real_title_or_employer_difference_is_rejected(self):
+        from modules.linkedin_job_details import header_identity_matches
+        header = {'title': 'Principal Engineer', 'company': 'CyberCoders'}
+        self.assertFalse(header_identity_matches(header, 'Staff Engineer', 'CyberCoders'))
+        self.assertFalse(header_identity_matches(header, 'Principal Engineer', 'Another company'))
+
+
 class DetailBrowser:
     """Keep only observed semantic hooks, excluding all account/tracking data."""
 
@@ -146,6 +159,17 @@ class ModernDetailReaderTests(unittest.TestCase):
         self.browser.label.children["ancestor::a[1]"][0].attrs["href"] = "https://example.com/company/example"
         with self.assertRaises(ValueError):
             read_modern_details(self.browser)
+
+    def test_plain_employer_logo_is_bound_to_exact_job_and_header_name(self):
+        self.browser.root.children["[aria-label^='Company,']"] = []
+        self.browser.root.children["[aria-label^='Company logo for,']"] = [
+            Node(attrs={'aria-label': 'Company logo for, Example.'})]
+        details = read_modern_details(self.browser, '123')
+        self.assertEqual(details['company'], 'Example')
+        self.assertIsNone(details['company_url'])
+        self.browser.root.children['p'][0] = Node('Unrelated Employer')
+        with self.assertRaises(ValueError):
+            read_modern_details(self.browser, '123')
 
     def test_header_for_another_job_cannot_pass_with_a_retained_description_section(self):
         self.browser.label.children["ancestor::a[1]"][0].attrs["componentkey"] = "auto-binding-fixture-999"

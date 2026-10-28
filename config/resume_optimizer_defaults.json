@@ -7,6 +7,8 @@
     "skills_min_fill_ratio": 0.92,
     "company_context_path": "config/resume_company_context.json",
     "rewrite_experience_concurrency": 2,
+    "rewrite_bullet_min_fill_ratio": 0.90,
+    "rewrite_bullet_target_fill_ratio": 0.97,
     "replace_job_title": true,
     "rewrite_bullets": true,
     "optimization_mode": "full",

@@ -5,7 +5,7 @@ import time
 from unittest import TestCase, skipUnless
 from unittest.mock import Mock, patch
 
-from modules.manual_tabs import ManualTabs
+from modules.manual_tabs import ManualTabs, close_browser_tab
 from modules.submit_runner import run_submissions
 from modules.submit_state import status
 from test_generic_submit import SubmitBrowserTests, Handler
@@ -54,7 +54,7 @@ class RetainedTabBrowserTests(TestCase):
                 driver.find_element('name','email').send_keys('reviewed@example.test')
                 driver.find_element('id','submit').click()
                 outer.until(monitor,{'applied':1,'awaiting_manual_submit':2})
-                outer.assertEqual(driver.current_window_handle,handles[0],'Monitoring must not switch tabs')
+                outer.assertEqual(driver.current_window_handle,handles[1],'After closing the confirmed tab, focus should move to a retained review tab')
                 for handle in handles[1:]:
                     driver.switch_to.window(handle);driver.find_element('id','submit').click()
                 outer.until(monitor,{'applied':3});on_change()
@@ -62,7 +62,7 @@ class RetainedTabBrowserTests(TestCase):
             result=self.run_jobs(self.jobs('/job/a','/job/b','/native/c'),tab_monitor_factory=Review)
         self.assertEqual(result['counts'],{'applied':3});self.assertEqual(len(Handler.receipts),3)
         self.assertEqual(json.loads((self.root/'run/manual-review.json').read_text())['jobs'],[])
-        self.assertGreater(len(self.drivers[-1].window_handles),2,'Review browser must remain open')
+        self.assertEqual(len(self.drivers[-1].window_handles),1,'Confirmed job tabs should close; only the browser starter tab remains')
 
     def test_unknown_only_hands_off_unconfigured_choices(self):
         outer=self
@@ -258,7 +258,7 @@ class ManualTabContracts(TestCase):
         self.reader=Mock()
         self.tab={'job':self.job,'info':self.info,'reader':self.reader,'started':None,'done':False}
         self.monitor.tabs[self.job['key']]=self.tab
-        self.run.update(self.job,status='awaiting_manual_submit',stage='manual_tab',manual_tab=self.info)
+        self.run.update(self.job,status='awaiting_manual_submit',stage='manual_tab',manual_tab=self.info,tab_handle='handle-one')
 
     def snapshot(self,*,heading='Staff Engineer',url=None,count=0,**extra):
         return {'url':url or self.job['url'],'top':True,'headings':[heading],'alerts':[],
@@ -268,6 +268,7 @@ class ManualTabContracts(TestCase):
         self.reader.read.return_value=([self.snapshot(heading='Application submitted successfully')],[])
         self.monitor.poll()
         self.assertEqual(self.run.rows()[0][1]['status'],'awaiting_manual_submit')
+        self.monitor.driver.close.assert_not_called()
 
     def test_wrong_posting_confirmation_stays_uncertain(self):
         self.reader.read.return_value=([self.snapshot(heading='Application submitted successfully',url='https://employer.test/job/two',count=1)],[])
@@ -280,6 +281,27 @@ class ManualTabContracts(TestCase):
         self.reader.read.return_value=([self.snapshot(heading='Application submitted successfully',count=1)],[])
         self.monitor.poll();self.assertEqual(self.run.rows()[0][1]['status'],'applied')
         self.monitor.driver.find_element.assert_not_called()
+
+    def test_confirmed_manual_submission_closes_only_its_tab(self):
+        class WindowDriver:
+            def __init__(self):self.window_handles=['handle-one','manual-two'];self.current_window_handle='manual-two';self.closed=[]
+            class Switch:
+                def __init__(self,owner):self.owner=owner
+                def window(self,handle):self.owner.current_window_handle=handle
+            def close(self):
+                self.closed.append(self.current_window_handle);self.window_handles.remove(self.current_window_handle)
+            switch_to=None
+        driver=WindowDriver();driver.switch_to=WindowDriver.Switch(driver);self.monitor.driver=driver
+        self.reader.read.return_value=([self.snapshot(heading='Application submitted successfully',count=1)],[])
+        self.monitor.poll()
+        self.assertEqual(driver.closed,['handle-one'])
+        self.assertEqual(driver.current_window_handle,'manual-two')
+        self.assertEqual(driver.window_handles,['manual-two'])
+
+    def test_close_browser_tab_does_not_close_unresolved_tab(self):
+        driver=Mock(window_handles=['handle-one','manual-two'],current_window_handle='manual-two')
+        self.assertFalse(close_browser_tab(driver,'missing'))
+        driver.close.assert_not_called()
 
     def test_closed_tab_never_means_submitted_or_safe_automatic_retry(self):
         self.reader.read.side_effect=ConnectionError('closed')

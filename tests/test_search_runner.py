@@ -2,6 +2,7 @@
 
 import ast
 import csv
+import json
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -74,6 +75,9 @@ class Browser:
         self.query_id, self.page = search.query_id, 0
         self.started.append(search.query_id)
 
+    def get(self, url):
+        self.current_url = url
+
     def find_elements(self, by, selector):
         if selector == "//li[@data-occludable-job-id]":
             return [Job(job_id) for job_id in self.pages[self.query_id][self.page]]
@@ -100,6 +104,9 @@ class SearchRunnerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
+        self.reconciliation = patch('modules.linkedin_failure_recovery.reconcile_submission', return_value=False)
+        self.reconcile = self.reconciliation.start()
+        self.addCleanup(self.reconciliation.stop)
         self.directory = Path(self.temporary.name)
         self.events = []
         self.visited = []
@@ -231,6 +238,79 @@ class SearchRunnerTests(unittest.TestCase):
         with (self.directory / name).open(newline="") as handle:
             return list(csv.DictReader(handle))
 
+    def test_details_error_is_deferred_and_next_card_in_same_query_applies(self):
+        from modules.linkedin_job_details import JobDetailsUnavailable
+        search = spec('details-recovery', 2)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        original = self.namespace['get_job_main_details']
+        def details(job, *args):
+            if job.job_id == '1':
+                raise JobDetailsUnavailable('1', {'predicate_error': 'Missing employer header'})
+            return original(job, *args)
+        self.namespace['get_job_main_details'] = details
+        self.execute(manifest)
+        self.assertEqual([r['Job ID'] for r in self.rows()], ['2'])
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'in_progress')
+        self.assertTrue(manifest.query(search.query_id)['application_failures'][0]['report_path'])
+
+    def test_unexpected_job_error_is_captured_and_next_job_applies(self):
+        search = spec('unexpected', 2)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        description = self.namespace['get_job_description']
+        self.namespace['get_job_description'] = Mock(side_effect=[ValueError('Broken job layout'), description()])
+        self.execute(manifest)
+        self.assertEqual([r['Job ID'] for r in self.rows()], ['2'])
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'failed')
+        self.assertTrue(Path(manifest.query(search.query_id)['application_failures'][0]['report_path']).is_file())
+
+    def test_disconnected_readiness_during_error_handling_does_not_abort_later_query(self):
+        first, second = spec('lost-connection'), spec('available')
+        manifest = self.manifest([first, second], {first.query_id: [['1']], second.query_id: [['2']]})
+        original = self.namespace['start_search']
+        def start(browser, search, *args):
+            if search.query_id == first.query_id:
+                raise RuntimeError('Browser connection was interrupted')
+            return original(browser, search, *args)
+        self.namespace['start_search'] = start
+        self.namespace['search_results_ready'] = Mock(side_effect=RuntimeError('Browser disconnected'))
+        self.execute(manifest)
+        self.assertEqual(manifest.query(first.query_id)['status'], 'pending')
+        self.assertEqual([r['Job ID'] for r in self.rows()], ['2'])
+
+    def test_delayed_confirmation_is_reconciled_without_second_submit(self):
+        search = spec('late-receipt')
+        manifest = self.manifest([search], {search.query_id: [['1']]})
+        self.namespace['wait_for_submission_confirmation'] = Mock(side_effect=RuntimeError('Receipt delayed'))
+        self.reconcile.return_value = True
+        self.execute(manifest)
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'applied')
+        self.assertEqual(self.events.count('Submit application'), 1)
+        self.assertEqual(self.namespace['failed_count'], 0)
+
+    def test_resumed_confirmed_hold_does_not_count_as_a_new_submission(self):
+        from modules.application_budget import ApplicationBudget
+        search = spec('resume-reconciliation', 3)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        manifest.record_job(search, '1', 'submitting')
+        self.reconcile.return_value = True
+        budget = ApplicationBudget(2)
+        self.execute(manifest, application_budget=budget)
+        self.assertEqual(self.visited, ['2'])
+        self.assertEqual(manifest.query(search.query_id)['applied_count'], 2)
+        self.assertEqual(budget.count, 1)
+        self.assertEqual(self.events.count('Submit application'), 1)
+
+    def test_engineering_query_skips_interior_manager_before_opening_application(self):
+        search = spec('engineering', 2)
+        search.classic_query = 'Staff Software Engineer'
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.namespace['get_job_main_details'] = Mock(side_effect=[
+            ('1','Interior Manager','Example','California','Remote',False),
+            ('2','Staff Software Engineer','Example','California','Remote',False)])
+        self.execute(manifest)
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'skipped')
+        self.assertEqual([r['Job ID'] for r in self.rows()], ['2'])
+
     def test_daily_limit_preserves_job_and_query_for_resume_without_failure_or_cleanup(self):
         from modules.linkedin_easy_apply import EasyApplyLimitReached
         from modules.linkedin_deferred import DeferredJobs
@@ -291,9 +371,9 @@ class SearchRunnerTests(unittest.TestCase):
         external = self.namespace['external_apply'] = Mock()
         self.execute(manifest)
         external.assert_not_called()
-        self.assertEqual(self.visited, ['1'])
-        self.assertEqual(self.namespace['failed_count'], 1)
-        self.assertEqual(manifest.data['stop_reason'], 'easy_apply_entry_failed')
+        self.assertEqual(self.visited, ['1', '2'])
+        self.assertEqual(self.namespace['failed_count'], 2)
+        self.assertEqual(manifest.query(search.query_id)['stop_reason'], 'job_cards_pending')
         self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'in_progress')
         self.assertNotIn('1', manifest.processed_ids())
         self.namespace['discard_job'].assert_not_called()
@@ -478,7 +558,7 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual(resumed.query("second")["last_page"], 2)
 
     def test_resume_retries_unsubmitted_in_progress_but_skips_uncertain_submission(self):
-        uncertain, retry = spec("uncertain"), spec("retry")
+        uncertain, retry = spec("uncertain", 3), spec("retry")
         manifest = self.manifest([uncertain, retry], {"uncertain": [["10", "12"]], "retry": [["11"]]})
         manifest.begin_query(uncertain)
         manifest.record_job(uncertain, "10", "submitting")
@@ -487,15 +567,15 @@ class SearchRunnerTests(unittest.TestCase):
         manifest.interrupt("KeyboardInterrupt")
         resumed = SearchManifest.find_resume(self.directory / "state", plan_fingerprint([uncertain, retry]))
         self.execute(resumed)
-        self.assertEqual(self.visited, ["11"])
-        self.assertEqual(self.browser.started, ["retry"])
+        self.assertEqual(self.visited, ["12", "11"])
+        self.assertEqual(self.browser.started, ["uncertain", "retry"])
         self.assertEqual(resumed.query("uncertain")["jobs"]["10"]["status"], "submitting")
         self.assertEqual(resumed.query("uncertain")["stop_reason"], "submission_uncertain")
         self.assertEqual(resumed.query("uncertain")["status"], "pending")
         self.assertEqual(resumed.query("retry")["jobs"]["11"]["status"], "applied")
         self.assertEqual(resumed.data["status"], "interrupted")
 
-    def test_ambiguous_submit_preserves_uncertainty_blocks_lane_and_cannot_retry_on_resume_or_new_run(self):
+    def test_ambiguous_submit_holds_job_but_allows_other_jobs_and_never_reapplies(self):
         uncertain, other = spec("uncertain"), spec("other")
         manifest = self.manifest([uncertain, other], {"uncertain": [["1", "2"]], "other": [["1", "3"]]})
 
@@ -524,7 +604,7 @@ class SearchRunnerTests(unittest.TestCase):
         resumed = SearchManifest.find_resume(self.directory / "state", plan_fingerprint([uncertain, other]))
         self.execute(resumed)
         self.assertEqual(self.visited, ["1", "3"])
-        self.assertEqual(self.browser.started, ["uncertain", "other"])
+        self.assertEqual(self.browser.started, ["uncertain", "uncertain", "other"])
         self.assertEqual(resumed.query("uncertain")["jobs"]["1"]["status"], "submitting")
         self.assertEqual(resumed.data["status"], "interrupted")
 
@@ -565,15 +645,89 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertNotIn("confirm", self.events)
         self.assertIn("visible Easy Apply dialog not found", self.rows("failed.csv")[0]["Stack Trace"])
 
-    def test_normal_form_failure_halts_when_discard_cannot_be_verified(self):
+    def test_normal_form_failure_recovers_and_continues_when_discard_fails(self):
         search = spec("normal-cleanup-failure")
         manifest = self.manifest([search], {search.query_id: [["1", "2"]]})
         self.namespace["answer_questions"] = Mock(side_effect=RuntimeError("Missing required answer"))
         self.namespace["discard_job"] = Mock(side_effect=RuntimeError("Discard confirmation remained open"))
         self.execute(manifest)
-        self.assertEqual(self.visited, ["1"])
+        self.assertEqual(self.visited, ["1", "2"])
         self.assertNotIn("Submit application", self.events)
-        self.assertEqual(manifest.data["stop_reason"], "application_cleanup_failed")
+        self.assertEqual(manifest.data["status"], "complete")
+
+    def test_pre_submit_cleanup_failure_restarts_search_and_continues_next_job(self):
+        from modules.linkedin_easy_apply import MissingApplicationAnswer
+        from modules.linkedin_deferred import DeferredJobs
+        search = spec('cleanup-recovered', 2)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.browser.get = Mock()
+        self.namespace['answer_questions'] = Mock(side_effect=[
+            MissingApplicationAnswer('Required personal answer is missing: 3 References (1 Direct Manager)'), set()])
+        self.namespace['discard_job'] = Mock(side_effect=RuntimeError('cleanup: unrelated blocking dialog remains'))
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1', '2'])
+        self.assertEqual(self.events.count('Submit application'), 1)
+        self.browser.get.assert_called_once_with('https://www.linkedin.com/jobs/')
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'failed')
+        self.assertEqual(manifest.query(search.query_id)['jobs']['2']['status'], 'applied')
+        records = DeferredJobs(self.directory / 'deferred_applications' / 'retry_jobs.json').records
+        self.assertEqual(records[0]['job_id'], '1')
+        self.assertFalse(records[0]['requires_submission_check'])
+        self.assertEqual(manifest.query(search.query_id)['ui_recoveries'][0]['status'], 'recovered')
+        self.assertTrue(list((self.directory / 'application_ui_diagnostics').glob('*.json')))
+
+    def test_cleanup_recovery_restarts_page_one_without_reapplying_completed_jobs(self):
+        search = spec('cleanup-page-reset', 3)
+        manifest = self.manifest([search], {search.query_id: [['1', '2'], ['3']]})
+        self.browser.get = Mock()
+        self.namespace['answer_questions'] = Mock(side_effect=[set(), RuntimeError('Missing answer'), set()])
+        self.namespace['discard_job'] = Mock(side_effect=RuntimeError('cleanup failed'))
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1', '2', '3'])
+        self.assertEqual(self.events.count('Submit application'), 2)
+        self.assertEqual([r['Job ID'] for r in self.rows()], ['1', '3'])
+        self.assertEqual(self.browser.started, [search.query_id, search.query_id])
+
+    def test_uncertain_submission_is_held_while_search_restarts_for_other_jobs(self):
+        search = spec('cleanup-uncertain', 2)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.browser.get = Mock()
+        self.namespace['wait_for_submission_confirmation'] = Mock(side_effect=RuntimeError('No confirmation'))
+        self.namespace['discard_job'] = Mock(side_effect=RuntimeError('cleanup failed'))
+        self.execute(manifest)
+        self.assertTrue(all(call.args[0] == 'https://www.linkedin.com/jobs/' for call in self.browser.get.call_args_list))
+        self.assertEqual(self.visited, ['1', '2'])
+        self.assertEqual(self.events.count('Submit application'), 2)
+        self.assertTrue(manifest.has_uncertain_submission(search))
+
+    def test_cleanup_recovery_stops_if_restored_search_is_still_blocked(self):
+        search = spec('cleanup-still-blocked', 2)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.browser.get = Mock()
+        self.namespace['answer_questions'] = Mock(side_effect=RuntimeError('Missing answer'))
+        self.namespace['discard_job'] = Mock(side_effect=RuntimeError('cleanup failed'))
+        self.namespace['clear_post_submit_ui'] = Mock(side_effect=RuntimeError('Unrecognized overlay remains'))
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1'])
+        self.browser.get.assert_called_once()
+        self.assertEqual(self.events.count('Submit application'), 0)
+        self.assertEqual(manifest.query(search.query_id)['stop_reason'], 'job_cards_pending')
+        self.assertEqual(manifest.query(search.query_id)['ui_recoveries'][0]['status'], 'failed')
+
+    def test_prepare_only_cleanup_failure_recovers_and_validates_next_job(self):
+        from modules.linkedin_easy_apply import MissingApplicationAnswer
+        search = spec('prepare-cleanup-recovered', 3)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.browser.get = Mock()
+        self.namespace['prepare_easy_apply'] = Mock(side_effect=[
+            MissingApplicationAnswer('Missing references'), (self.modal, set(), True, 'verified.pdf')])
+        with patch('modules.linkedin_form_cleanup.discard_application',
+                   side_effect=[RuntimeError('cleanup failed'), True]):
+            self.namespace['execute_search_plan'](manifest, prepare_only=True, preparation_limit=2)
+        self.assertEqual(self.visited, ['1', '2'])
+        self.assertNotIn('Submit application', self.events)
+        self.assertEqual(manifest.query(search.query_id)['jobs']['2']['status'], 'prepared')
+        self.assertEqual(manifest.query(search.query_id)['ui_recoveries'][0]['status'], 'recovered')
 
     def test_answer_failure_never_enters_review_or_submission(self):
         search = spec("answer-error")
@@ -630,7 +784,10 @@ class SearchRunnerTests(unittest.TestCase):
         self.namespace['actions'].send_keys.return_value.perform.side_effect = RuntimeError('Receipt already disappeared')
         self.execute(manifest)
         self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'applied')
-        self.assertFalse((self.directory / 'deferred_applications' / 'retry_jobs.json').exists())
+        # Successful jobs remain in the audit ledger and are excluded from
+        # retry selection by their applied status.
+        ledger = json.loads((self.directory / 'deferred_applications' / 'retry_jobs.json').read_text())
+        self.assertEqual(ledger['records'][0]['status'], 'applied')
         self.assertEqual(self.namespace['failed_count'], 0)
         self.assertEqual(self.rows()[0]['Job ID'], '1')
 
@@ -1351,6 +1508,7 @@ class ReceiptRecoveryTests(unittest.TestCase):
         self.assertEqual(browser.clicks,[])
 
     def checkbox_form(self,markup,**settings):
+        import re
         from test_linkedin_modern_search import DOMBrowser
         from selenium.common.exceptions import NoSuchElementException
         from selenium.webdriver.common.by import By
@@ -1367,10 +1525,51 @@ class ReceiptRecoveryTests(unittest.TestCase):
             return matches[0] if matches else False
         def missing(*args):raise NoSuchElementException()
         actions=SimpleNamespace(move_to_element=lambda node:SimpleNamespace(click=lambda:SimpleNamespace(perform=node.click)))
-        ns=dict(By=By,driver=browser,try_xp=locate,find_by_class=missing,NoSuchElementException=NoSuchElementException,
+        ns=dict(By=By,re=re,driver=browser,try_xp=locate,find_by_class=missing,NoSuchElementException=NoSuchElementException,
                 actions=actions,print_lg=Mock(),overwrite_previous_answers=False,**settings)
-        extract_functions(ns,'answer_questions','answer_common_questions')
+        extract_functions(ns,'answer_questions','answer_common_questions',
+                          '_resume_work_history_dates','_fill_resume_work_history_dates')
         return browser,ns
+
+    def test_binary_sponsorship_group_selects_only_configured_yes(self):
+        markup = '''<div componentkey="easyApplyFieldFocus_ea_validation_p2_0_1">
+          <p>Would you require visa sponsorship?*</p><fieldset>
+          <div id="yes" role="checkbox" aria-checked="false"><input id="y" type="checkbox" style="display:none"><label for="y"></label><p>Yes</p></div>
+          <div id="no" role="checkbox" aria-checked="false"><input id="n" type="checkbox" style="display:none"><label for="n"></label><p>No</p></div>
+          </fieldset><p>This field is required</p></div>'''
+        browser, ns = self.checkbox_form(markup, require_visa='Yes')
+        questions = ns['answer_questions'](browser.find_element('css selector', 'dialog'), set(), 'Bay Area')
+        self.assertEqual(browser.clicks, ['yes'])
+        self.assertTrue(any(q[:3] == ('Would you require visa sponsorship?*', 'Yes', 'checkbox_group') for q in questions))
+        ns['answer_questions'](browser.find_element('css selector', 'dialog'), questions, 'Bay Area')
+        self.assertEqual(browser.clicks, ['yes'])  # A second fill must not toggle it off.
+
+    def test_binary_group_clears_conflicting_selection_before_selecting(self):
+        browser, ns = self.checkbox_form('''<p>Would you require visa sponsorship?*</p><fieldset>
+          <div id="yes" role="checkbox" aria-checked="false"><input id="y" type="checkbox"><p>Yes</p></div>
+          <div id="no" role="checkbox" aria-checked="true"><input id="n" type="checkbox"><p>No</p></div>
+          </fieldset>''', require_visa='Yes')
+        ns['answer_questions'](browser.find_element('css selector','dialog'),set(),'Bay Area')
+        self.assertEqual(browser.clicks, ['no', 'yes'])
+
+    def test_binary_group_verifies_click_persisted(self):
+        browser, ns = self.checkbox_form('''<p>Would you require visa sponsorship?*</p><fieldset>
+          <div role="checkbox" aria-checked="false"><input type="checkbox"><p>Yes</p></div>
+          <div role="checkbox" aria-checked="false"><input type="checkbox"><p>No</p></div>
+          </fieldset>''', require_visa='Yes')
+        browser.click = lambda node: None
+        from modules.linkedin_easy_apply import MissingApplicationAnswer
+        with self.assertRaisesRegex(MissingApplicationAnswer, 'did not persist'):
+            ns['answer_questions'](browser.find_element('css selector','dialog'),set(),'Bay Area')
+
+    def test_binary_agreement_cannot_bypass_existing_confirmation_requirement(self):
+        browser, ns = self.checkbox_form('''<p>Do you agree to sign electronically?*</p><fieldset>
+          <div role="checkbox" aria-checked="false"><input type="checkbox"><p>Yes</p></div>
+          <div role="checkbox" aria-checked="false"><input type="checkbox"><p>No</p></div></fieldset>''')
+        from modules.linkedin_easy_apply import MissingApplicationAnswer
+        with self.assertRaisesRegex(MissingApplicationAnswer, 'needs confirmation'):
+            ns['answer_questions'](browser.find_element('css selector','dialog'),set(),'Bay Area')
+        self.assertEqual(browser.clicks, [])
 
     def test_required_checkboxes_selected_and_optional_preferences_preserved(self):
         browser,ns=self.checkbox_form('<div><input id="required" type="checkbox" required><label for="required">Required selection*</label></div>'
@@ -1450,6 +1649,29 @@ class ReceiptRecoveryTests(unittest.TestCase):
                  patch('modules.ai.application_drafting.make_drafting_provider',return_value=Mock()):
                 h.namespace['prepare_easy_apply']('123','Role','JD','Bay Area')
             self.assertEqual(drafts.answer.call_count,2)
+            h.namespace['pyautogui'].alert.assert_not_called()
+        finally:h.doCleanups()
+
+    def test_custom_numeric_validation_refills_once_without_manual_popup(self):
+        from selenium.webdriver.common.by import By
+        h=SearchRunnerTests();h.setUp()
+        try:
+            h.namespace['By']=By
+            h.modal.find_elements=Mock(return_value=[Mock()])
+            h.namespace['resume_upload_target']=Mock(return_value=None)
+            answer=Mock(return_value=set())
+            h.namespace['answer_questions']=answer
+            def blocked(browser,fill,**options):
+                fill(h.modal)
+                self.assertTrue(options['on_blocked']('next blocked by form validation (Invalid input)'))
+                self.assertFalse(options['on_blocked']('next blocked by form validation (Invalid input)'))
+                return h.modal
+            h.namespace['advance_to_review']=blocked
+            with patch('modules.linkedin_work_history.repair_work_history_dates',return_value=False), \
+                 patch('modules.linkedin_form_fields.field_limit',return_value=20), \
+                 patch('modules.linkedin_form_fields.short_numeric_rejection',return_value=True):
+                h.namespace['prepare_easy_apply']('123','Role','JD','Bay Area')
+            self.assertEqual(answer.call_count,2)
             h.namespace['pyautogui'].alert.assert_not_called()
         finally:h.doCleanups()
 
@@ -1613,15 +1835,15 @@ class ReceiptRecoveryTests(unittest.TestCase):
         try:
             first,second=spec('entry-recoverable',2),spec('other-query')
             manifest=h.manifest([first,second],{first.query_id:[['1','2']],second.query_id:[['3']]})
-            h.namespace['open_easy_apply']=Mock(side_effect=[EasyApplyError('open: form unavailable'),True])
+            h.namespace['open_easy_apply']=Mock(side_effect=[EasyApplyError('open: form unavailable'),True,True])
             h.execute(manifest)
-            self.assertEqual(h.visited,['1','3'])
+            self.assertEqual(h.visited,['1','2','3'])
             self.assertEqual(manifest.query(first.query_id)['jobs']['1']['status'],'in_progress')
             self.assertNotIn('1',manifest.processed_ids())
-            self.assertEqual([r['Job ID'] for r in h.rows()],['3'])
+            self.assertEqual([r['Job ID'] for r in h.rows()],['2','3'])
         finally:h.doCleanups()
 
-    def test_entry_failure_with_unknown_dialog_stops_and_keeps_job_pending(self):
+    def test_entry_failure_with_unknown_dialog_defers_query_and_tries_next_query(self):
         from modules.linkedin_easy_apply import EasyApplyError
         from modules.linkedin_post_submit import PostSubmitUIBlocked
         h=SearchRunnerTests();h.setUp()
@@ -1631,8 +1853,8 @@ class ReceiptRecoveryTests(unittest.TestCase):
             h.namespace['open_easy_apply']=Mock(side_effect=EasyApplyError('open: form unavailable'))
             h.namespace['clear_post_submit_ui']=Mock(side_effect=PostSubmitUIBlocked('1',{'stage':'entry_cleanup'}))
             h.execute(manifest)
-            self.assertEqual(h.visited,['1'])
-            self.assertTrue(h.namespace['application_ui_blocked'])
+            self.assertEqual(h.visited,['1','2'])
+            self.assertTrue(manifest.query(first.query_id)['ui_recoveries'])
             self.assertNotIn('1',manifest.processed_ids())
             self.assertFalse((h.directory/'applied.csv').exists())
         finally:h.doCleanups()
@@ -1710,7 +1932,7 @@ class ReceiptRecoveryTests(unittest.TestCase):
             select_job_card(browser,'123',lambda:('999',target),timeout=.2)
         target.click.assert_not_called()
 
-    def test_post_submit_block_keeps_success_and_stops_before_next_job(self):
+    def test_post_submit_block_preserves_success_when_search_reset_also_fails(self):
         from modules.linkedin_post_submit import PostSubmitUIBlocked
         from test_search_runner import SearchRunnerTests,spec
         h=SearchRunnerTests();h.setUp()
@@ -1721,7 +1943,7 @@ class ReceiptRecoveryTests(unittest.TestCase):
             self.assertEqual(h.visited,['1']);self.assertEqual(h.namespace['failed_count'],0)
             self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'],'applied')
             self.assertEqual(h.rows()[0]['Job ID'],'1')
-            self.assertEqual(manifest.data['stop_reason'],'post_submit_ui_blocked')
+            self.assertEqual(manifest.query(search.query_id)['stop_reason'],'job_cards_pending')
         finally:h.doCleanups()
 
     def test_blocked_card_is_pending_and_not_processed(self):
@@ -1734,7 +1956,7 @@ class ReceiptRecoveryTests(unittest.TestCase):
             h.execute(manifest)
             self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'],'in_progress')
             self.assertNotIn('1',manifest.processed_ids());self.assertNotIn('Submit application',h.events)
-            self.assertEqual(manifest.data['stop_reason'],'job_card_blocked')
+            self.assertEqual(manifest.query(search.query_id)['stop_reason'],'job_cards_pending')
         finally:h.doCleanups()
 
     def test_refinement_fallback_logs_validation_reason_without_provider_error_payload(self):

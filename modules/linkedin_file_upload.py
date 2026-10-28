@@ -18,6 +18,12 @@ UPLOAD_BUTTONS = (".//button[not(@disabled) and ("
                   "translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='upload resume' or "
                   "translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='upload resume')]")
 SELECTED_RESUMES = ".//*[@role='radio' and @aria-checked='true']"
+UPLOAD_PROGRESS = (".//*[translate(normalize-space(text()),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='uploading' "
+                   "or contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'uploading resume')]")
+
+
+def _upload_pending(modal):
+    return any(element.is_displayed() for element in modal.find_elements('xpath', UPLOAD_PROGRESS))
 
 
 def _identity(element):
@@ -90,9 +96,9 @@ class _ChooserControl:
                     raise ResumeUploadError('Verified PDF upload could not be confirmed: LinkedIn kept replacing the upload controls') from None
 
     def _attach(self,path):
-        from selenium.common.exceptions import NoSuchElementException
+        from selenium.common.exceptions import NoSuchElementException, TimeoutException
         target = self.target
-        driver, modal = target.driver, target.current_modal()
+        driver, modal = target.driver, target.current_modal(refresh=True)
         try:
             legacy=modal.find_element('name','file')
         except NoSuchElementException:
@@ -104,17 +110,24 @@ class _ChooserControl:
         selected_before = {_identity(element) for element in _matching_selected(modal, path.name)}
         selection_changed = not selected_before
         original_error = None
+        phase = 'locating the Upload resume button'
         try:
             # Set this before clicking: Chrome must suppress the native picker.
             driver.execute_cdp_cmd("Page.setInterceptFileChooserDialog", {"enabled": True})
 
             def upload_button():
-                matches = [button for button in target.current_modal().find_elements("xpath", UPLOAD_BUTTONS) if _visible(button)]
+                from selenium.common.exceptions import StaleElementReferenceException
+                try:
+                    matches = [button for button in target.current_modal().find_elements("xpath", UPLOAD_BUTTONS) if _visible(button)]
+                except StaleElementReferenceException:
+                    target.current_modal(refresh=True)
+                    return False
                 if len(matches) > 1:
                     raise ResumeUploadError("Multiple Upload resume buttons in the application dialog")
                 return matches[0] if matches else False
 
             _wait(driver, upload_button, target.timeout, target.wait).click()
+            phase = 'waiting for the resume file input'
 
             def new_file_input():
                 matches = [element for element in driver.find_elements("xpath", FILE_INPUTS)
@@ -125,21 +138,54 @@ class _ChooserControl:
 
             control = _wait(driver, new_file_input, target.timeout, target.wait)
             control.send_keys(str(path))
+            phase = 'waiting for the exact uploaded PDF to finish and become selected'
+            # Reacquire once after the chooser selection because LinkedIn may
+            # replace the upload dialog. Re-running the full semantic modal
+            # discovery on every polling tick can stall on this page's large
+            # nested dialog tree.
+            target.current_modal(refresh=True)
 
+            saw_uploading = False
             def selected_attachment():
-                nonlocal selection_changed
-                selected = _matching_selected(target.current_modal(), path.name)
+                nonlocal selection_changed, saw_uploading
+                from selenium.common.exceptions import StaleElementReferenceException
+                try:
+                    current = target.current_modal()
+                    pending = _upload_pending(current)
+                    saw_uploading |= pending
+                    selected = _matching_selected(current, path.name)
+                except StaleElementReferenceException:
+                    target.current_modal(refresh=True)
+                    return False
                 if len(selected) > 1:
                     raise ResumeUploadError("Multiple selected attachments match the resume filename")
                 if not selected:
                     selection_changed = True
+                    return False
+                if pending:
                     return False
                 # An already selected attachment with the same name is not
                 # proof that this upload completed. Require a newly rendered
                 # selection or an observed deselection/reselection transition.
                 return selection_changed or _identity(selected[0]) not in selected_before
 
-            _wait(driver, selected_attachment, target.timeout, target.wait)
+            try:
+                _wait(driver, selected_attachment, target.timeout, target.wait)
+            except TimeoutException:
+                # Keep waiting for this one upload rather than sending the PDF
+                # a second time or regenerating it while LinkedIn is processing.
+                if not saw_uploading or target.completion_timeout <= target.timeout:
+                    raise
+                target.log(f'Resume upload is still processing; extending attachment verification to '
+                           f'{target.completion_timeout:g}s total without re-uploading the PDF')
+                target.current_modal(refresh=True)
+                _wait(driver, selected_attachment, target.completion_timeout-target.timeout, target.wait)
+        except TimeoutException:
+            error = ResumeUploadError(f'Resume upload timed out while {phase}; '
+                f'uploading observed: {locals().get("saw_uploading", False)}. '
+                'The verified PDF is retained for retry; no application was submitted.')
+            original_error = error
+            raise error from None
         except BaseException as error:
             original_error = error
             raise
@@ -154,14 +200,19 @@ class _ChooserControl:
 
 
 class _ResumeUploadTarget:
-    def __init__(self, driver, modal, timeout, wait, refresh_modal=None):
+    def __init__(self, driver, modal, timeout, wait, refresh_modal=None, completion_timeout=90, log=None):
         self.driver, self.modal, self.timeout, self.wait = driver, modal, timeout, wait
         self.refresh_modal=refresh_modal
+        self.completion_timeout=max(timeout, completion_timeout)
+        self.log=log or (lambda _: None)
 
-    def current_modal(self):
-        modal=self.refresh_modal() if self.refresh_modal is not None else self.modal
+    def current_modal(self, *, refresh=False):
+        modal=self.modal
+        if refresh and self.refresh_modal is not None:
+            modal=self.refresh_modal()
         if modal is None:
             raise ResumeUploadError('Resume upload form is no longer available')
+        self.modal=modal
         return modal
 
     def find_element(self, by, value):
@@ -173,7 +224,7 @@ class _ResumeUploadTarget:
         return getattr(self.modal, name)
 
 
-def resume_upload_target(driver, modal, *, timeout=30, wait=None, refresh_modal=None):
+def resume_upload_target(driver, modal, *, timeout=30, wait=None, refresh_modal=None, completion_timeout=90, log=None):
     """Return an upload target, or None when this form page has no upload UI.
 
     ``wait`` can inject a bounded polling callable for tests. The proxy preserves
@@ -188,11 +239,13 @@ def resume_upload_target(driver, modal, *, timeout=30, wait=None, refresh_modal=
     """
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("Resume upload timeout must be positive")
+    if isinstance(completion_timeout, bool) or not isinstance(completion_timeout, (int, float)) or not math.isfinite(completion_timeout) or completion_timeout <= 0:
+        raise ValueError("Resume upload completion timeout must be positive")
     from selenium.common.exceptions import NoSuchElementException
     try:
         modal.find_element("name", "file")
     except NoSuchElementException:
         if not any(_visible(button) for button in modal.find_elements("xpath", UPLOAD_BUTTONS)):
             return None
-        return _ResumeUploadTarget(driver, modal, timeout, wait, refresh_modal)
-    return _ResumeUploadTarget(driver,modal,timeout,wait,refresh_modal) if refresh_modal is not None else modal
+        return _ResumeUploadTarget(driver, modal, timeout, wait, refresh_modal, completion_timeout, log)
+    return _ResumeUploadTarget(driver,modal,timeout,wait,refresh_modal,completion_timeout,log) if refresh_modal is not None else modal

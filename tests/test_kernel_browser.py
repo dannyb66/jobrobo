@@ -133,6 +133,61 @@ class KernelContracts(TestCase):
         challenges=KernelChallenges(runtime,0)
         self.assertFalse(challenges.wait(page))
 
+    def test_hcaptcha_widget_disappearing_without_response_is_not_treated_as_solved(self):
+        import time
+        runtime=Mock();runtime.is_solver_frame.return_value=False
+        runtime.client.browsers.telemetry.events.return_value=Mock(items=[],next_page_info=lambda:None)
+        frame=Mock();frame.evaluate.side_effect=[
+            {'active':True,'has_response':False,'provider':'hcaptcha'},
+            {'active':False,'has_response':False,'provider':'hcaptcha'},
+        ]
+        page=Mock(frames=[frame],url='https://jobs.lever.co/example/job/apply')
+        page.wait_for_timeout.side_effect=lambda ms:time.sleep(.001)
+        challenges=KernelChallenges(runtime,.01)
+        self.assertFalse(challenges.wait(page,stage='after_submit',timeout=.01))
+
+    def test_captcha_telemetry_correlates_to_owning_tab_across_provider_host(self):
+        runtime=Mock();runtime.challenge_observer=Mock();runtime.is_solver_frame.return_value=False
+        page_obj=Mock(url='https://jobs.lever.co/example/job/apply')
+        runtime.pages={'job-tab':page_obj};runtime.page=page_obj;runtime.selected='job-tab'
+        row=Mock();row.model_dump.return_value={'seq':9,'event':{'type':'captcha_solve_result','data':{
+            'target_id':'job-tab','website_host':'newassets.hcaptcha.com','status':'success',
+            'captcha_provider':'hcaptcha','token':'SECRET'}}}
+        page=Mock(items=[row]);page.next_page_info.return_value=None
+        runtime.client.browsers.telemetry.events.return_value=page
+        challenges=KernelChallenges(runtime,1);challenges.telemetry(page_obj)
+        self.assertTrue(challenges.events[0]['page_correlated'])
+        runtime.challenge_observer.assert_called_once()
+        self.assertNotIn('SECRET',json.dumps(challenges.events))
+
+    def test_kernel_correlated_solved_event_unblocks_cleared_recaptcha(self):
+        runtime=Mock();runtime.is_solver_frame.return_value=False
+        frame=Mock();frame.evaluate.side_effect=[
+            {'active':True,'has_response':False,'provider':'recaptcha'},
+            {'active':False,'has_response':False,'provider':'recaptcha'},
+        ]
+        page_obj=Mock(frames=[frame],url='https://jobs.ashbyhq.com/example/application')
+        runtime.pages={'job-tab':page_obj};runtime.page=page_obj;runtime.selected='job-tab'
+        row=Mock();row.model_dump.return_value={'seq':51,'event':{'type':'captcha_challenge_result','data':{
+            'target_id':'job-tab','website_host':'jobs.ashbyhq.com','website_path':'/example/application',
+            'captcha_provider':'recaptcha_v2','status':'solved'}}}
+        events=Mock(items=[row]);events.next_page_info.return_value=None
+        runtime.client.browsers.telemetry.events.return_value=events
+        challenges=KernelChallenges(runtime,1)
+        self.assertTrue(challenges.wait(page_obj,stage='after_submit',timeout=1))
+
+    def test_solver_success_from_another_tab_does_not_clear_current_challenge(self):
+        runtime=Mock();runtime.is_solver_frame.return_value=False
+        row=Mock();row.model_dump.return_value={'seq':52,'event':{'type':'captcha_challenge_result','data':{
+            'target_id':'other-tab','captcha_provider':'recaptcha_v2','status':'solved'}}}
+        events=Mock(items=[row]);events.next_page_info.return_value=None
+        runtime.client.browsers.telemetry.events.return_value=events
+        page_obj=Mock(url='https://jobs.ashbyhq.com/example/application')
+        runtime.pages={'job-tab':page_obj};runtime.page=page_obj;runtime.selected='job-tab'
+        challenges=KernelChallenges(runtime,1)
+        challenges.telemetry(page_obj)
+        self.assertFalse(challenges._solver_reported_success('recaptcha'))
+
 
 @skipUnless(os.getenv('JOBROBO_PLAYWRIGHT_TESTS')=='1','Opt-in local Playwright browser')
 class PlaywrightPreparationTests(TestCase):

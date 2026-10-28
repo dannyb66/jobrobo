@@ -150,12 +150,44 @@ def _modal(driver):
 
 
 def _wait(driver, condition, timeout):
-    return WebDriverWait(driver, timeout, poll_frequency=.1,
+    return WebDriverWait(driver, timeout, poll_frequency=min(.1, max(.001, timeout/4)),
                          ignored_exceptions=(StaleElementReferenceException,)).until(condition)
 
 
 def _fit_warning(driver):
     """Identify LinkedIn's fit/safety interstitials (legacy helper name)."""
+    execute = getattr(driver, 'execute_script', None)
+    if callable(execute):
+        try:
+            result = execute(r'''
+              const dialogs = Array.from(document.querySelectorAll(
+                'dialog[open], .jobs-easy-apply-modal, .artdeco-modal, [role="dialog"], [aria-modal="true"], [data-testid="dialog"]'
+              ));
+              const visible = e => { const r=e.getBoundingClientRect(), s=getComputedStyle(e);
+                return r.width>0 && r.height>0 && s.display!=='none' && s.visibility!=='hidden'; };
+              const normalize = s => (s||'').toLowerCase().replace(/\s+/g,' ').trim();
+              for (const node of dialogs) {
+                if (!visible(node)) continue;
+                const text = node.textContent || '';
+                const fit = /job may not be the best fit|position yourself to stand out/i.test(text);
+                const safety = /job search safety reminder/i.test(text);
+                if (!fit && !safety) continue;
+                const buttons = Array.from(node.querySelectorAll('button,[role="button"],a'))
+                  .filter(b => visible(b) && (normalize(b.innerText || b.textContent)==='continue applying' ||
+                    normalize(b.getAttribute('aria-label'))==='continue applying'));
+                if (safety && (node.querySelector('form,input,textarea,select') || buttons.length===0)) continue;
+                return [node, buttons];
+              }
+              return false;
+            ''')
+            if result is False:
+                return False
+            if isinstance(result, (list, tuple)) and len(result) == 2:
+                dialog, buttons = result
+                return dialog, list(buttons or [])
+        except Exception:
+            # Preserve adapters that cannot return WebElements from a script.
+            pass
     dialogs=[]
     for node in dialog_elements(driver):
         heading=(node.get_attribute('aria-label') or '')+' '+' '.join(
@@ -186,7 +218,32 @@ def _fit_warning(driver):
 
 def check_easy_apply_limit(driver):
     # SDUI's internal screen marker can disappear. The visible, specific message
-    # in a dialog (or classic inline feedback) remains authoritative.
+    # in a dialog (or classic inline feedback) remains authoritative. Read
+    # bounded text in one browser-side pass: WebElement.text for every large
+    # LinkedIn dialog can serialize the full job description on every wait
+    # poll and stall the upload/form transition for minutes.
+    execute = getattr(driver, 'execute_script', None)
+    if callable(execute):
+        try:
+            hit = execute('''
+              const pattern = /you (?:have )?reached today's easy apply limit|exceeded the daily application limit/i;
+              const selector = "dialog[open], .jobs-easy-apply-modal, .artdeco-modal, [role=dialog], [aria-modal=true], [data-testid=dialog], .artdeco-inline-feedback__message, .artdeco-inline-feedback--error, [role=alert]";
+              return Array.from(document.querySelectorAll(selector)).some(node => {
+                const style = getComputedStyle(node), rect = node.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' &&
+                  style.display !== 'none' && pattern.test((node.textContent || '').slice(0, 50000).replace(/’/g, "'"));
+              });
+            ''')
+            if hit is True:
+                raise EasyApplyLimitReached()
+            if hit is False:
+                return
+        except EasyApplyLimitReached:
+            raise
+        except Exception:
+            # Keep a conservative Selenium fallback for adapters that do not
+            # support the one-pass DOM query.
+            pass
     for node in dialog_elements(driver, DIALOGS + ', .artdeco-inline-feedback__message'):
         text = ' '.join(node.text.lower().replace('’', "'").split())
         if re.search(r"\byou (?:have )?reached today's easy apply limit\b|"
@@ -332,6 +389,27 @@ def _state(driver):
 def _signature(modal, kind):
     # Compare structural identity and visible text, not DOM instance identity:
     # React may replace a dialog without advancing to the next page.
+    execute = getattr(getattr(modal, 'parent', None), 'execute_script', None)
+    if callable(execute):
+        try:
+            result = execute(r'''
+              const root = arguments[0];
+              const text = e => (e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+              const fields = Array.from(root.querySelectorAll('input,textarea,select')).slice(0, 100)
+                .map(e => [e.getAttribute('id'), e.getAttribute('name'), e.getAttribute('type')]);
+              const sections = Array.from(root.querySelectorAll('h1,h2,h3,legend,label,[role="heading"],[role="progressbar"]'))
+                .slice(0, 100).map(text);
+              const content = Array.from(root.querySelectorAll('[data-testid="dialog-content"] p'))
+                .filter(e => !e.closest('[role="status"],[role="alert"]')).slice(0, 100).map(text);
+              return [sections, fields, content];
+            ''', modal)
+            if isinstance(result, (list, tuple)) and len(result) == 3:
+                sections, fields, content = result
+                return kind, tuple(sections), tuple(tuple(field) for field in fields), tuple(content)
+        except Exception:
+            # Retain compatibility with lightweight DOM adapters and older
+            # drivers that cannot serialize the bounded structural snapshot.
+            pass
     fields = tuple((n.get_attribute('id'), n.get_attribute('name'), n.get_attribute('type'))
                    for n in modal.find_elements(By.CSS_SELECTOR, 'input, textarea, select'))
     sections = tuple(n.text for n in modal.find_elements(
@@ -343,19 +421,88 @@ def _signature(modal, kind):
     return kind, sections, fields, content
 
 
+def _application_owner(modal):
+    """Read the employer heading, never input values or form answers."""
+    labels = [modal.get_attribute('aria-label') or '']
+    labels.extend(node.text for node in modal.find_elements(By.CSS_SELECTOR, 'h1,h2,h3,[role="heading"]'))
+    for label in labels:
+        if re.match(r'^\s*apply to\b', label, re.I):
+            return ' '.join(label.split()).casefold()
+    return None
+
+
+def _bound_state(driver, job_id, owner):
+    from modules.linkedin_job_details import _url_job_id
+    if job_id and _url_job_id(getattr(driver, 'current_url', '')) != job_id:
+        raise EasyApplyError('navigation: selected job changed while filling; no action taken')
+    state = _state(driver)
+    if state and owner and _application_owner(state[0]) != owner:
+        raise EasyApplyError('navigation: application employer changed while filling; no action taken')
+    return state
+
+
+def _settled_state(driver, timeout, job_id, owner):
+    previous = None
+    def stable(browser):
+        nonlocal previous
+        try:
+            state = _bound_state(browser, job_id, owner)
+            signature = _signature(state[0], state[1]) if state else None
+        except StaleElementReferenceException:
+            previous = None
+            return False
+        same = signature is not None and signature == previous
+        previous = signature
+        return state if same else False
+    return _wait(driver, stable, timeout)
+
+
+def _navigation_snapshot(modal, action):
+    """Bounded before/after evidence with labels, not entered values."""
+    try:
+        return _read_navigation_snapshot(modal, action)
+    except Exception as error:
+        return {'action': action, 'page': None, 'questions': [], 'capture_error': type(error).__name__}
+
+
+def _read_navigation_snapshot(modal, action):
+    execute = getattr(getattr(modal, 'parent', None), 'execute_script', None)
+    if callable(execute):
+        result = execute(r'''/* jobrobo-navigation-evidence */
+          const root=arguments[0], action=arguments[1];
+          const prompts=[...root.querySelectorAll('legend,label[for],input[aria-label],textarea[aria-label],select[aria-label]')]
+            .slice(0,20).map(e=>(e.getAttribute('aria-label')||e.textContent||'').replace(/\s+/g,' ').trim().slice(0,240)).filter(Boolean);
+          const progress=(root.textContent||'').match(/\b\d+\s*\/\s*\d+\s+pages\b/i);
+          return {action, page:progress ? progress[0] : null, questions:prompts};
+        ''', modal, action)
+        if isinstance(result, dict) and isinstance(result.get('questions'), list):
+            return result
+    labels = modal.find_elements(By.CSS_SELECTOR,
+        'legend,label[for],input[aria-label],textarea[aria-label],select[aria-label]')
+    prompts = [node.get_attribute('aria-label') or node.text for node in labels[:20]]
+    progress = re.search(r'\b\d+\s*/\s*\d+\s+pages\b', modal.text, re.I)
+    return {'action': action, 'page': progress.group() if progress else None,
+            'questions': [' '.join(text.split())[:240] for text in prompts if text.strip()]}
+
+
 def advance_to_review(driver, fill_step, *, timeout=10, max_steps=15, on_blocked=None, log=lambda _: None):
     """Fill every form page, await each transition, and return at final Submit.
 
     fill_step receives a freshly acquired modal, including for one-page forms.
     on_blocked may invite manual field correction; it must not click navigation.
     """
-    wait_for_application_modal(driver, timeout=timeout, log=log)
+    from modules.linkedin_job_details import _url_job_id
+    initial = wait_for_application_modal(driver, timeout=timeout, log=log)
+    job_id = _url_job_id(getattr(driver, 'current_url', ''))
+    owner = _application_owner(initial)
+    recoveries, transitions = 0, []
     for step in range(1, max_steps + 1):
         try:
-            state = _wait(driver, _state, timeout)
+            state = _settled_state(driver, timeout, job_id, owner)
         except TimeoutException as error:
             raise EasyApplyError(f'step {step}: no Next, Review or Submit control in application dialog') from error
         modal, kind, button = state
+        before_fill = _navigation_snapshot(modal, kind)
         log(f'Easy Apply step {step}: {kind}')
         # Exceptions from answering/uploading must propagate without any final action.
         try:
@@ -366,11 +513,22 @@ def advance_to_review(driver, fill_step, *, timeout=10, max_steps=15, on_blocked
             raise
         # Answering or uploading may rerender the dialog; always reacquire controls.
         try:
-            modal, current_kind, button = _wait(driver, _state, timeout)
+            modal, current_kind, button = _settled_state(driver, timeout, job_id, owner)
         except TimeoutException as error:
             raise EasyApplyError(f'step {step}: form controls disappeared after filling') from error
         if current_kind != kind:
-            raise EasyApplyError(f'step {step}: form changed unexpectedly while filling')
+            recoveries += 1
+            after_fill = _navigation_snapshot(modal, current_kind)
+            transitions.append({'before': before_fill, 'after': after_fill})
+            if not (job_id or owner) or recoveries > 3:
+                error = EasyApplyError(f'step {step}: form kept changing while filling; recovery limit reached')
+                error.navigation_evidence = transitions
+                raise error
+            log(f'Easy Apply step {step}: form changed {kind} -> {current_kind}; '
+                f'reacquiring and refilling the same application ({recoveries}/3); '
+                f'page {before_fill["page"]} -> {after_fill["page"]}; '
+                f'questions {after_fill["questions"]}')
+            continue
         if kind == 'submit':
             if not _enabled(button):
                 raise EasyApplyError('review: Submit application is disabled')
@@ -388,8 +546,10 @@ def advance_to_review(driver, fill_step, *, timeout=10, max_steps=15, on_blocked
             raise EasyApplyError(f'step {step}: {kind} click failed ({type(error).__name__})') from error
 
         def changed(browser):
-            current = _state(browser)
+            nonlocal last_transition
+            current = _bound_state(browser, job_id, owner)
             if not current:
+                last_transition = None
                 return False
             root, action, _ = current
             invalid = _visible(root.find_elements(By.CSS_SELECTOR, ERRORS))
@@ -398,13 +558,37 @@ def advance_to_review(driver, fill_step, *, timeout=10, max_steps=15, on_blocked
             invalid = [n for n in invalid if n.get_attribute('aria-invalid') == 'true'
                        or 'error' in (n.get_attribute('class') or '')
                        or re.search(r'required|invalid|please enter|please select|error', n.text, re.I)]
+            if not invalid:
+                # New profile/work-history forms render red validation copy as
+                # plain text with no alert role or stable LinkedIn error class.
+                try:
+                    invalid = _visible(root.find_elements(By.XPATH,
+                        ".//*[normalize-space(text())='This field is required' or normalize-space(text())='Invalid input']"))
+                except Exception:
+                    invalid = []
             if invalid:
                 return 'validation'
-            return 'advanced' if _signature(root, action) != before else False
+            signature = _signature(root, action)
+            advanced = signature != before and signature == last_transition
+            last_transition = signature
+            return 'advanced' if advanced else False
 
         try:
+            last_transition = None
             transition = _wait(driver, changed, timeout)
-            reason = f'step {step}: {kind} blocked by form validation' if transition == 'validation' else None
+            recoveries = 0
+            reason = None
+            if transition == 'validation':
+                details = []
+                try:
+                    current = _state(driver)
+                    if current:
+                        from modules.linkedin_form_fields import validation_messages
+                        details = validation_messages(current[0])
+                except Exception:
+                    details = []
+                suffix = f" ({'; '.join(details[:3])})" if details else ''
+                reason = f'step {step}: {kind} blocked by form validation{suffix}'
         except TimeoutException:
             reason = f'step {step}: {kind} did not advance the form'
         if reason:

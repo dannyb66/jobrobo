@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
+import threading
 import uuid
 
 from .direct_careers_apply import write_json
@@ -14,12 +15,68 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def build_run_summary(progress, *, generated_at=None):
+    """Return concise, durable run totals; only applied is employer-confirmed."""
+    counts = dict(progress.get('counts') or {})
+    jobs = progress.get('jobs') or []
+    total = int(progress.get('total', len(jobs)))
+    confirmed = int(counts.get('applied', 0))
+    uncertain = int(counts.get('submission_uncertain', 0)) + int(counts.get('submitting', 0))
+    email_pending = int(counts.get('awaiting_email_verification', 0))
+    manual_pending = int(counts.get('awaiting_manual_submit', 0)) + int(counts.get('awaiting_correction', 0))
+    retryable = sum(1 for job in jobs
+                    if job.get('status') in {'blocked', 'failed_before_submit', 'interrupted_before_submit', 'deferred'}
+                    and job.get('retryable'))
+    unattempted = int(counts.get('pending', 0)) + int(counts.get('preparing', 0))
+    elapsed_seconds = None
+    try:
+        started = datetime.fromisoformat(progress['started_at'].replace('Z', '+00:00'))
+        finished = datetime.fromisoformat(progress['updated_at'].replace('Z', '+00:00'))
+        elapsed_seconds = max(0, int((finished - started).total_seconds()))
+    except (KeyError, TypeError, ValueError):
+        pass
+    if unattempted:
+        outcome = 'partial'
+    elif uncertain or email_pending or manual_pending:
+        outcome = 'complete_with_unresolved_outcomes'
+    elif any(counts.get(key, 0) for key in ('blocked', 'failed_before_submit', 'interrupted_before_submit', 'deferred')):
+        outcome = 'complete_with_pre_submit_issues'
+    else:
+        outcome = 'complete'
+    return {
+        'schema': 'direct-submit-summary-v1',
+        'run_id': progress.get('run_id'),
+        'run_dir': progress.get('run_dir'),
+        'started_at': progress.get('started_at'),
+        'observed_at': progress.get('updated_at'),
+        'generated_at': generated_at or now(),
+        'elapsed_seconds': elapsed_seconds,
+        'outcome': outcome,
+        'total_jobs': total,
+        'attempted_jobs': max(0, total - unattempted),
+        'confirmed_submissions': confirmed,
+        'confirmed_rate_percent': round(100 * confirmed / total, 1) if total else 0.0,
+        'unresolved_submission_count': uncertain,
+        'email_verification_pending_count': email_pending,
+        'manual_review_pending_count': manual_pending,
+        'blocked_count': int(counts.get('blocked', 0)),
+        'failed_before_submit_count': int(counts.get('failed_before_submit', 0)),
+        'interrupted_before_submit_count': int(counts.get('interrupted_before_submit', 0)),
+        'deferred_count': int(counts.get('deferred', 0)),
+        'retryable_before_submit_count': retryable,
+        'unattempted_count': unattempted,
+        'duplicate_count': int(counts.get('duplicate', 0)),
+        'status_counts': dict(sorted(counts.items())),
+    }
+
+
 class SubmitRun:
     def __init__(self, directory, *, jobs=None, options=None, run_id=None):
         self.directory = Path(directory).expanduser().resolve()
         if jobs is None and not (self.directory/'state.sqlite3').is_file():
             raise ValueError('Not a submission run directory: ' + str(self.directory))
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self._lock = threading.RLock()
         path = self.directory/'state.sqlite3'
         fresh = not path.exists()
         if fresh and jobs is None:
@@ -28,7 +85,9 @@ class SubmitRun:
             raise ValueError('New run directory must be empty')
         if not fresh and jobs is not None:
             raise ValueError('Run already exists; use submit --resume ' + str(self.directory))
-        self.db = sqlite3.connect(path)
+        # A submission run can have several isolated browser workers. All
+        # transitions still serialize through this one durable run database.
+        self.db = sqlite3.connect(path, check_same_thread=False)
         path.chmod(0o600)
         self.db.execute('PRAGMA synchronous=FULL')
         self.db.executescript('''CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -48,26 +107,33 @@ class SubmitRun:
         self.export()
 
     def set_options(self, options):
-        self.options = options
-        with self.db:
-            self.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', ('options', json.dumps(options)))
-        self.export()
+        with self._lock:
+            self.options = options
+            with self.db:
+                self.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', ('options', json.dumps(options)))
+            self.export()
 
     def rows(self):
-        return [(json.loads(p), json.loads(s)) for p, s in self.db.execute('SELECT payload,state FROM jobs ORDER BY position')]
+        with self._lock:
+            return [(json.loads(p), json.loads(s)) for p, s in self.db.execute('SELECT payload,state FROM jobs ORDER BY position')]
 
     def update(self, job, *, status=None, stage=None, **fields):
-        state = json.loads(self.db.execute('SELECT state FROM jobs WHERE key=?', (job['key'],)).fetchone()[0])
-        event = {'status': status or state['status'], 'stage': stage or state['stage'], **fields}
-        state.update(event, updated_at=now())
-        with self.db:
-            self.db.execute('UPDATE jobs SET state=? WHERE key=?', (json.dumps(state), job['key']))
-            self.db.execute('INSERT INTO events(at,job_key,payload) VALUES (?,?,?)', (state['updated_at'], job['key'], json.dumps(event)))
-        self.export()
-        return state
+        with self._lock:
+            state = json.loads(self.db.execute('SELECT state FROM jobs WHERE key=?', (job['key'],)).fetchone()[0])
+            event = {'status': status or state['status'], 'stage': stage or state['stage'], **fields}
+            state.update(event, updated_at=now())
+            with self.db:
+                self.db.execute('UPDATE jobs SET state=? WHERE key=?', (json.dumps(state), job['key']))
+                self.db.execute('INSERT INTO events(at,job_key,payload) VALUES (?,?,?)', (state['updated_at'], job['key'], json.dumps(event)))
+            self.export()
+            return state
 
     def replace_unsubmitted(self, old_key, replacement, *, evidence):
         """Append an explicitly approved replacement, preserving the old input/history."""
+        with self._lock:
+            return self._replace_unsubmitted(old_key, replacement, evidence=evidence)
+
+    def _replace_unsubmitted(self, old_key, replacement, *, evidence):
         matches=[(j,s) for j,s in self.rows() if j['key']==old_key]
         if len(matches)!=1 or not evidence:
             raise ValueError('Replacement requires one saved job and verification evidence')
@@ -95,19 +161,25 @@ class SubmitRun:
 
     def browser_event(self,session_id,event):
         """Session diagnostics without assigning unscoped solver events to a job."""
-        with self.db:
-            self.db.execute('INSERT INTO events(at,job_key,payload) VALUES (?,?,?)',
-                (now(),None,json.dumps({'stage':'browser_telemetry','kernel_session_id':session_id,'captcha_event':event})))
-            offset=event.get('cursor_offset')
-            if self.options.get('kernel_session_id')==session_id and type(offset) is int and offset>=0:
-                self.options['kernel_telemetry_offset']=offset
-                self.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('options',json.dumps(self.options)))
-        self.export()
+        with self._lock:
+            with self.db:
+                self.db.execute('INSERT INTO events(at,job_key,payload) VALUES (?,?,?)',
+                    (now(),None,json.dumps({'stage':'browser_telemetry','kernel_session_id':session_id,'captcha_event':event})))
+                offset=event.get('cursor_offset')
+                if self.options.get('kernel_session_id')==session_id and type(offset) is int and offset>=0:
+                    self.options['kernel_telemetry_offset']=offset
+                    self.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('options',json.dumps(self.options)))
+            self.export()
 
     def export(self):
+        with self._lock:
+            return self._export_locked()
+
+    def _export_locked(self):
         rows = self.rows()
         counts = Counter(s['status'] for _, s in rows)
         progress = {'schema': 'direct-submit-progress-v1', 'run_id':self.manifest['id'], 'run_dir': str(self.directory), 'updated_at': now(),
+                    'started_at': self.manifest.get('created_at'),
                     'options': self.options if hasattr(self, 'options') else {},
                     'total': len(rows), 'counts': dict(counts),
                     'active_total':sum(s['status']!='discarded' for _,s in rows),
@@ -147,7 +219,8 @@ class SubmitRun:
                 os.unlink(tmp)
 
     def close(self):
-        self.db.close()
+        with self._lock:
+            self.db.close()
 
 
 def status(directory):

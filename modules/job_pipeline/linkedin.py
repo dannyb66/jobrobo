@@ -122,6 +122,9 @@ def prepare_specs(roles, profile, config, *, application=False):
         }
         description_hint = " ".join(primary.get("description", "").split())[:400]
         query = render_query(title, profile, scoped)
+        # A verified career-page job has a specific employer identity, unlike
+        # broad configured searches. Keep that identity in its search terms.
+        query += f" Companies: {company['name']}."
         if description_hint:
             query += f" Role context: {description_hint}"
         specs.append(SearchSpec(

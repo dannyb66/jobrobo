@@ -33,6 +33,7 @@ from modules.resume_company_context import bind_company_context, add_company_con
 
 LABEL = "local heuristic match estimate — not an employer ATS ranking, verified qualification or hiring probability"
 DEFAULTS = dict(rewrite_all_bullets=False, rewrite_experience_concurrency=2,
+                rewrite_bullet_min_fill_ratio=.90, rewrite_bullet_target_fill_ratio=.97,
                 rewrite_source_fallback_enabled=False,
                 source_checks_enabled=True,
                 rewrite_bullets_per_request=12,
@@ -82,6 +83,8 @@ def validate_options(config, mode):
         raise ValueError('invalid rewrite_reasoning_effort')
     if options['rewrite_token_estimation'] not in ('byte_upper_bound','tiktoken'):
         raise ValueError('rewrite_token_estimation must be byte_upper_bound or tiktoken')
+    if not .5 <= options['rewrite_bullet_min_fill_ratio'] <= options['rewrite_bullet_target_fill_ratio'] < 1:
+        raise ValueError('Bullet fill ratios must satisfy 0.5 <= minimum <= target < 1')
     return options
 
 
@@ -307,6 +310,7 @@ class Scheduler:
         except Exception as exc:
             from modules.ai.resume_optimizer import _provider_error_kind
             kind = ('timeout' if type(exc).__name__ in {'APITimeoutError', 'TimeoutError', 'ReadTimeout', 'ConnectTimeout'}
+                    else 'server_error' if isinstance(getattr(exc, 'status_code', None), int) and exc.status_code >= 500
                     else _provider_error_kind(exc))
             event['error_kind'] = kind
             event['error_type'] = type(exc).__name__
@@ -337,6 +341,17 @@ class Scheduler:
                         bullet_count=len(event['requested_bullet_ids']),
                         experience_id=event['experience_id'], response_received=event['response_received'],
                         error_kind=event['error_kind'], elapsed_seconds=event['elapsed_seconds'])
+
+
+def extract_keywords_with_retry(scheduler, provider, payload):
+    """One visible transient retry, using the existing request/cost/deadline budget."""
+    for attempt in range(2):
+        try:
+            return scheduler.call(provider, 'keywords', payload)
+        except ProviderFailure as error:
+            if attempt or str(error) not in {'timeout', 'connection_error', 'server_error', 'rate_limit'}:
+                raise ValueError('JD keyword extraction failed: ' + str(error)) from None
+            payload = {**payload, 'retry_reasons': {'keywords': str(error)}}
 
 
 def substantive(before, after):
@@ -523,7 +538,27 @@ def source_claim_issue(source, text, *, technology_context=None,allow_paraphrase
     return source_scope_issue(source,text)
 
 
-def validate_response(response, group, requested, *, fit_check=None, ranking_keywords=None,forbidden_keywords=None,content_policy='grounded'):
+def candidate_quality(candidate, keywords, policy, fit_check=None, minimum=.90, target=.97):
+    from modules.resume_scoring import score_keywords
+    measure = getattr(fit_check, 'measure', None)
+    ratio = measure(candidate)['fill_ratio'] if callable(measure) else len(candidate['rewritten_text']) / max(1, candidate.get('soft_character_estimate', len(candidate['rewritten_text'])))
+    metrics = jd_experiment.metric_overlap(candidate['source_text'], candidate['rewritten_text']) if jd_experiment.is_jd_only(policy) else 0
+    relevance=score_keywords(candidate['rewritten_text'], keywords or [])['score'] + 3*metrics
+    # These candidates already passed the same content/fit gates. A metric or
+    # keyword bonus must not make a half-empty line beat a naturally full one.
+    if callable(measure):
+        return ratio >= minimum, -abs(ratio-target), relevance, metrics
+    return ratio >= minimum, relevance, -abs(ratio-target), metrics
+
+
+def incomplete_sentence_tail(text):
+    """Catch obvious cut-off endings without imposing source-content checks."""
+    return (text.rstrip().endswith((',', ';', ':', '-', '–')) or bool(re.search(
+        r'(?:^|\s)(?:and|or|with|for|to|across|on|in|of|through|using|including|by|spanning|a|an|the)[.!?]?$',
+        text.strip(),re.I)))
+
+
+def validate_response(response, group, requested, *, fit_check=None, ranking_keywords=None,forbidden_keywords=None,content_policy='grounded', minimum_fill=.90, target_fill=.97):
     from modules.ai.resume_optimizer import _source_fact_issue
     synthetic = jd_experiment.is_jd_only(content_policy)
     if not isinstance(response, dict) or response.get('experience_id') != group['experience_id']:
@@ -566,6 +601,8 @@ def validate_response(response, group, requested, *, fit_check=None, ranking_key
                 reason = 'empty or multiline text'
             elif any(unicodedata.category(char).startswith('C') and (synthetic or char not in source['source_text']) for char in text):
                 reason = 'unexpected control or private-use character in rewritten text'
+            elif incomplete_sentence_tail(text):
+                reason = 'incomplete sentence ending; rewrite a complete phrase instead of cutting off words'
             elif not synthetic and not meaningful_jd_edit(source['source_text'],text,ranking_keywords):
                 reason = 'unchanged or trivial lexical edit'
             elif not synthetic:
@@ -610,12 +647,8 @@ def validate_response(response, group, requested, *, fit_check=None, ranking_key
                 evaluated.append((text,candidate))
             eligible=[candidate for _,candidate in evaluated if candidate['status']=='candidate']
             if eligible:
-                def quality(candidate):
-                    score=score_keywords(candidate['rewritten_text'],ranking_keywords or [])['score']
-                    metrics=jd_experiment.metric_overlap(source['source_text'],candidate['rewritten_text']) if synthetic else 0
-                    # Soft readability preference; missing numbers never block.
-                    return score+3*metrics,metrics,-len(candidate['rewritten_text'])
-                validated[identity]=max(eligible,key=quality)
+                validated[identity]=max(eligible,key=lambda candidate: candidate_quality(candidate,ranking_keywords,
+                    content_policy,fit_check,minimum_fill,target_fill))
             elif evaluated:
                 validated[identity]=evaluated[0][1]
             validated[identity]['candidate_evaluations']=[{'text':text,'status':candidate['status'],'reason':candidate['reason']}
@@ -786,7 +819,7 @@ def jd_alignment_targets(jd, group, keywords=None):
     return {'supported_jd_targets':targets[:24], 'excluded_jd_terms':excluded}
 
 
-def _fit_guided_payload(payload, retry_reasons):
+def _fit_guided_payload(payload, retry_reasons, minimum=.90, target=.97):
     """Turn measured overflow diagnostics into concrete shorter request targets."""
     for row in payload['requested_bullets']:
         reason = (retry_reasons or {}).get(row['bullet_id']) or ''
@@ -795,17 +828,40 @@ def _fit_guided_payload(payload, retry_reasons):
         if measured:
             estimate = min(estimate, int(measured.group(1)))
             row['soft_character_estimate'] = estimate
-        row['target_max_characters'] = max(1, int(estimate * .85))
-    payload['acceptance_criteria']['fit'] += (' Keep every candidate within target_max_characters, especially on measured-width retries; '
-        'preserve the facts required by the configured content policy. Do not truncate words.')
+        row['target_min_characters'] = max(1, int(estimate * minimum))
+        row['target_characters'] = max(1, int(estimate * target))
+        row['target_max_characters'] = max(1, int(estimate * .99))
+        row['alternative_character_targets'] = [max(1,int(estimate*.92)),max(1,int(estimate*.85))]
+        # Word budgets lead to complete phrases; tight decoder character caps
+        # can mechanically end a sentence in the middle of a word or metric.
+        words=max(8,round(estimate/6.5))
+        row['candidate_word_budgets']=[words,max(7,round(words*.8)),max(6,round(words*.55))]
+        if 'soft minimum' in reason and row.get('previous_candidate'):
+            row['revision_mode']='expand_previous_candidate'
+            row['additional_word_budget']=max(1,int((estimate*target-len(row['previous_candidate']))/7))
+        row['minimum_fill_ratio'], row['target_fill_ratio'] = minimum, target
+    payload['acceptance_criteria']['fit'] += (f' Aim for {target:.0%} of the available rendered line width, '
+        f'with a soft minimum of {minimum:.0%}. Character targets guide drafting; actual glyph width decides fit. '
+        'Use relevant methods, concrete JD responsibilities and useful metrics to fill the line naturally. '
+        'Use candidate_word_budgets as maximum word counts for rewritten_text and the two alternatives, respectively. '
+        'Compose each candidate as one complete sentence ending with a period; omit whole lower-priority clauses to fit. '
+        'The last alternative is intentionally compact: one engineering action plus one strongest JD capability or outcome, '
+        'not all assigned JD terms. Keep it substantially shorter than the primary, within its own word budget. '
+        'For revision_mode expand_previous_candidate, keep the fitting draft and add just one useful short JD phrase, '
+        'within additional_word_budget. This takes priority over structural variety; do not restart with a longer new sentence. '
+        'Retain complete metric units and subjects: never end with a bare number, conjunction, preposition or partial word. '
+        'Character counts include spaces and are drafting guidance, not a reason to cut a sentence off. '
+        'Aim rewritten_text at target_characters. Draft alternative_texts at their corresponding '
+        'alternative_character_targets to provide differently sized fitting choices, including a compact backup. '
+        'Do not pad, truncate words, change fonts, or exceed the measured line. On short-line retries, expand previous_candidate with useful detail.')
     return payload
 
 
-def compact_payload(inv,jd,role,policy,group,pending,retry_reasons=None,previous_candidates=None,*,alignment=None):
+def compact_payload(inv,jd,role,policy,group,pending,retry_reasons=None,previous_candidates=None,*,alignment=None, minimum_fill=.90, target_fill=.97):
     """Keep every original fact/context; omit duplicated rendered-glyph bookkeeping."""
     if jd_experiment.is_jd_only(policy):
         return _fit_guided_payload(add_company_context(jd_experiment.payload(inv,jd,role,group,pending,retry_reasons,previous_candidates,
-            alignment if alignment is not None else jd_experiment.alignment(jd,[]),policy),group), retry_reasons)
+            alignment if alignment is not None else jd_experiment.alignment(jd,[]),policy),group), retry_reasons, minimum_fill, target_fill)
     source_keys=('bullet_id','ordinal','source_text','source_text_hash','fact_anchors')
     source_group={k:deepcopy(group[k]) for k in ('experience_id','section','context','company','historical_title_dates')}
     source_group['bullets']=[{k:deepcopy(b[k]) for k in source_keys} for b in group['bullets']]
@@ -834,7 +890,7 @@ def compact_payload(inv,jd,role,policy,group,pending,retry_reasons=None,previous
             'alternatives':'Return JD-first rewritten_text, then engineering-first and impact-first alternative_texts. Each must be truthful, substantially distinct and fit the measured line width.',
             'meaningful_edit':'Change action/context/outcome structure, or add a relevant supported JD capability from this bullet\'s jd_keyword_opportunities. Case, punctuation and a single verb substitution alone do not count.',
             'facts':('Prioritize relevant supported contributions. Condense peripheral source detail while keeping retained claims accurate; do not invent tools, numbers, outcomes or ownership. Human review is mandatory; no automatic attachment.' if policy=='review_draft' else 'Retain every protected_source_terms entry, numeric claim, unit, capability, scope, ownership, modality and metric subject. Change clause order, not material content. Unsupported paraphrases are blocked for review.'),
-            'fit':'One rendered line in the original font. The soft_character_estimate is guidance; actual glyph width decides fit. On retry, repair previous_candidate using measured failure diagnostics.'}),group), retry_reasons)
+            'fit':'One rendered line in the original font. The soft_character_estimate is guidance; actual glyph width decides fit. On retry, repair previous_candidate using measured failure diagnostics.'}),group), retry_reasons, minimum_fill, target_fill)
 
 
 def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None, initial_records=None,*,alignment_keywords=None):
@@ -861,14 +917,17 @@ def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None
             payload=compact_payload(inv,jd,role,policy,group,pending,
                 {b['bullet_id']:outcomes.get(b['bullet_id'],{}).get('reason') for b in pending},
                 {b['bullet_id']:outcomes.get(b['bullet_id'],{}).get('rejected_proposed_text') for b in pending},
-                alignment=alignment)
+                alignment=alignment, minimum_fill=scheduler.options['rewrite_bullet_min_fill_ratio'],
+                target_fill=scheduler.options['rewrite_bullet_target_fill_ratio'])
             try:
                 if attempts>=scheduler.options['rewrite_experience_max_attempts']:
                     raise Stopped('per-experience attempt budget exhausted')
                 attempts+=1
                 response=scheduler.call(provider,'bullets',payload)
                 values=validate_response(response,group,pending,fit_check=fit_check,ranking_keywords=ranking_keywords,
-                    forbidden_keywords=alignment['excluded_jd_terms'],content_policy=policy)
+                    forbidden_keywords=alignment['excluded_jd_terms'],content_policy=policy,
+                    minimum_fill=scheduler.options['rewrite_bullet_min_fill_ratio'],
+                    target_fill=scheduler.options['rewrite_bullet_target_fill_ratio'])
                 for value in values.values():
                     from modules.resume_scoring import score_keywords
                     value['matched_jd_keywords']=score_keywords(value['rewritten_text'],ranking_keywords)['matched']
@@ -883,14 +942,42 @@ def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None
                         problem=fit_check(value)
                         if problem:value.update(status='blocked',reason=problem,
                             rejected_proposed_text=value['rewritten_text'],rewritten_text=value['source_text'])
+                # A fullness revision must never discard an already fitting rewrite.
+                # It shares the existing two-attempt budget with all other retries.
+                for identity, value in values.items():
+                    previous=outcomes.get(identity,{})
+                    minimum=scheduler.options['rewrite_bullet_min_fill_ratio']
+                    target=scheduler.options['rewrite_bullet_target_fill_ratio']
+                    if previous.get('status')=='short_candidate' and (
+                            value['status']!='candidate' or candidate_quality(previous,ranking_keywords,policy,fit_check,minimum,target)
+                            >= candidate_quality(value,ranking_keywords,policy,fit_check,minimum,target)):
+                        value=deepcopy(previous)
+                        value['status']='candidate'
+                        values[identity]=value
+                    measure=getattr(fit_check,'measure',None)
+                    if value['status']=='candidate' and callable(measure):
+                        value['estimated_line_fill']=measure(value)['fill_ratio']
+                        if value['estimated_line_fill'] < minimum:
+                            revision=(f"Line fill {value['estimated_line_fill']:.1%} is below the soft minimum {minimum:.0%}; "
+                                      f"expand toward {target:.0%} of measured width with useful JD methods or responsibilities")
+                            if wave==0:
+                                value.update(status='short_candidate',reason=revision,rejected_proposed_text=value['rewritten_text'])
+                            else:
+                                value['reason']=None
+                                value.setdefault('metadata_warnings',[]).append(revision+'; best fitting candidate retained')
                 outcomes.update(values)
             except Exception as exc:
                 reason=str(exc) if isinstance(exc,(Stopped,ValueError)) else type(exc).__name__
                 if isinstance(exc,ProviderFailure) and str(exc) in {'timeout','connection_error','authentication_error','permission_error','rate_limit','invalid_response','provider_error'}:
                     reason=str(exc)
                 for source in pending:
-                    outcomes[source['bullet_id']]=dict(source,status='blocked',reason=reason,
-                        rewritten_text=source['source_text'],requested=any(source['bullet_id'] in e['requested_bullet_ids'] for e in scheduler.events),response_received=False)
+                    previous=outcomes.get(source['bullet_id'],{})
+                    if previous.get('status')=='short_candidate':
+                        previous.update(status='candidate',reason=None)
+                        previous.setdefault('metadata_warnings',[]).append('Fullness revision failed: '+reason+'; fitting rewrite retained')
+                    else:
+                        outcomes[source['bullet_id']]=dict(source,status='blocked',reason=reason,
+                            rewritten_text=source['source_text'],requested=any(source['bullet_id'] in e['requested_bullet_ids'] for e in scheduler.events),response_received=False)
                 if not scheduler.active() or isinstance(exc,Stopped):break
         return outcomes
 
@@ -913,7 +1000,7 @@ def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None
                     if scheduler.active():
                         results.update(future.result())
                         scheduler.notify('bullets_progress',
-                            ready=sum(r['status'] in {'candidate','accepted'} for r in results.values()),
+                            ready=sum(r['status'] in {'candidate','accepted','short_candidate'} for r in results.values()),
                             total=len(inv['bullets']))
                 enqueue()
         finally:
@@ -924,6 +1011,9 @@ def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None
         ordered.append(results.get(source['bullet_id'],dict(source,status='cancelled' if not scheduler.active() else 'blocked',
             reason=scheduler.reason or 'cancelled, deadline exhausted or unprocessed',rewritten_text=source['source_text'],
             requested=any(source['bullet_id'] in e['requested_bullet_ids'] for e in scheduler.events),response_received=False)))
+        if ordered[-1]['status']=='short_candidate':
+            ordered[-1].update(status='candidate',reason=None)
+            ordered[-1].setdefault('metadata_warnings',[]).append('Soft line-fill target not reached; fitting rewrite retained within request budget')
     return ordered
 
 
@@ -959,6 +1049,23 @@ def strict_density(source, output, inv, *, synthetic_jd_test=False):
     return dict(passed=comparable and not violations, comparable=comparable, violations=violations, source=source, output=output)
 
 
+def bullet_fullness(output, inv, minimum=.90, target=.97):
+    """Report actual rendered fullness; the lower target is advisory, never a gate."""
+    by_index={row['paragraph_index']:row for row in output}
+    rows=[]
+    for bullet in inv['bullets']:
+        rendered=by_index.get(bullet['paragraph_index'],{})
+        lines=rendered.get('lines',[])
+        ratio=(sum(line['x1']-line['x0'] for line in lines)/bullet['usable_line_width']
+               if rendered.get('matched') and len(lines)==1 else None)
+        rows.append(dict(bullet_id=bullet['bullet_id'],fill_ratio=ratio,
+                         below_soft_minimum=ratio is not None and ratio<minimum))
+    ratios=sorted(row['fill_ratio'] for row in rows if row['fill_ratio'] is not None)
+    return dict(minimum_fill_ratio=minimum,target_fill_ratio=target,soft_minimum=True,
+                measured=len(ratios),below_soft_minimum=sum(row['below_soft_minimum'] for row in rows),
+                median_fill_ratio=(ratios[len(ratios)//2] if ratios else None),bullets=rows)
+
+
 def _glyph_check(pdf_path):
     import pdfplumber
     from collections import Counter
@@ -985,7 +1092,7 @@ def _glyph_check(pdf_path):
         if position<0 or not text:return None
         return Counter((c.get('fontname'),round(c.get('size',0),2))
             for c in owners[position:position+len(text)]).most_common(1)[0][0]
-    def check(record):
+    def measure(record):
         font=paragraph_font(record['source_text'])
         local=fonts.get(font,typical)
         width = sum(local.get(c,typical.get(c,7.0)) for c in record['rewritten_text'])
@@ -998,12 +1105,17 @@ def _glyph_check(pdf_path):
         # New wording needs a little room for Word's kerning/spacing differences.
         # The already rendered source remains a valid unchanged baseline.
         budget=record['usable_line_width']-(1.0 if record['rewritten_text']!=record['source_text'] else -.5)
+        return dict(width=width,budget=budget,fill_ratio=width/record['usable_line_width'])
+    def check(record):
+        measured=measure(record)
+        width,budget=measured['width'],measured['budget']
         if width > budget:
             return (f'glyph width estimate {width:.1f}pt exceeds single-line budget '
                     f"{budget:.1f}pt; target at most "
                     f"{max(1,int(len(record['rewritten_text'])*budget/width)-2)} characters; "
                     'shorten phrasing without losing facts')
         return None
+    check.measure=measure
     return check
 
 
@@ -1255,7 +1367,7 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
         expanded_layout = skills_options['enabled'] and jd_experiment.is_jd_only(policy)
         if expanded_layout:
             keyword_payload['expand_skills'] = True
-        extraction = scheduler.call(provider, 'keywords', keyword_payload)
+        extraction = extract_keywords_with_retry(scheduler, provider, keyword_payload)
         extracted = extraction.get('keywords')
         if not isinstance(extracted,list) or not all(isinstance(k,str) for k in extracted):
             raise ValueError('invalid keyword response')
@@ -1312,10 +1424,11 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
                 if retained:
                     notify('source_fallback', retained=retained, total=len(records))
             doc = Document(source)
+            # PDF viewers use the DOCX title, independently of the visible name.
+            doc.core_properties.title=next((p.text.strip() for p in doc.paragraphs if p.text.strip()),'')
             skills_start, skills_end = optimizer._find_skills_section(doc)
             if jd_experiment.is_jd_only(policy):
                 jd_experiment.replace_skills(doc,skills_start,skills_end,skills,optimizer)
-                doc.core_properties.title=jd_experiment.LABEL if policy==jd_experiment.POLICY else 'JD rewrite — source checks disabled; review required'
                 if expanded_layout:
                     optimizer.last_skills_layout, _ = pack_document(doc,source,source_pdf,optimizer,skills_candidates,config)
                 else:
@@ -1390,6 +1503,8 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
                     continue
             break
         report['format_verification'] = verification
+        report['bullet_fullness']=bullet_fullness(verification.get('details',{}).get('density',{}).get('output',[]),inv,
+            options['rewrite_bullet_min_fill_ratio'],options['rewrite_bullet_target_fill_ratio'])
         notify('scoring')
         source_text, output_text = _read_pdf(source_pdf), _read_pdf(optimized_pdf)
         # Same extraction path for both actual artifacts; unavailable if DOCX/PDF diverge.
@@ -1435,6 +1550,7 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
         # No raw provider request, header or secret body in persisted diagnostics.
         report['errors'].append(str(exc) if isinstance(exc,ValueError) else type(exc).__name__)
         report['status']='partial' if scheduler and scheduler.events else 'blocked'
+        notify('generation_failed', reason=report['errors'][-1])
     finally:
         notify('saving')
         if inv is not None:

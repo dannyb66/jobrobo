@@ -39,6 +39,16 @@ class VerifiedResumeUploadTest(unittest.TestCase):
         self.assertEqual(optimize.call_args.kwargs["job_title"], "Staff Engineer")
         self.verify.assert_not_called()
 
+    def test_upload_phase_failure_is_preserved_for_job_diagnostics(self):
+        reason = 'Resume upload timed out while waiting for the exact uploaded PDF; uploading observed: True'
+        self.file_input.send_keys.side_effect = ResumeUploadError(reason)
+        with patch('modules.resume_all_bullets.verify_strict_attachment', return_value=True):
+            result = upload_verified_resume(self.modal, str(self.pdf), 'JD', '123',
+                optimize=Mock(return_value=str(self.optimized)),
+                runtime_config_override={'rewrite_all_bullets':True, 'source_checks_enabled':True})
+        self.assertEqual(result, (False, reason))
+        self.assertEqual(self.file_input.send_keys.call_count, 1)
+
     def test_drafting_receives_exact_successfully_attached_pdf_path(self):
         attached = Mock()
         result = upload_verified_resume(

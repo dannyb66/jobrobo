@@ -306,7 +306,9 @@ class FullTailoringTest(unittest.TestCase):
                     'synthetic-role','Principal Engineer',config,policy='review_draft',execution_kind='offline_fixture',provider=provider,output_root=out)
             self.assertIsNone(result,'fixtures must never become live attachments')
             report=json.loads((out/'match-report.json').read_text())
-            self.assertEqual(report['ai_activity']['request_attempts'],4)
+            # One keyword call plus first attempts and bounded fullness revisions.
+            self.assertEqual(report['ai_activity']['request_attempts'],7)
+            self.assertLessEqual(report['ai_activity']['request_attempts'],report['request_budget']['effective_max_requests'])
             if cancel_during_render:
                 self.assertEqual(report['status'],'partial')
                 self.assertFalse(report['strict_attachment_eligible'])

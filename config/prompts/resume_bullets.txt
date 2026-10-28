@@ -68,6 +68,8 @@ Every candidate must fit exactly ONE rendered line using the original doc fonts,
 
 - Use soft_character_estimate as a drafting guide, not a hard character cutoff.
 - Actual rendered glyph width determines fit.
+- One-line fit is a hard acceptance gate. Use candidate_word_budgets as maximum word counts for the primary and alternatives, and character targets as additional drafting guidance. Write complete sentences ending in a period. Shorten by omitting complete lower-priority clauses, retaining complete metric units and subjects; never end with a bare number, conjunction, preposition or partial word. The differently sized alternatives provide fitting choices when glyph widths vary.
+- Aim for the supplied target_fill_ratio of available width, with substantive JD-relevant methods, responsibilities and useful metrics. Prefer a naturally full line over an unnecessarily short sentence; do not add padding or shrink the font.
 - Condense peripheral details before sacrificing relevant JD terminology.
 - Use compact, polished English.
 - Preserve balanced punctuation and complete words.

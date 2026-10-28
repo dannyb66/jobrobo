@@ -68,6 +68,13 @@ def _visible(element):
         return False
 
 
+def header_identity_matches(header, title, company):
+    """Formatting differences are harmless; title/employer differences are not."""
+    normalize = lambda value: ' '.join(value.split()).casefold()
+    return (normalize(header['title']) == normalize(title)
+            and normalize(header['company']) == normalize(company))
+
+
 def _text(element, *, full=False):
     value = element.get_attribute("textContent") if full else element.text
     return value.strip() if isinstance(value, str) else ""
@@ -97,6 +104,8 @@ def modern_details_root(driver, expected_job_id=None):
         seen = set()
         for section in sections:
             parents = section.find_elements("xpath", "ancestor::*[.//*[starts-with(@aria-label,'Company,')]][1]")
+            if not parents:
+                parents = section.find_elements("xpath", "ancestor::*[.//*[starts-with(@aria-label,'Company logo for,')]][1]")
             for parent in parents:
                 identity = getattr(parent, "id", None) or id(parent)
                 if _visible(parent) and identity not in seen:
@@ -162,17 +171,25 @@ def read_modern_details(driver, expected_job_id=None):
     section = root.find_elements("css selector", "[id^='JobDetails_AboutTheJob_']")[0]
     job_id = section.get_attribute("id").removeprefix("JobDetails_AboutTheJob_")
     labels = root.find_elements("css selector", "[aria-label^='Company,']")
-    if not labels:
-        raise ValueError("Modern employer identity is unavailable")
-    company = re.sub(r"^Company,\s*|\.$", "", labels[0].get_attribute("aria-label")).strip()
-    anchors = labels[0].find_elements("xpath", "ancestor::a[1]")
-    company_url = anchors[0].get_attribute("href") if anchors else None
-    company_key = anchors[0].get_attribute("componentkey") if anchors else None
-    if not isinstance(company_key, str) or not company_key.endswith("-" + job_id):
-        raise ValueError("Modern employer header does not match the selected LinkedIn job ID")
-    parsed_company = urlparse(company_url or "")
-    if not company or parsed_company.hostname not in {"linkedin.com", "www.linkedin.com"} or not parsed_company.path.startswith("/company/"):
-        raise ValueError("Modern employer identity lacks a canonical company link")
+    if labels:
+        company = re.sub(r"^Company,\s*|\.$", "", labels[0].get_attribute("aria-label")).strip()
+        anchors = labels[0].find_elements("xpath", "ancestor::a[1]")
+        company_url = anchors[0].get_attribute("href") if anchors else None
+        company_key = anchors[0].get_attribute("componentkey") if anchors else None
+        if not isinstance(company_key, str) or not company_key.endswith("-" + job_id):
+            raise ValueError("Modern employer header does not match the selected LinkedIn job ID")
+        parsed_company = urlparse(company_url or "")
+        if not company or parsed_company.hostname not in {"linkedin.com", "www.linkedin.com"} or not parsed_company.path.startswith("/company/"):
+            raise ValueError("Modern employer identity lacks a canonical company link")
+    else:
+        logos = root.find_elements("css selector", "[aria-label^='Company logo for,']")
+        if len(logos) != 1 or _url_job_id(driver.current_url) != job_id:
+            raise ValueError("Modern employer identity is unavailable")
+        company = re.sub(r"^Company logo for,\s*|\.$", "", logos[0].get_attribute('aria-label')).strip()
+        company_url = None  # This posting has no linked LinkedIn company page.
+        links = root.find_elements('css selector', 'a[href]')
+        if not any(_url_job_id(link.get_attribute('href') or '') == job_id for link in links):
+            raise ValueError('Unlinked employer header lacks matching posting links')
     # The observed header publishes company, title, and location in its first
     # three paragraphs. Reading the entire hydrated pane can touch unrelated
     # JD, employer, and promotional nodes while React replaces them.
@@ -275,6 +292,11 @@ def wait_for_modern_details(driver, expected_job_id, *, reselect=None, timeout=1
             try:
                 roots = driver.find_elements('css selector', DETAIL_ROOT)
                 markup = '\n'.join(root.get_attribute('outerHTML') or '' for root in roots[:2])
+                if not markup.strip():
+                    roots = driver.find_elements('css selector', 'main')
+                    markup = '\n'.join(root.get_attribute('outerHTML') or '' for root in roots[:1])
+                if not markup.strip():
+                    raise ValueError('No page DOM available for job-detail diagnostics')
                 base.with_suffix('.private.html').write_text(markup, encoding='utf-8')
                 diagnostic['dom_path'] = str(base.with_suffix('.private.html'))
             except Exception as error:

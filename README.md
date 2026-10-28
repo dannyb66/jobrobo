@@ -257,8 +257,8 @@ verified-role set name can be supplied with `--input NAME --db PATH`.
 untested list. Neither filename changes submission behaviour. Shell variable
 names are case-sensitive: use lowercase `"$roles"` consistently.
 
-For a fixed cross-provider sample from the current Task 1 remaining shortlist,
-use [`jobs-validation.txt`](jobs-validation.txt) or the local
+For the final ten-job cross-provider sample (nine Task 1 remaining roles plus
+the approved generic replacement), use [`jobs-validation.txt`](jobs-validation.txt) or the local
 `jobs-validation.json` metadata file. The metadata JSON is kept private because
 it contains original scraped descriptions and source data. The ten-case sample covers
 Ashby, Lever, Greenhouse and one generic entry. See the
@@ -305,6 +305,22 @@ running while submitting manually; it observes outcomes across retained tabs.
 Ctrl-C saves progress. A fresh command creates a new run ID and directory and
 can attempt previously submitted URLs again. The status-filtered input is an
 optional way to avoid repeats; cross-run reporting does not block fresh runs.
+
+Parallel batches are opt-in and use isolated Kernel browser sessions per worker:
+
+```bash
+python3 direct_apply.py submit --input "$roles" --browser kernel \
+  --workers 3 --pause-before-submit always
+```
+
+`--workers` accepts 1–4 and defaults to 1. Values above 1 require `--browser
+kernel`; local Chrome uses one profile and remains sequential. With the default
+`always` mode, workers prepare jobs concurrently in separate sessions, then
+leave their job tabs open for manual review. Each worker reuses its own session
+for subsequent URLs. `never` explicitly allows concurrent automatic
+submissions. Every job’s worker, tab, and status are checkpointed in the run,
+so `--resume` can reconnect unresolved worker sessions. The configured
+application cap still applies across all workers.
 
 ### Kernel cloud browser and CAPTCHA handling
 
@@ -1027,6 +1043,45 @@ With heartfelt appreciation, <br>
 - Added option to fill in "City, state, or zip code" search box `search_location`
 - Bug fixes in answering City or location question
 
+
+[back to index](#-content)
+
+<br>
+
+## 🧩 Access challenges (CAPTCHA)
+
+The `apply` lane can clear a vendor challenge on the employer page instead of
+handing the tab back. It is opt-in and needs a hosted CaptchaKraken key:
+
+```sh
+CAPTCHA_KRAKEN_API_KEY=...   # and CAPTCHA_KRAKEN_BASE_URL (or VLLM_BASE_URL)
+CAPTCHA_SOLVER=1             # read from .env as well as the environment
+./scripts/setup_captcha_solver.sh   # builds the 3.11 sidecar venv
+```
+
+The solver runs in a Python 3.11 sidecar because `captchakraken` needs 3.11
+while the app stays on 3.10. It attaches to the already-open tab over CDP and
+never clicks Submit. It is bounded to five vendor responses and reports rungs
+separately: `detected`, `model_response`, `token_present`, `challenge_cleared`.
+
+Outcomes are reported honestly and separately: `cleared`, `rejected`,
+`unsupported`, `no_challenge`, `timeout`, `blocked`, `error`. A cleared
+challenge is never counted as a confirmed submission; a page that then refuses
+the application is reported as an employer rejection, not a solver failure.
+
+Two ATS-specific behaviours are handled:
+
+- Invisible reCAPTCHA (Ashby) keeps an empty challenge frame until Submit runs
+  the widget, so Submit is clicked first, then the board is solved, then Submit
+  is clicked again.
+- Ashby overlays the filled form and Lever draws its own radio labels, so a DOM
+  click is used when the native one is intercepted or is a silent no-op.
+
+Known limits: Greenhouse renders its required questions as react-select
+comboboxes, which stay manual. Ashby may flag a submission as possible spam
+after a clean solve; that is the employer's call, not the solver's.
+
+See `logs/captcha-eval/` for a dated live run across Ashby, Lever and Greenhouse.
 
 [back to index](#-content)
 

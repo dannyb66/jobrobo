@@ -111,6 +111,8 @@ class DOMBrowser:
         self.clicks.append((node.get("role"), node.get("aria-label"), node.get("data-view-name")))
 
     def type_into(self, node, value):
+        if value == '\ue004':  # Tab blurs a field; it is not literal form data.
+            return
         if value == "\ue00c":
             for submit in self.root.xpath("//a[normalize-space(.)='Show results']"):
                 if DOMElement(self, submit).is_displayed():
@@ -448,6 +450,90 @@ class ModernFilterReplayTests(unittest.TestCase):
         from modules.linkedin_modern_search import prepare_modern_search
         return prepare_modern_search(self.browser, spec or make_spec(), wait=immediate, timeout=0.1)
 
+    def test_native_date_annotation_keeps_cards_and_full_filter_verification(self):
+        original_click = self.browser.click
+
+        def annotated_date(node):
+            original_click(node)
+            if node.tag == "a" and node.text_content().strip() == "Show results" and node.getparent().get("id") == "date-menu":
+                prompt = self.browser.root.xpath("//*[@componentkey='semanticSearchBox']")[0]
+                prompt.set("value", make_spec().query_text + " posted in the past month")
+            if node.get("aria-label") == "Filter by Easy Apply":
+                prompt = self.browser.root.xpath("//*[@componentkey='semanticSearchBox']")[0]
+                prompt.set("value", make_spec().query_text + " Easy Apply posted in the past month")
+            if node.tag == "a" and node.text_content().strip() == "Show results" and node.getparent().get("id") == "job-menu":
+                prompt = self.browser.root.xpath("//*[@componentkey='semanticSearchBox']")[0]
+                prompt.set("value", make_spec().query_text + " full-time Easy Apply posted in the past month")
+
+        self.browser.click = annotated_date
+        result = self.prepare()
+        self.assertEqual(result.results_state, "jobs")
+        self.assertIn("date_posted", result.verified_filters)
+        self.assertIn("easy_apply_only", result.verified_filters)
+        self.assertEqual(result.executed_query, make_spec().query_text)
+        self.assertEqual(result.diagnostics()["result_card_count"], 1)
+
+    def test_post_filter_readiness_rejects_unrelated_text_or_wrong_url_query(self):
+        from modules.linkedin_modern_search import _settle
+        from modules.linkedin_search import SearchUIError
+        spec = make_spec()
+        for prompt, url_query in (("Unrelated marketing jobs", spec.query_text),
+                                  (spec.query_text + " unrelated words", spec.query_text),
+                                  (spec.query_text + " posted in the past month", "Wrong query")):
+            with self.subTest(prompt=prompt, url_query=url_query):
+                self.browser.get("https://www.linkedin.com/jobs/search-results/?" + urlencode({"keywords": url_query}))
+                self.browser.root.xpath("//*[@componentkey='semanticSearchBox']")[0].set("value", prompt)
+                with self.assertRaises(SearchUIError) as caught:
+                    _settle(self.browser, spec.query_text, after_filters=True, wait=immediate)
+                self.assertIn("readiness", caught.exception.diagnostics())
+
+    def test_initial_query_does_not_accept_filter_annotation(self):
+        from modules.linkedin_modern_search import _settle
+        from modules.linkedin_search import SearchUIError
+        spec = make_spec()
+        self.browser.get("https://www.linkedin.com/jobs/search-results/?" + urlencode({"keywords": spec.query_text}))
+        self.browser.root.xpath("//*[@componentkey='semanticSearchBox']")[0].set("value", spec.query_text + " posted in the past month")
+        with self.assertRaises(SearchUIError):
+            _settle(self.browser, spec.query_text, wait=immediate)
+
+    def test_easy_apply_pill_can_disappear_during_filter_hydration(self):
+        from unittest.mock import patch
+        from modules import linkedin_modern_search as modern
+        original = modern._facet
+        disappeared = []
+
+        def transient(driver, key, desired=()):
+            facet = original(driver, key, desired)
+            if key == "easy_apply_only" and modern._selected(facet) is True and not disappeared:
+                disappeared.append(True)
+                return None
+            return facet
+
+        with patch.object(modern, "_facet", side_effect=transient):
+            result = self.prepare()
+        self.assertEqual(disappeared, [True])
+        self.assertIn("easy_apply_only", result.verified_filters)
+
+    def test_learned_url_replay_accepts_observed_date_annotation(self):
+        original_get = self.browser.get
+
+        def annotated_replay(url):
+            original_get(url)
+            params = parse_qs(urlsplit(url).query)
+            if params.get("f_TPR") == ["r2592000"]:
+                prompt = self.browser.root.xpath("//*[@componentkey='semanticSearchBox']")[0]
+                prompt.set("value", params["keywords"][0] + " full-time Easy Apply posted in the past month")
+
+        self.browser.get = annotated_replay
+        self.prepare()
+        second = make_spec()
+        second.query_text = "Principal AI Platform Engineer"
+        result = self.prepare(second)
+        self.assertEqual(result.transport, "verified_url")
+        self.assertIn("easy_apply_only", result.verified_filters)
+        self.assertEqual(result.executed_query, second.query_text)
+        self.assertEqual(result.diagnostics()["rendered_prompt"], second.query_text + " full-time Easy Apply posted in the past month")
+
     def test_native_controls_verify_exact_options_and_do_not_narrow_remote_hybrid(self):
         result = self.prepare()
         self.assertEqual(result.mode, "ai")
@@ -461,7 +547,7 @@ class ModernFilterReplayTests(unittest.TestCase):
         self.assertEqual(params["f_AL"], ["true"])
         self.assertNotIn("f_WT", params)
         self.assertFalse(any(label == "Filter by Remote" for _, label, _ in self.browser.clicks))
-        self.assertEqual(result.filter_report["on_site"]["status"], "prompt_only")
+        self.assertEqual(result.filter_report["on_site"]["status"], "unavailable")
 
     def test_display_contents_facet_wrappers_verify_through_actionable_children(self):
         wrappers = self.browser.root.xpath("//*[@data-view-name='job-search-facet-dropdown' or @data-view-name='job-search-facet-pill']")
@@ -621,7 +707,15 @@ class ModernFilterReplayTests(unittest.TestCase):
         result = self.prepare()
         self.assertEqual(self.browser.root.xpath("//*[@aria-label='Filter by Remote']")[0].get("aria-checked"), "false")
         self.assertNotIn("f_WT", parse_qs(urlsplit(self.browser.current_url).query))
-        self.assertEqual(result.filter_report["on_site"]["status"], "prompt_only")
+        self.assertEqual(result.filter_report["on_site"]["status"], "unavailable")
+
+    def test_workplace_multiselect_applies_remote_and_hybrid_when_available(self):
+        trigger = self.browser.root.xpath("//*[@aria-label='On-site/remote']")[0]
+        trigger.set("aria-label", "Workplace type")
+        trigger.text = "Workplace type"
+        result = self.prepare()
+        self.assertEqual(result.filter_report["on_site"]["status"], "verified")
+        self.assertEqual(set(parse_qs(urlsplit(self.browser.current_url).query)["f_WT"][0].split(",")), {"2", "3"})
 
     def test_hybrid_and_onsite_only_do_not_treat_remote_pill_as_workplace_dropdown(self):
         for arrangement in ("Hybrid", "On-site"):

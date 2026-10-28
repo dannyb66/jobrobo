@@ -53,15 +53,17 @@ class SubmitContracts(TestCase):
         with TemporaryDirectory() as tmp:
             root=Path(tmp);p=root/'ranked.json';write_artifact(StageResult.create('verified_roles','ranked','rank:1',[role()]),p)
             with patch('modules.submit_runner.run_submissions',return_value={'jobs':[{'status':'applied'}]}) as runner:
-                self.assertEqual(direct_apply.main(['submit','--input',str(p),'--pause-before-submit','unknown']),0)
+                self.assertEqual(direct_apply.main(['submit','--input',str(p),'--pause-before-submit','unknown','--workers','3']),0)
                 self.assertEqual(runner.call_args.args[0][0]['id'],'role:1')
+                self.assertEqual(runner.call_args.kwargs['workers'],3)
             def execute(jobs,**kwargs):
                 out=Path(kwargs['export_path']);write_artifact(StageResult.create('applications','test','apply:1',[]),out)
                 return {'run_dir':str(root/'run'),'options':{'export_path':str(out)}}
             with patch('modules.submit_runner.run_submissions',side_effect=execute) as runner:
                 self.assertEqual(job_pipeline.main(['apply','careers','--input',str(p),'--db',str(root/'pipeline.db'),
-                    '--output',str(root/'applications.json'),'--limit','1']),0)
+                    '--output',str(root/'applications.json'),'--limit','1','--workers','2']),0)
                 self.assertEqual(runner.call_args.args[0][0]['verification_run_id'],'original-verification')
+                self.assertEqual(runner.call_args.kwargs['workers'],2)
             self.assertFalse((root/'pipeline.db').exists(),'Input routing must not create a DB before execution')
     def test_native_saved_stage_order_and_provenance_not_rank_run(self):
         with TemporaryDirectory() as tmp:
@@ -340,6 +342,11 @@ class SubmitBrowserTests(TestCase):
         self.assertEqual(result['counts'],{'submission_uncertain':1,'applied':1})
         self.assertEqual((self.root/'run/retry.txt').read_text(),'')
         self.assertEqual(len(Handler.receipts),2)
+        driver=self.drivers[-1]
+        uncertain=next(j for j in result['jobs'] if j['status']=='submission_uncertain')
+        applied=next(j for j in result['jobs'] if j['status']=='applied')
+        self.assertIn(uncertain['tab_handle'],driver.window_handles,'Uncertain employer page should stay open')
+        self.assertNotIn(applied['tab_handle'],driver.window_handles,'Confirmed employer page should close')
         run_submissions(resume_dir=self.root/'run',services=self.services,driver_factory=Mock(side_effect=AssertionError('duplicate browser')),allow_local=True)
         self.assertEqual(len(Handler.receipts),2)
     def test_manual_completion_of_required_fact_then_submit(self):

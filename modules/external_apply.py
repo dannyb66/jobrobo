@@ -62,6 +62,8 @@ class ExternalApplicationResult:
     submitted_at: str | None = None
     submission_disabled: bool = False
     submit_enabled: bool | None = None
+    challenge_solved: bool = False
+    challenge: dict | None = None
     preparation_report: str | None = None
     attempt_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -104,13 +106,26 @@ const fields=[...document.querySelectorAll('input,textarea,select')].map(e=>{
  const groupRequired=choice&&(container?.getAttribute('aria-required')==='true'||Boolean(header)&&/[*✱]\s*$/.test(question));
  const checkboxGroup=e.type==='checkbox'&&!controlRequired&&Boolean(container)&&Boolean(header)&&(groupRequired||[...container.querySelectorAll('input[type=checkbox]')].filter(c=>c.name===e.name).length>1);
  if(e.type==='checkbox'&&!checkboxGroup)question=ownLabel||label(e);
- return {element:e,tag:e.tagName.toLowerCase(),type:e.type||'',name:e.name||'',id:e.id||'',form_id:e.form?forms.get(e.form):'',label:label(e),question,option_label:ownLabel||e.getAttribute('aria-label')||e.value||label(e),group:(e.type==='radio'||checkboxGroup)&&container?groups.get(container):'',value:e.value||'',native_required:e.required,control_required:controlRequired,group_required:groupRequired,required:controlRequired||groupRequired,visible:visible(e),disabled:e.disabled,readonly:e.readOnly,combobox:e.getAttribute('role')==='combobox',checked:e.checked,multiple:e.multiple||false,valid:e.checkValidity(),max_length:e.maxLength>0?e.maxLength:null,min:e.min||'',max:e.max||'',options:e.options?[...e.options].map(o=>({label:o.text.trim(),value:o.value,selected:o.selected,disabled:o.disabled})):[],files:[...(e.files||[])].map(f=>({name:f.name,size:f.size}))};
+ // A react-select style combobox is an <input role=combobox> with no <option>s:
+ // its question is the aria-labelledby target and its choices are role=option
+ // nodes, which only exist while the list is open.
+ const combo=e.getAttribute('role')==='combobox';
+ const comboLabel=combo?(document.getElementById(e.getAttribute('aria-labelledby')||'')?.textContent||'').trim():'';
+ // A chosen combobox keeps its text in a value span, not in input.value; read it
+ // here so every later snapshot can tell a filled control from an empty one.
+ let comboValue='';
+ if(combo){let b=e;for(let i=0;i<6&&b&&!comboValue;i++){const t=[...b.querySelectorAll('[class*=single-value],[class*=multi-value__label]')].map(x=>(x.textContent||'').trim()).filter(Boolean);if(t.length)comboValue=t.join(' ');b=b.parentElement;}}
+ return {element:e,tag:e.tagName.toLowerCase(),type:e.type||'',name:e.name||'',id:e.id||'',form_id:e.form?forms.get(e.form):'',label:label(e),question:comboLabel||question,option_label:ownLabel||e.getAttribute('aria-label')||e.value||label(e),group:(e.type==='radio'||checkboxGroup)&&container?groups.get(container):'',value:combo?(comboValue||''):(e.value||''),native_required:e.required,control_required:controlRequired,group_required:groupRequired,required:controlRequired||groupRequired||(combo&&e.getAttribute('aria-required')==='true'),visible:visible(e)&&e.getAttribute('aria-hidden')!=='true',disabled:e.disabled,readonly:e.readOnly,combobox:combo,checked:e.checked,multiple:e.multiple||false,valid:e.checkValidity(),max_length:e.maxLength>0?e.maxLength:null,min:e.min||'',max:e.max||'',options:e.options?[...e.options].map(o=>({label:o.text.trim(),value:o.value,selected:o.selected,disabled:o.disabled})):[...(!e.options&&combo&&e.getAttribute('aria-expanded')==='true'?[...document.querySelectorAll('[role=option]')].filter(visible).map(o=>({label:o.textContent.trim(),value:o.textContent.trim(),selected:o.getAttribute('aria-selected')==='true',disabled:o.getAttribute('aria-disabled')==='true'})):[])],files:[...(e.files||[])].map(f=>({name:f.name,size:f.size}))};
 });
 const buttons=[...document.querySelectorAll('button,input[type=submit]')].filter(e=>visible(e)&&!e.disabled).map(e=>({element:e,text:(e.textContent||e.value||'').trim(),type:e.type||'',id:e.id||''}));
 const headings=[...document.querySelectorAll('__JOBROBO_CONFIRMATION_SELECTOR__')].filter(visible).map(e=>e.textContent.trim());
 const challenge=[...document.querySelectorAll('iframe[title*=challenge],iframe[title*=Challenge],iframe[src*=hcaptcha],iframe[src*=recaptcha]')].some(e=>visible(e)&&e.getBoundingClientRect().height>100);
 const application_success=[...document.querySelectorAll('__JOBROBO_APPLICATION_SUCCESS_SELECTOR__')].filter(visible).map(e=>e.textContent.trim()).filter(Boolean);
-return {url:location.href,title:document.title,fields,buttons,headings,challenge,application_success};
+const REJECT=/couldn.t submit your application|flagged as possible spam|application was not submitted|try these steps/i;
+const rejection=[...document.querySelectorAll('__JOBROBO_CONFIRMATION_SELECTOR__')].filter(visible).map(e=>e.textContent.trim()).filter(t=>REJECT.test(t));
+// Sites that replace the file input on upload (Greenhouse) show the name in a card instead.
+const attached_files=[...document.querySelectorAll('.file-upload__filename,[class*=uploaded][class*=file]')].filter(visible).map(e=>e.textContent.trim()).filter(Boolean);
+return {url:location.href,title:document.title,fields,buttons,headings,challenge,application_success,rejection,attached_files};
 """.replace('__JOBROBO_CONFIRMATION_SELECTOR__', CONFIRMATION_SELECTOR).replace('__JOBROBO_APPLICATION_SUCCESS_SELECTOR__', APPLICATION_SUCCESS_SELECTOR)
 
 
@@ -125,9 +140,7 @@ def _label_key(text):
 def field_key(item, provider):
     if item.get("type") not in {"text", "email", "tel", "url"} or item.get("readonly"):
         return None
-    # Comboboxes include country/location and custom questions; completing them is manual.
-    if item.get("combobox"):
-        return None
+    # Comboboxes are mapped like selects; their options are read on demand.
     name = item.get("name") or item.get("id")
     key = FIELD_KEYS.get(name) or LABEL_KEYS.get(_label_key(item.get("label")))
     if key == "full_name" and provider == "greenhouse" and name == "name":
@@ -178,21 +191,192 @@ def _current_answer(question):
     return controls[0].get("value", "")
 
 
-def _fill_question(driver, question, value):
+COMBOBOX_OPEN_JS = r"""
+const el=arguments[0];
+el.scrollIntoView({block:'center'});
+return true;
+"""
+
+# The menu is a sibling listbox, not a child of the 1px input, and the chosen
+# text lives in a container that is not the input's parent.
+
+COMBOBOX_READ_JS = r"""
+return [...document.querySelectorAll('[role=option]')]
+  .filter(o=>o.getClientRects().length)
+  .map(o=>({label:(o.textContent||'').trim(), selected:o.getAttribute('aria-selected')==='true',
+            disabled:o.getAttribute('aria-disabled')==='true'}));
+"""
+
+COMBOBOX_PICK_JS = r"""
+const want=arguments[1];
+const options=[...document.querySelectorAll('[role=option]')].filter(o=>o.getClientRects().length);
+const hit=options.find(o=>(o.textContent||'').trim()===want);
+if(!hit)return null;
+hit.click();
+return (hit.textContent||'').trim();
+"""
+
+COMBOBOX_VALUE_JS = r"""
+const el=arguments[0];
+let box=el;
+for(let i=0;i<6&&box;i++){
+  const found=[...box.querySelectorAll('[class*=single-value],[class*=multi-value__label]')].map(e=>(e.textContent||'').trim());
+  if(found.length)return found;
+  box=box.parentElement;
+}
+return null;
+"""
+
+COMBOBOX_EXPANDED_JS = r"""
+return arguments[0].getAttribute('aria-expanded')==='true';
+"""
+
+
+def _combo_options(driver):
+    return driver.execute_script(COMBOBOX_READ_JS) or []
+
+
+def _open_combobox(driver, element, wait=time.sleep):
+    """Open the menu and return its options.
+
+    A JavaScript ``element.click()`` does not open these react-select menus; only
+    a WebDriver click does, because the input listens on a real pointer sequence.
+    So click for real, confirm ``aria-expanded``, and retry once if the hit test
+    was intercepted at the current scroll position.
+    """
+    for attempt in (1, 2):
+        # Put it in the viewport first; an offscreen control's click is
+        # intercepted by whatever is actually painted at that point.
+        try:
+            driver.execute_script(COMBOBOX_OPEN_JS, element)
+            wait(0.15)
+        except Exception:
+            pass
+        try:
+            element.click()
+        except Exception:
+            if attempt == 2:
+                raise
+            driver.execute_script(COMBOBOX_OPEN_JS, element)
+            continue
+        wait(0.4)
+        if driver.execute_script(COMBOBOX_EXPANDED_JS, element):
+            return _combo_options(driver)
+        if attempt == 2:
+            break
+        driver.execute_script(COMBOBOX_OPEN_JS, element)
+    return _combo_options(driver)
+
+
+def _read_combobox_options(driver, fields, wait=time.sleep):
+    """Open each combobox once to learn its choices, then close it.
+
+    A react-select list only exists in the DOM while open, so the options have
+    to be read before the resolver can validate an answer against them.
+    """
+    for item in fields:
+        if not item.get("combobox") or not item.get("visible") or item.get("disabled"):
+            continue
+        try:
+            options = _open_combobox(driver, item["element"], wait)
+            item["_combo_open"] = True
+            current = driver.execute_script(COMBOBOX_VALUE_JS, item["element"]) or []
+            if current:
+                item["value"] = current[0] if len(current) == 1 else current
+        except Exception:
+            continue
+        finally:
+            # Close again so a later select is not competing with an open menu.
+            if item.get("_combo_open"):
+                try:
+                    driver.execute_script("arguments[0].blur()", item["element"])
+                except Exception:
+                    pass
+        if options:
+            item["options"] = [{"label": o["label"], "value": o["label"],
+                                "selected": o.get("selected", False), "disabled": o.get("disabled", False)}
+                               for o in options if o.get("label")]
+
+
+def _typing_char_delay():
+    """Seconds per character; 0 disables pacing (tests)."""
+    try:
+        return max(0.0, float(os.getenv("JOBROBO_TYPING_DELAY", "0.03")))
+    except ValueError:
+        return 0.03
+
+
+def _dwell_ms():
+    """Pause before Submit so the form is not filled and sent in one burst."""
+    try:
+        return max(0, int(os.getenv("JOBROBO_SUBMIT_DWELL_MS", "1500")))
+    except ValueError:
+        return 1500
+
+
+def _type(driver, element, value, wait=time.sleep):
+    """Fill a field with per-character timing, like a person typing.
+
+    ``send_keys`` in one call lands the whole string instantly, which is one of
+    the cheapest signals that a form was machine-filled.
+    """
+    import random
+
+    delay = _typing_char_delay()
+    text = "" if value is None else str(value)
+    if not delay or not text:
+        element.send_keys(text)
+        return
+    # One element handle is reused, so no re-resolution per character.
+    for char in text:
+        element.send_keys(char)
+        wait(delay * (0.6 + 0.8 * random.random()))
+
+
+def _pick_combobox(driver, element, value, wait=time.sleep):
+    """Choose one option by exact label; fall back to a prefix match."""
+    from .external_questions import normalize_label
+
+    chosen = value if isinstance(value, str) else str(value)
+    options = _open_combobox(driver, element, wait)
+    picked = driver.execute_script(COMBOBOX_PICK_JS, element, chosen)
+    if picked is None:
+        lowered = chosen.casefold()
+        prefix = next((o["label"] for o in options if o["label"].casefold().startswith(lowered)), None)
+        if prefix:
+            picked = driver.execute_script(COMBOBOX_PICK_JS, element, prefix)
+    if picked is None:
+        raise ValueError("The combobox did not offer that option.")
+    wait(0.25)
+    observed = driver.execute_script(COMBOBOX_VALUE_JS, element) or []
+    # A readback can be split across spans (a country renders flag and dial code
+    # separately), so compare as one joined string and also allow a fragment.
+    seen = " ".join(observed)
+    wanted = normalize_label(picked)
+    if wanted and not (wanted in normalize_label(seen)
+                       or any(text and normalize_label(text) in wanted for text in observed)):
+        raise ValueError("The combobox did not accept the option.")
+    return picked
+
+
+def _fill_question(driver, question, value, wait=time.sleep):
     controls, kind = question["fields"], question["kind"]
+    if controls[0].get("combobox"):
+        _pick_combobox(driver, controls[0]["element"], value, wait)
+        return
     if kind in {"text", "textarea", "number", "date"}:
         controls[0]["element"].clear()
-        controls[0]["element"].send_keys(value)
+        _type(driver, controls[0]["element"], value, wait)
     elif kind == "checkbox":
         if bool(controls[0].get("checked")) != value:
-            controls[0]["element"].click()
+            _pick(driver, controls[0]["element"])
     elif kind == "radio" or kind == "multiselect" and controls[0].get("type") == "checkbox":
         desired = value if isinstance(value, list) else [value]
         for item in controls:
             label = item.get("option_label") or item.get("label") or str(item.get("value", ""))
             selected = label in desired
             if bool(item.get("checked")) != selected and (kind != "radio" or selected):
-                item["element"].click()
+                _pick(driver, item["element"])
     else:
         observed = driver.execute_script(SELECT_ANSWER_JS, controls[0]["element"], value if isinstance(value, list) else [value])
         if set(observed) != set(value if isinstance(value, list) else [value]):
@@ -202,6 +386,7 @@ def _fill_question(driver, question, value):
 def prepare_questions(driver, fields, provider, resolver):
     """Return ephemeral review values separately from persistable, value-free metadata."""
     from .external_questions import collect_questions
+    _read_combobox_options(driver, fields)
     previews, metadata, manual = [], [], []
     for question in collect_questions(fields):
         if len(question["fields"]) == 1 and not question.get("repeated_label") and not question.get("ambiguous"):
@@ -273,6 +458,137 @@ def _confirmed(state):
     return declared or any(re.search(phrases, text, re.I) for text in headings)
 
 
+def _solve_challenge(driver, *, expect_provider=None, result=None, wait_painted_ms=0):
+    """Try the solver; record evidence on the result. Never raises."""
+    from . import captcha_solver
+
+    def manual(reason="Access challenge requires manual completion; no answers were filled."):
+        if result is not None:
+            result.reason = reason
+        return False
+
+    try:
+        if not captcha_solver.enabled():
+            return manual()
+        ready, why = captcha_solver.available()
+        if not ready:
+            return manual("Access challenge requires manual completion; solver unavailable: " + why)
+        record = captcha_solver.solve(driver, expect_provider=expect_provider,
+                                      wait_painted_ms=wait_painted_ms)
+    except Exception as exc:
+        record = {"status": "error", "detail": type(exc).__name__}
+    if result is not None:
+        result.challenge = record
+    try:
+        solved = captcha_solver.cleared(record)
+    except Exception:
+        solved = False
+    if result is not None:
+        result.challenge_solved = solved
+    return solved
+
+
+def _provider_hint(provider):
+    """ATS names are not solver names; pass only an unambiguous provider."""
+    return provider if provider in {"recaptcha", "hcaptcha", "turnstile"} else None
+
+
+def _click_submit(driver, element):
+    """Click Submit, falling back to a DOM click.
+
+    A fully filled Ashby form covers the button with a translucent overlay while
+    it settles, so WebDriver reports "element click intercepted" and no widget is
+    ever triggered. The fallback dispatches the same click the button's own
+    handler listens for. Returns which path was used, or "" if both failed.
+    """
+    try:
+        element.click()
+        return "native"
+    except Exception:
+        try:
+            driver.execute_script("arguments[0].click()", element)
+            return "script"
+        except Exception:
+            return ""
+
+
+def _pick(driver, element):
+    """Select a radio/checkbox, falling back to a DOM click.
+
+    Custom-styled ATS choices (Lever draws its own label over a hidden input)
+    ignore a native click on the label but accept one on the input itself.
+    The native click reports success either way, so the state is read back.
+    """
+    def state():
+        try:
+            return bool(driver.execute_script("return arguments[0].checked", element))
+        except Exception:
+            return None
+
+    before = state()
+    try:
+        element.click()
+    except Exception:
+        before = None
+    if before is not None:
+        after = state()
+        if after is not None and after != before:
+            return
+    try:
+        driver.execute_script("arguments[0].click()", element)
+    except Exception:
+        pass
+
+
+def _attach_resume(driver, field, pdf):
+    """Attach the verified PDF, tolerating a control the site replaces.
+
+    Greenhouse hides the input under a styled "Attach" button and swaps the
+    element out while it processes the upload, which makes the handle stale
+    before the caller can read the result. Re-resolve by name/id and un-hide it
+    so WebDriver will fill a control it otherwise considers invisible.
+    """
+    def resolve():
+        if not hasattr(driver, "find_element"):
+            return None
+        ident = field.get("id") or field.get("name")
+        if ident:
+            for by in ("css selector", "xpath"):
+                selector = f"#{ident}" if by == "css selector" else f"//*[@id='{ident}']"
+                try:
+                    return driver.find_element(by, selector)
+                except Exception:
+                    continue
+        return None
+
+    def unhide(element):
+        try:
+            driver.execute_script(
+                "arguments[0].style.cssText="
+                "'display:block;visibility:visible;opacity:1;position:static'", element)
+        except Exception:
+            pass
+
+    element = field["element"]
+    try:
+        if hasattr(element, "is_displayed") and not element.is_displayed():
+            unhide(element)
+        element.send_keys(str(pdf))
+        return
+    except Exception:
+        pass
+    fresh = resolve()
+    if fresh is None:
+        raise
+    unhide(fresh)
+    fresh.send_keys(str(pdf))
+
+
+def _solver_note(result):
+    from . import captcha_solver
+    return " Solver: " + captcha_solver.describe(result.challenge) if result.challenge else ""
+
+
 def apply_hosted_application(driver, application_url, applicant, resume_pdf, *, verify_pdf,
                              company="", title="", official_role_urls=(), review=None,
                              on_status=None, timeout=10, sleep=time.sleep, question_config=None,
@@ -302,8 +618,10 @@ def apply_hosted_application(driver, application_url, applicant, resume_pdf, *, 
             result.reason = "Application navigation changed the reviewed job identity."
             return result
         if state.get("challenge"):
-            result.reason = "Access challenge requires manual completion; no answers were filled."
-            return result
+            if not _solve_challenge(driver, expect_provider=_provider_hint(identity.provider), result=result):
+                result.reason = "Access challenge requires manual completion; no answers were filled." + _solver_note(result)
+                return result
+            state = snapshot(driver)
         pdf = Path(resume_pdf).expanduser().resolve()
         if pdf.suffix.lower() != ".pdf" or not pdf.is_file() or not verify_pdf(pdf):
             result.status, result.reason = "failed", "No independently verified PDF resume is available."
@@ -314,10 +632,21 @@ def apply_hosted_application(driver, application_url, applicant, resume_pdf, *, 
             result.reason = "The hosted resume-upload contract is unsupported or ambiguous."
             return result
         result.resume_name, result.resume_sha256 = pdf.name, digest
-        resume_fields[0]["element"].send_keys(str(pdf))
-        state = snapshot(driver)
-        attached = any(file.get("name") == pdf.name and file.get("size") == pdf.stat().st_size
-                       for item in state["fields"] if item.get("type") == "file" and (item.get("name") == "resume" or item.get("id") in {"resume", "resume-upload-input", "_systemfield_resume"}) for file in item.get("files", []))
+        # Greenhouse keeps the real input under a styled "Attach" button as
+        # `visually-hidden`; WebDriver will not fill a control it cannot see.
+        _attach_resume(driver, resume_fields[0], pdf)
+        # The upload is asynchronous on every ATS, and the styled buttons sit
+        # over a hidden input, so the file only appears after the site has
+        # processed it. Poll rather than sampling once.
+        deadline = time.monotonic() + 15
+        while True:
+            state = snapshot(driver)
+            attached = any(file.get("name") == pdf.name and file.get("size") == pdf.stat().st_size
+                           for item in state["fields"] if item.get("type") == "file" and (item.get("name") == "resume" or item.get("id") in {"resume", "resume-upload-input", "_systemfield_resume"}) for file in item.get("files", []))
+            attached = attached or any(pdf.name in text for text in state.get("attached_files", []))
+            if attached or time.monotonic() >= deadline:
+                break
+            sleep(0.25)
         if not attached:
             result.status, result.reason = "failed", "The new verified resume attachment could not be confirmed."
             return result
@@ -347,13 +676,23 @@ def apply_hosted_application(driver, application_url, applicant, resume_pdf, *, 
         if not identity_matches(state, identity, official_role_urls=official_role_urls, company=company, title=title):
             result.status, result.reason = "failed", "The reviewed job changed before submission."
             return result
+        if state.get("challenge"):
+            if not _solve_challenge(driver, expect_provider=_provider_hint(identity.provider), result=result):
+                result.status = "handoff"
+                result.reason = "Complete the access challenge manually." + _solver_note(result)
+                required = missing_required(state["fields"])
+                if required:
+                    result.reason += ". Required: " + ", ".join(required)
+                return result
+            state = snapshot(driver)
         required = missing_required(state["fields"])
-        if required or state.get("challenge"):
-            result.status, result.reason = "handoff", "Complete required questions or the access challenge manually: " + ", ".join(required)
+        if required:
+            result.status, result.reason = "handoff", "Complete required questions manually: " + ", ".join(required)
             return result
         still_attached = any(file.get("name") == pdf.name and file.get("size") == pdf.stat().st_size
                              for item in state["fields"] if item.get("type") == "file" and (item.get("name") == "resume" or item.get("id") in {"resume", "resume-upload-input", "_systemfield_resume"})
                              for file in item.get("files", []))
+        still_attached = still_attached or any(pdf.name in text for text in state.get("attached_files", []))
         if not still_attached or hashlib.sha256(pdf.read_bytes()).hexdigest() != digest or not verify_pdf(pdf):
             result.status, result.reason = "failed", "The verified resume changed before submission."
             return result
@@ -362,11 +701,23 @@ def apply_hosted_application(driver, application_url, applicant, resume_pdf, *, 
             result.reason = "A unique Submit button and durable submission checkpoint are required."
             return result
         result.status, result.reason = "submitting", "Submission requested; verify the employer site if confirmation is interrupted."
+        # A form filled and fired in one burst reads as machine-submitted.
+        dwell = _dwell_ms()
+        if dwell:
+            sleep(dwell / 1000.0)
         on_status(result)
         clicked = True
-        buttons[0]["element"].click()
+        _click_submit(driver, buttons[0]["element"])
         prior_confirmations = set(state.get("headings", []))
         deadline = time.monotonic() + timeout
+        # An invisible reCAPTCHA is idle until Submit runs it: the click, not the
+        # form load, is what raises the board. One round covers the normal case;
+        # the second absorbs a vendor re-issue after a rejected answer.
+        challenge_rounds = 2
+        # One re-click when the first submit neither confirmed nor raised a
+        # challenge; an intercepted click is common and costs one attempt.
+        reclicked = False
+        settle_deadline = min(deadline, time.monotonic() + 8)
         while True:
             current = snapshot(driver)
             # A confirmation on a different ATS/company host cannot establish this submission.
@@ -377,10 +728,66 @@ def apply_hosted_application(driver, application_url, applicant, resume_pdf, *, 
                 result.submitted_at = datetime.now(timezone.utc).isoformat()
                 on_status(result)
                 return result
+            if current.get("rejection") and not current.get("challenge"):
+                # The vendor took the submission and then refused it. That is an
+                # employer-side block, not a solver failure, and not a success.
+                result.status = "handoff"
+                result.reason = ("Submission reached the employer but was rejected: "
+                                 + current["rejection"][0][:160].replace("\n", " ")
+                                 + _solver_note(result))
+                return result
+            if current.get("challenge"):
+                if challenge_rounds <= 0:
+                    result.status, result.reason = "handoff", "Submission raised a further access challenge." + _solver_note(result)
+                    return result
+                challenge_rounds -= 1
+                result.status, result.reason = "submitting", "Submission raised an access challenge; solving it, then submitting again."
+                if not _solve_challenge(driver, expect_provider=_provider_hint(identity.provider),
+                                        result=result, wait_painted_ms=15000):
+                    result.status = "handoff"
+                    result.reason = "Submission raised an access challenge that could not be solved." + _solver_note(result)
+                    return result
+                # The solver hides the widget once clear; give the frame time to go
+                # before clicking, or the click lands in the challenge frame.
+                gate = time.monotonic() + 5
+                while time.monotonic() < gate and snapshot(driver).get("challenge"):
+                    sleep(0.1)
+                # The form also repaints while the widget collapses, so the
+                # button can be briefly absent. Look again before giving up.
+                after_solve = snapshot(driver)
+                settle = time.monotonic() + 5
+                while time.monotonic() < settle and not any(
+                        re.fullmatch(r"submit(?: application)?", item.get("text", ""), re.I)
+                        for item in after_solve.get("buttons", [])):
+                    sleep(0.1)
+                    after_solve = snapshot(driver)
+                if after_solve.get("rejection") and not after_solve.get("challenge"):
+                    result.status = "handoff"
+                    result.reason = ("Submission reached the employer but was rejected: "
+                                     + after_solve["rejection"][0][:160].replace("\n", " ")
+                                     + _solver_note(result))
+                    return result
+                buttons = [item for item in after_solve.get("buttons", []) if re.fullmatch(r"submit(?: application)?", item.get("text", ""), re.I)]
+                if len(buttons) != 1:
+                    result.status, result.reason = "handoff", "No unique Submit button after the challenge cleared." + _solver_note(result)
+                    return result
+                result.status, result.reason = "submitting", "Challenge cleared; submitting again."
+                _click_submit(driver, buttons[0]["element"])
+            elif not reclicked and time.monotonic() >= settle_deadline:
+                reclicked = True
+                frame = [item for item in current.get("buttons", []) if re.fullmatch(r"submit(?: application)?", item.get("text", ""), re.I)]
+                if len(frame) == 1:
+                    _click_submit(driver, frame[0]["element"])
+                    settle_deadline = min(deadline, time.monotonic() + 8)
+                    # Judge the re-click before the deadline can end the wait,
+                    # or a zero-timeout caller never sees its effect.
+                    continue
             if time.monotonic() >= deadline:
                 return result
             sleep(0.1)
     except Exception as exc:
+        import traceback as _tb, os as _os
+        if _os.getenv("JOBROBO_DEBUG_EXC"): _tb.print_exc()
         if result.status != "applied":
             result.status = "submitting" if clicked else "failed"
         result.reason = ("Employer confirmation succeeded but tracking failed. " if result.status == "applied" else "Submission may have occurred; employer confirmation requires inspection. " if clicked else "Hosted application preparation failed. ") + type(exc).__name__

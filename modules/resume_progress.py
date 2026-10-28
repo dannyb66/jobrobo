@@ -61,6 +61,7 @@ class ResumeConsoleProgress:
             'source_fallback': f"Keeping {event.get('retained', 0)} original bullets after rewrite failures; verifying the combined PDF",
             'scoring': 'Calculating JD match report',
             'saving': 'Saving artifacts, comparison and verification report',
+            'generation_failed': f"Resume generation failed: {event.get('reason', 'unknown error')}",
             'finished': f"Optimization {event.get('status', 'finished')}: {event.get('accepted', 0)}/{event.get('total', 0)} bullets accepted; upload eligible: {bool(event.get('eligible'))}",
         }
         if kind == 'finished' and event.get('source_fallback'):

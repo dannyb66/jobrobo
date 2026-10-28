@@ -1,24 +1,24 @@
 # Diverse ATS manual-validation run
 
-The frozen sample is drawn only from Task 1's current
-`phase2-engineering-ranked-remaining.json`. It contains ten distinct URLs:
-five Ashby employers, two Lever employers, two Greenhouse roles and one generic
-job-site entry. No current form inspection, browser interaction, resume upload
-or application submission was performed while compiling it.
+The final sample contains ten distinct URLs: nine roles from Task 1's current
+`phase2-engineering-ranked-remaining.json` and one approved replacement for a
+retired generic listing. Coverage is five Ashby employers, two Lever employers,
+two Greenhouse roles and one generic job-site entry. The sample has been run;
+form and submission outcomes are summarized below and in the saved outcome file.
 
 Use [jobs-validation.txt](../jobs-validation.txt) for the URL list, or the local
-`jobs-validation.json` to retain the verified role IDs,
-JDs and original verification metadata. Both load the same URLs in the same
-order. The raw metadata JSON remains private. [The manifest](../jobs-validation-manifest.json) records the source file
-hash, selected cases, warning details and proposed checks. Validation focuses
-are things to inspect, not claims about widgets already observed on these forms.
+`jobs-validation.json` to retain role IDs, JDs and verification metadata. Both
+load the same final URLs in the same order. The approved Ondo Finance replacement
+records its separate live evidence and replacement approval. The raw metadata JSON remains private. [The manifest](../jobs-validation-manifest.json)
+records the source file hash, selected cases, warning details, saved outcomes
+and validation focus.
 
 | Case | Provider / entry | Company | Role | Saved preference warnings |
 | --- | --- | --- | --- | --- |
 | 1 | Lever | Instrumentl | Senior Backend Engineer | Unknown posting date |
 | 2 | Greenhouse | Baton | Software Engineer - Data Platform | Unknown posting date |
 | 3 | Ashby | DuckDuckGo | Senior Privacy Engineer | None |
-| 4 | Generic entry | CareerJumpShip | IT Engineer | None; downstream employer/ATS unverified |
+| 4 | Generic entry | Ondo Finance via CareerJumpShip | Infrastructure Engineer (DevOps) | None; employer delivery pending |
 | 5 | Ashby | Namespace | Infrastructure Software Engineer | None |
 | 6 | Lever | Shield AI | Engineer, Software - open level (R5285) | Unknown employment type and posting date |
 | 7 | Greenhouse | Baton | Staff Software Engineer - Infrastructure, Data Platform | Unknown posting date |
@@ -36,14 +36,12 @@ handoff or expose a separate access/navigation gap.
 
 ## Commands
 
-The table records the original frozen sample. During the subsequent authorized
-rerun, the unavailable/mismatched IT Engineer case was retired and replaced by
-a separately verified Ondo Finance Infrastructure Engineer (DevOps) posting.
-That saved run preserves the original input plus the approved replacement and
-skips its confirmed applications on resume. See the
-[implementation and live-validation record](direct-validation-fixes-plan.md).
-The frozen TXT/metadata inputs retain the original case for audit; starting a
-fresh run from them does not silently substitute another role.
+Case 4 now uses the approved Ondo Finance Infrastructure Engineer (DevOps)
+listing. The retired IT Engineer input is preserved in the ignored audit copy at
+`logs/direct_submit_validation/20261022/audit-inputs/`. The application service
+accepted the replacement application and queued employer delivery; this does not
+count as an employer-confirmed submission. See the [implementation and
+live-validation record](direct-validation-fixes-plan.md).
 
 Run from the repository root. For the manual Kernel batch:
 
@@ -51,6 +49,10 @@ Run from the repository root. For the manual Kernel batch:
 python3 direct_apply.py submit --input jobs-validation.json \
   --browser kernel --pause-before-submit always --limit 10
 ```
+
+Each run keeps live counts in `progress.json` and writes final totals to
+`summary.json`; confirmed success counts include only employer-confirmed
+`applied` outcomes.
 
 Equivalent URL-only input:
 
@@ -93,8 +95,8 @@ python3 direct_apply.py status --run "$RUN_DIR"
 python3 direct_apply.py submit --resume "$RUN_DIR"
 ```
 
-The sample is a fixed regression input. It will not shrink after submissions;
-fresh commands can attempt the same jobs again. For recovery of an existing
+The final sample remains a ten-job regression input after applications; fresh
+commands can attempt the same jobs again. For recovery of an existing
 review session, use its explicit resume command. To retry pre-submit failures
 in a fresh run, use its `retry.json`. Inspect uncertain outcomes before deciding
 whether a new attempt is appropriate.
@@ -148,3 +150,19 @@ hCaptcha attempts, one email-verification hold and one queued intermediary
 handoff. The shared fixes have local regression coverage; this is not a blanket
 ten-job submission success claim. The detailed implementation report records
 which external gates remain.
+
+## Saved validation outcomes
+
+The original ten-case audit, as of 2026-10-22T03:17:55Z, records six employer-confirmed
+submissions, one Greenhouse email-verification hold, two Lever hCaptcha cases
+without employer confirmation, and one CareerJumpShip service queue awaiting
+employer delivery. The service-queued case is not counted as submitted. See
+[`validation-outcomes.json`](../logs/direct_submit_validation/20261021/fixes/validation-outcomes.json)
+for per-job statuses.
+
+The later independent run `804fd765-3131-4df0-b05e-b2d44157c467` (2026-10-23)
+confirmed 3/10 submissions (30%). Its other outcomes are two uncertain
+submissions, one email-verification hold, three blocked applications, and one
+failure before submit; no jobs were left unattempted. These are per-run counts;
+the three confirmations repeat jobs confirmed in the earlier cohort. The local
+run's `summary.json` records the full counts and elapsed time.

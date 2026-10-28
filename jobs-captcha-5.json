@@ -1,0 +1,95 @@
+{
+  "stage": "linkedin_jobs",
+  "set_name": "captcha-solver-5-2026-10-28",
+  "run_id": "linkedin-urls:2696192b-307f-46f9-92f7-1516038854f7",
+  "created_at": "2026-10-28T20:02:33.772186+00:00",
+  "input_set_ids": [
+    "url-input:captcha-solver-5-2026-10-28"
+  ],
+  "records": [
+    {
+      "id": "linkedin-job:d444bcc60abbed8f315ef1ed91c3c48cd57205a4dcb19b447380bc22f2dce4ca",
+      "job_url": "https://jobs.ashbyhq.com/namespace/ff8cc22e-9c67-47cc-a858-04b38f29bf81",
+      "career_url": "https://jobs.ashbyhq.com/namespace/ff8cc22e-9c67-47cc-a858-04b38f29bf81",
+      "title": "",
+      "company": "",
+      "provider": "ashby"
+    },
+    {
+      "id": "linkedin-job:cee40bdecbabb8d4e0b6f3e0ab33d1974e496edf4853a4bbe1ef654f38d4664f",
+      "job_url": "https://jobs.ashbyhq.com/modal/ead55e1a-873d-4837-8450-95fe8f4c8931",
+      "career_url": "https://jobs.ashbyhq.com/modal/ead55e1a-873d-4837-8450-95fe8f4c8931",
+      "title": "",
+      "company": "",
+      "provider": "ashby"
+    },
+    {
+      "id": "linkedin-job:da1b32eaa483a09036c77f2bf4e9c9196d7c4dd7b71ff09f1de9732d5250d7ff",
+      "job_url": "https://jobs.lever.co/shieldai/88587fef-730f-4433-aa9f-c13f766ed557",
+      "career_url": "https://jobs.lever.co/shieldai/88587fef-730f-4433-aa9f-c13f766ed557",
+      "title": "",
+      "company": "",
+      "provider": "lever"
+    },
+    {
+      "id": "linkedin-job:93702ada581890b0853f8c3330c021a2b7780baed3cf99c0c7258896ed09e5f2",
+      "job_url": "https://jobs.lever.co/shieldai/3b4ee7c2-7daf-48b2-bfb2-bdb6ebdcd515",
+      "career_url": "https://jobs.lever.co/shieldai/3b4ee7c2-7daf-48b2-bfb2-bdb6ebdcd515",
+      "title": "",
+      "company": "",
+      "provider": "lever"
+    },
+    {
+      "id": "linkedin-job:d8521265101001ec9f4ec619330dfab547c746c3560e5fe4c7c4f5c2335c7bd2",
+      "job_url": "https://job-boards.greenhouse.io/baton/jobs/4011484007",
+      "career_url": "https://job-boards.greenhouse.io/baton/jobs/4011484007",
+      "title": "",
+      "company": "",
+      "provider": "greenhouse"
+    }
+  ],
+  "delta": [
+    {
+      "id": "linkedin-job:d444bcc60abbed8f315ef1ed91c3c48cd57205a4dcb19b447380bc22f2dce4ca",
+      "job_url": "https://jobs.ashbyhq.com/namespace/ff8cc22e-9c67-47cc-a858-04b38f29bf81",
+      "career_url": "https://jobs.ashbyhq.com/namespace/ff8cc22e-9c67-47cc-a858-04b38f29bf81",
+      "title": "",
+      "company": "",
+      "provider": "ashby"
+    },
+    {
+      "id": "linkedin-job:cee40bdecbabb8d4e0b6f3e0ab33d1974e496edf4853a4bbe1ef654f38d4664f",
+      "job_url": "https://jobs.ashbyhq.com/modal/ead55e1a-873d-4837-8450-95fe8f4c8931",
+      "career_url": "https://jobs.ashbyhq.com/modal/ead55e1a-873d-4837-8450-95fe8f4c8931",
+      "title": "",
+      "company": "",
+      "provider": "ashby"
+    },
+    {
+      "id": "linkedin-job:da1b32eaa483a09036c77f2bf4e9c9196d7c4dd7b71ff09f1de9732d5250d7ff",
+      "job_url": "https://jobs.lever.co/shieldai/88587fef-730f-4433-aa9f-c13f766ed557",
+      "career_url": "https://jobs.lever.co/shieldai/88587fef-730f-4433-aa9f-c13f766ed557",
+      "title": "",
+      "company": "",
+      "provider": "lever"
+    },
+    {
+      "id": "linkedin-job:93702ada581890b0853f8c3330c021a2b7780baed3cf99c0c7258896ed09e5f2",
+      "job_url": "https://jobs.lever.co/shieldai/3b4ee7c2-7daf-48b2-bfb2-bdb6ebdcd515",
+      "career_url": "https://jobs.lever.co/shieldai/3b4ee7c2-7daf-48b2-bfb2-bdb6ebdcd515",
+      "title": "",
+      "company": "",
+      "provider": "lever"
+    },
+    {
+      "id": "linkedin-job:d8521265101001ec9f4ec619330dfab547c746c3560e5fe4c7c4f5c2335c7bd2",
+      "job_url": "https://job-boards.greenhouse.io/baton/jobs/4011484007",
+      "career_url": "https://job-boards.greenhouse.io/baton/jobs/4011484007",
+      "title": "",
+      "company": "",
+      "provider": "greenhouse"
+    }
+  ],
+  "errors": [],
+  "schema_version": 1
+}

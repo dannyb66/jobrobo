@@ -1,0 +1,50 @@
+{
+  "schema": "jobrobo-validation-input-v2",
+  "created_at": "2026-10-25T23:14:21.577372+00:00",
+  "artifact": "jobs-validation-fresh.json",
+  "artifact_run_id": "validation:fresh-task1-72aecebb-419c-463d-b696-cebb1b9c6330",
+  "set_name": "fresh-task1-remaining-excluding-three-latest-runs-2026-10-25",
+  "record_count": 170,
+  "source": {
+    "path": "/Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task1-location-fix/phase2/phase2-engineering-ranked-remaining.json",
+    "sha256": "6764f689e90bd21c345eeec3f57b4b8f476a22108de25dc4953bcb287678f746",
+    "set_name": "phase2-geographic-shortlist",
+    "run_id": "45ff1216-520a-4af4-a4d9-b2ebe83980b8",
+    "remaining_record_count": 172
+  },
+  "excluded_test_runs": [
+    {
+      "run_id": "20261025T204414Z-1d9563e9-3d7a-4fa5-947f-3e6a4dd6fe7d",
+      "progress_path": "logs/direct_submit/20261025T204414Z-1d9563e9-3d7a-4fa5-947f-3e6a4dd6fe7d/progress.json"
+    },
+    {
+      "run_id": "20261025T222038Z-1034f3f1-56e3-4f65-8a54-3fc500952d00",
+      "progress_path": "logs/direct_submit/20261025T222038Z-1034f3f1-56e3-4f65-8a54-3fc500952d00/progress.json"
+    }
+  ],
+  "excluded_test_url_count": 6,
+  "excluded_nonfresh_record_count": 2,
+  "selection_rule": "Include only Task 1 remaining records whose submission_tracking.status is not_started; exclude all six URLs from the two full recent test runs (the intervening four-role retry is a subset).",
+  "validation": {
+    "artifact_load": "passed",
+    "unique_urls": true,
+    "all_selected_not_started": true,
+    "all_test_run_urls_excluded": true
+  },
+  "excluded_records": [
+    {
+      "title": "Senior Full Stack Engineer",
+      "url": "https://jobs.ashbyhq.com/Solace/019c9ce5-4053-4f5b-a639-d75a9e862c56",
+      "reason": "test_run_url",
+      "test_run_id": "20261025T222038Z-1034f3f1-56e3-4f65-8a54-3fc500952d00",
+      "test_run_status": "blocked"
+    },
+    {
+      "title": "IT Engineer",
+      "url": "https://www.careerjumpship.com/jobs/it-engineer-ondo-finance-c1bb7b74",
+      "reason": "discarded",
+      "test_run_id": null,
+      "test_run_status": null
+    }
+  ]
+}

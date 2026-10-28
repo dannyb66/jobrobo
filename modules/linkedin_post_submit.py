@@ -72,6 +72,12 @@ def _dialog_blocks_jobs(driver, dialog, target=None):
             for(const node of roots[i].querySelectorAll('*'))
                 if(node.shadowRoot && roots.length<24) roots.push(node.shadowRoot);
         }
+        // Direct retry URLs have no search-result cards. A docked chat must
+        // not block a readable job detail page merely because the list is absent.
+        if(!target && !cards.length) for(const root of roots) {
+            cards.push(...root.querySelectorAll('[data-view-name="job-detail-page"],'
+                +'[id^="JobDetails_AboutTheJob_"],.jobs-description,.jobs-details,main'));
+        }
         let checked=0;
         for(const card of cards.slice(0,200)) {
             if(checked>=3) break;
@@ -86,6 +92,14 @@ def _dialog_blocks_jobs(driver, dialog, target=None):
             }
             if(hit===dialog || dialog.contains(hit) || dialog.contains(card))
                 return {blocking:true,reason:'covers_job_card'};
+            // During discard, the real application can cover every target.
+            // That must not turn a separate docked chat into another blocker.
+            const owner=hit?.closest('dialog,[role="dialog"],.jobs-easy-apply-modal'),
+                  dr=dialog.getBoundingClientRect();
+            if(owner && owner!==dialog && !dialog.contains(owner)
+                && (x<dr.left || x>dr.right || y<dr.top || y>dr.bottom)) {
+                checked++; continue;
+            }
             if(hit!==card && !card.contains(hit))
                 continue; // Offscreen or clipped virtual-list cards prove nothing.
             checked++;

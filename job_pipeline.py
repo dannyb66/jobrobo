@@ -41,7 +41,7 @@ def build_parser():
             groups[verb] = parent.add_subparsers(dest="target", required=True)
         commands = groups[verb]
         command = commands.add_parser(noun)
-        command.add_argument("--input", action="append", default=[], metavar="JSON_OR_SET", help="Versioned stage JSON or saved input set; repeat to merge")
+        command.add_argument("--input", action="append", default=[], metavar="JSON_OR_SET", help="Versioned stage JSON or saved input set; for apply linkedin, a deferred retry ledger is also accepted")
         command.add_argument("--set", dest="set_name", default=None if (verb,noun)==('apply','careers') else config.default_set, help="Cumulative output set name")
         command.add_argument("--output", dest="output_path", help="Export a portable versioned StageResult JSON")
         limit_field = {"discover": "discovery_limit_per_source", "verify": "verification_limit_companies"}.get(verb)
@@ -50,6 +50,10 @@ def build_parser():
             direct_careers = (verb,noun)==('apply','careers')
             command.add_argument("--limit", type=_positive, default=None if limit_field or direct_careers else stage_limit,
                                  help="Maximum selected direct jobs (default: all selected)" if direct_careers else f"Maximum records/companies/jobs processed this invocation (configured default: {stage_limit})")
+        if (verb, noun) == ("apply", "linkedin"):
+            command.add_argument("--job-id", help="Apply only this exact job ID from a deferred retry ledger")
+            command.add_argument("--auto-submit", action="store_true",
+                                 help="Submit deferred retries without the final pause; requires a deferred retry ledger as --input")
         command.add_argument("--db", dest="db_path", default=None if (verb,noun)==('apply','careers') else config.db_path, help="SQLite pipeline store")
         if verb == 'apply' and noun == 'careers':
             command.add_argument('--run-dir')
@@ -57,6 +61,7 @@ def build_parser():
             command.add_argument('--pause-before-submit', choices=('always','unknown','never'))
             command.add_argument('--role', action='append', default=[])
             command.add_argument('--max-applications', type=_positive)
+            command.add_argument('--workers', type=_positive, help='Parallel isolated browser workers (1-4; >1 requires --browser kernel; default 1)')
             command.add_argument('--config-dir')
             command.add_argument('--chrome-profile')
             command.add_argument('--browser',dest='browser_backend',choices=('local','kernel'))
@@ -94,6 +99,19 @@ def main(argv=None):
     if args.set_name is not None and not args.set_name.strip():
         parser.error("--set must be nonempty")
     try:
+        if args.verb == "apply" and args.target == "linkedin" and args.input:
+            from modules.linkedin_deferred import is_deferred_document
+            retry_inputs = [value for value in args.input if is_deferred_document(value)]
+            if retry_inputs:
+                if len(args.input) != 1:
+                    raise ValueError("A deferred retry ledger cannot be merged with pipeline artifacts")
+                from runAiBot import run_deferred_retries
+                options = {"auto_submit": True} if args.auto_submit else {}
+                result = run_deferred_retries(retry_inputs[0], args.limit, args.job_id, **options)
+                print(json.dumps(result, indent=2, ensure_ascii=False))
+                return 1 if result.get("status") in {"failed", "interrupted"} else 0
+        if getattr(args, "auto_submit", False):
+            raise ValueError("--auto-submit requires a deferred retry ledger as --input")
         if args.verb == "discover":
             from modules.job_pipeline.service import discover_companies
             sources = None if args.source is None else [value for value in args.source if value != "import"]
@@ -129,6 +147,7 @@ def main(argv=None):
             jobs = None if args.resume_dir else load_jobs(args.input,db_path=database,selected_roles=args.role,limit=args.limit)
             progress = run_submissions(jobs,run_dir=args.run_dir,resume_dir=args.resume_dir,
                 pause=args.pause_before_submit,max_applications=args.max_applications,config_dir=args.config_dir,
+                workers=args.workers,
                 chrome_profile=args.chrome_profile,set_name=args.set_name,export_path=args.output_path,db_path=database,
                 browser_backend=args.browser_backend,browser_config=args.browser_config)
             from modules.job_pipeline.models import read_artifact

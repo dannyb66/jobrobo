@@ -14,6 +14,50 @@ from modules import resume_all_bullets as m
 from modules.ai.resume_optimizer import ResumeOptimizer
 
 
+class KeywordRetryTests(unittest.TestCase):
+    def test_real_scheduler_reserves_each_attempt_and_does_not_expand_budget(self):
+        scheduler = m.Scheduler(config(rewrite_max_requests=2), 1)
+        # Skip only backoff time in this replay; reservations still use real code.
+        scheduler.notify = lambda *args, **kwargs: setattr(scheduler, 'cooldown', 0)
+        calls = []
+        def provider(stage, payload, timeout):
+            calls.append(stage)
+            if len(calls) == 1:
+                raise TimeoutError()
+            return {'keywords': ['Python']}
+        self.assertEqual(m.extract_keywords_with_retry(scheduler, provider, {}), {'keywords': ['Python']})
+        self.assertEqual(len(scheduler.events), 2)
+        self.assertEqual(scheduler.limit, 2)
+        self.assertEqual(scheduler.events[0]['error_kind'], 'timeout')
+        self.assertTrue(scheduler.events[1]['response_received'])
+
+    def test_transient_failure_retries_once_with_visible_retry_metadata(self):
+        from unittest.mock import Mock
+        scheduler = Mock()
+        scheduler.call.side_effect = [m.ProviderFailure('timeout'), {'keywords': ['Python']}]
+        self.assertEqual(m.extract_keywords_with_retry(scheduler, object(), {'job_description': 'JD'}),
+                         {'keywords': ['Python']})
+        self.assertEqual(scheduler.call.call_count, 2)
+        self.assertEqual(scheduler.call.call_args.args[2]['retry_reasons'], {'keywords': 'timeout'})
+
+    def test_permanent_errors_do_not_retry_and_transient_errors_stop_after_two(self):
+        from unittest.mock import Mock
+        for kind, expected in [('authentication_error', 1), ('invalid_response', 1),
+                               ('timeout', 2), ('connection_error', 2), ('server_error', 2)]:
+            scheduler = Mock()
+            scheduler.call.side_effect = m.ProviderFailure(kind)
+            with self.assertRaisesRegex(ValueError, 'JD keyword extraction failed: ' + kind):
+                m.extract_keywords_with_retry(scheduler, object(), {})
+            self.assertEqual(scheduler.call.call_count, expected)
+
+    def test_retry_still_honors_scheduler_budget_stop(self):
+        from unittest.mock import Mock
+        scheduler = Mock()
+        scheduler.call.side_effect = [m.ProviderFailure('timeout'), m.Stopped('request/cost budget exhausted')]
+        with self.assertRaises(m.Stopped):
+            m.extract_keywords_with_retry(scheduler, object(), {})
+
+
 def config(**values):
     return {**m.DEFAULTS, 'rewrite_all_bullets':True, 'rewrite_requests_per_minute':1000000,
             'rewrite_tokens_per_minute':1000000000, **values}
@@ -42,6 +86,98 @@ def response(payload):
 
 
 class AllBulletsTest(unittest.TestCase):
+    def test_fill_options_and_prompt_targets(self):
+        for minimum,target in ((True,.97),(.98,.90),(.49,.97),(.90,1),(.9,float('nan'))):
+            with self.assertRaises(ValueError):
+                m.validate_options(config(rewrite_bullet_min_fill_ratio=minimum,rewrite_bullet_target_fill_ratio=target),'full')
+        source=inv(1,1)
+        payload=m.compact_payload(source,'Python API','Engineer','synthetic_jd_test',source['groups'][0],
+            source['bullets'],minimum_fill=.91,target_fill=.96)
+        row=payload['requested_bullets'][0]
+        self.assertEqual((row['target_min_characters'],row['target_characters'],row['target_max_characters']),(91,96,99))
+        self.assertEqual(row['target_fill_ratio'],.96)
+        self.assertEqual(row['alternative_character_targets'],[92,85])
+        fields=m.provider_response_format('bullets',payload)['json_schema']['schema']['properties']['results']['items']['anyOf'][0]['properties']
+        self.assertEqual(fields['alternative_texts']['items']['maxLength'],150)
+        self.assertEqual(fields['rewritten_text']['maxLength'],150)
+        self.assertNotIn('minLength',fields['alternative_texts']['items'])
+        self.assertEqual(row['candidate_word_budgets'],[15,12,8])
+        self.assertNotIn('85%',m.generation_system('synthetic_jd_test'))
+
+    @staticmethod
+    def measured_fit():
+        def check(record):
+            return 'too wide' if len(record['rewritten_text'])>100 else None
+        check.measure=lambda record:dict(fill_ratio=len(record['rewritten_text'])/100)
+        return check
+
+    def test_fitting_full_candidate_beats_short_and_overflow_alternatives(self):
+        source=inv(1,1);group=source['groups'][0]
+        value=response(m.compact_payload(source,'Python API','Engineer','synthetic_jd_test',group,source['bullets']))
+        value['results'][0].update(rewritten_text='Built '+('a'*40),alternative_texts=['Built '+('a'*89),'Built '+('a'*100)])
+        record=m.validate_response(value,group,source['bullets'],fit_check=self.measured_fit(),content_policy='synthetic_jd_test')['0']
+        self.assertEqual(len(record['rewritten_text']),95)
+        self.assertEqual(record['status'],'candidate')
+
+    def test_metric_bonus_does_not_make_an_underfilled_line_win(self):
+        short=dict(bullet(0),source_text='Served 100+ clients',rewritten_text='Built Python APIs for 100+ clients.')
+        full=dict(short,rewritten_text='Built Python APIs for customer workflows with secure integrations and reliable service delivery.')
+        self.assertGreater(m.candidate_quality(full,['Python','APIs'],'synthetic_jd_test',self.measured_fit()),
+                           m.candidate_quality(short,['Python','APIs'],'synthetic_jd_test',self.measured_fit()))
+
+    def test_short_revision_keeps_safe_candidate_on_failure_or_overflow(self):
+        for retry in ('failure','overflow','improved','still_short'):
+            source=inv(1,1);calls=[]
+            def provider(stage,payload,timeout):
+                calls.append(deepcopy(payload))
+                if len(calls)==2 and retry=='failure':raise ValueError('fixture failure')
+                value=response(payload)
+                size=60 if len(calls)==1 else {'overflow':105,'improved':96,'still_short':75}.get(retry,60)
+                value['results'][0]['rewritten_text']='Built '+('a'*(size-6))
+                return value
+            records=m.rewrite_inventory(source,'Python API','Engineer','synthetic_jd_test',m.Scheduler(config(),1),
+                provider,self.measured_fit(),alignment_keywords=['Python','API'])
+            self.assertEqual(len(calls),2)
+            self.assertEqual(calls[1]['requested_bullets'][0]['previous_candidate'],'Built '+('a'*54))
+            self.assertIn('soft minimum',calls[1]['retry_reasons']['0'])
+            self.assertEqual(records[0]['status'],'candidate')
+            self.assertEqual(len(records[0]['rewritten_text']),{'improved':96,'still_short':75}.get(retry,60))
+            if retry!='improved':self.assertTrue(records[0]['metadata_warnings'])
+
+    def test_short_candidate_survives_budget_exhaustion_without_extra_request(self):
+        source=inv(1,1)
+        def provider(stage,payload,timeout):
+            value=response(payload);value['results'][0]['rewritten_text']='Built Python APIs'
+            return value
+        scheduler=m.Scheduler(config(rewrite_max_requests=1),1)
+        result=m.rewrite_inventory(source,'Python API','Engineer','synthetic_jd_test',scheduler,provider,self.measured_fit())
+        self.assertEqual(len(scheduler.events),1)
+        self.assertEqual(result[0]['status'],'candidate')
+        self.assertEqual(result[0]['rewritten_text'],'Built Python APIs')
+
+    def test_rendered_fullness_is_advisory_and_missing_lines_stay_unmeasured(self):
+        source=inv(2,1)
+        result=m.bullet_fullness([dict(paragraph_index=0,matched=True,lines=[dict(x0=50,x1=400)])],source)
+        self.assertEqual(result['measured'],1)
+        self.assertEqual(result['below_soft_minimum'],1)
+        self.assertEqual(result['bullets'][0]['fill_ratio'],.7)
+        self.assertIsNone(result['bullets'][1]['fill_ratio'])
+        self.assertTrue(result['soft_minimum'])
+
+    def test_incomplete_ending_is_rejected_without_restoring_source_checks(self):
+        source=inv(1,1);group=source['groups'][0]
+        for text in ('Built Python APIs for','Built agents and.','Built secure inter-','Built pipelines,'):
+            payload=m.compact_payload(source,'Python APIs','Engineer','synthetic_jd_test',group,source['bullets'])
+            value=response(payload);value['results'][0]['rewritten_text']=text
+            row=m.validate_response(value,group,source['bullets'],content_policy='synthetic_jd_test')['0']
+            self.assertEqual(row['status'],'blocked')
+            self.assertIn('incomplete sentence',row['reason'])
+        self.assertFalse(m.incomplete_sentence_tail('Implemented a secure plug-in.'))
+        payload=m.compact_payload(source,'Python APIs','Engineer','synthetic_jd_test',group,source['bullets'],
+            {'0':'Line fill 70% is below the soft minimum 90%'},{'0':'Built secure Python APIs.'})
+        self.assertEqual(payload['requested_bullets'][0]['revision_mode'],'expand_previous_candidate')
+        self.assertGreater(payload['requested_bullets'][0]['additional_word_budget'],0)
+
     def test_config_independence_and_validation(self):
         self.assertFalse(m.validate_options({},'full')['rewrite_all_bullets'])
         for bad in ('true',1,None):
@@ -238,7 +374,7 @@ class IntegrationContractTest(unittest.TestCase):
         from unittest.mock import Mock
         modal=Mock();verify=Mock(return_value=True)
         result=upload_verified_resume(modal,'source.docx','JD','id',optimize=Mock(return_value=None),verify_source=verify,rewrite_all_bullets=True)
-        self.assertEqual(result,(False,'Strict rewrite incomplete'));verify.assert_not_called();modal.find_element.assert_not_called()
+        self.assertEqual(result,(False,'No verified job-specific optimized PDF is available'));verify.assert_not_called();modal.find_element.assert_not_called()
 
     def test_strict_upload_saved_flag_refuses_source_fallback(self):
         from modules.resume_upload import upload_verified_resume

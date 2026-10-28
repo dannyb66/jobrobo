@@ -65,6 +65,7 @@ class SourceFallbackTest(unittest.TestCase):
         return result,report,coverage,config,events
 
     def test_timeout_and_width_failures_retain_exact_source_and_allow_verified_upload(self):
+        cached_attachment=None
         for mode in ('timeout','width'):
             with self.subTest(mode=mode):
                 result,report,coverage,config,events=self.run_resume(mode)
@@ -87,9 +88,15 @@ class SourceFallbackTest(unittest.TestCase):
                 self.assertFalse(m.verify_strict_attachment(result,**{**expected,'expected_job_id':'wrong'}))
                 self.assertFalse(m.verify_strict_attachment(result,**{**expected,'expected_config':{**config,'rewrite_source_fallback_enabled':False}}))
                 modal=Mock()
+                optimize=Mock(return_value=result)
                 self.assertTrue(upload_verified_resume(modal,str(self.source),self.jd,'123',
-                    optimize=Mock(return_value=result),runtime_config_override=config)[0])
-                modal.find_element.return_value.send_keys.assert_called_once_with(str(Path(result).resolve()))
+                    optimize=optimize,runtime_config_override=config)[0])
+                if cached_attachment is None:
+                    cached_attachment=str(Path(result).resolve())
+                    optimize.assert_called_once()
+                else:
+                    optimize.assert_not_called()
+                modal.find_element.return_value.send_keys.assert_called_once_with(cached_attachment)
                 messages=[]
                 with ResumeConsoleProgress(messages.append,'123') as progress:progress(events[-1])
                 self.assertIn('1 bullets rewritten; 1 original bullets retained',messages[-1])

@@ -1,6 +1,6 @@
 {
   "schema": "jobrobo-validation-url-set-v1",
-  "created_at": "2026-10-22T00:45:12.923248+00:00",
+  "created_at": "2026-10-22T23:45:40.558448+00:00",
   "sample_run_id": "validation:fc3b93f6-1c5e-4b39-a463-4edf16eda417",
   "source": {
     "path": "/Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task1-location-fix/phase2/phase2-engineering-ranked-remaining.json",
@@ -27,18 +27,21 @@
     "cases_with_preference_warnings": 4
   },
   "selection_rules": [
-    "Exact subset of current Task 1 remaining input; original role fields and verification dates preserved.",
     "Exclude confirmed/possibly submitted posting URLs and the earlier Stockholm role.",
     "Cover all identifiable providers in this source; spread Ashby and Lever across employers.",
-    "Choose minimal available preference warnings within provider coverage; keep remaining warnings explicit."
+    "Choose minimal available preference warnings within provider coverage; keep remaining warnings explicit.",
+    "Nine roles retain their selected Task 1 records; case 4 is the user-approved, live-verified replacement for a retired CareerJumpShip listing."
   ],
   "limits": [
-    "No live form or current availability check performed; source verification dates are retained.",
     "Known provider coverage is inferred from saved URL hosts, not observed form widgets.",
     "Greenhouse roles in this shortlist all belong to Baton; two roles may share the same form.",
-    "The generic CareerJumpShip entry is a job-site listing; downstream employer/ATS is unverified.",
     "Workday, SmartRecruiters, iCIMS and other providers are absent from this source and not covered.",
-    "This is a frozen regression sample; repeat runs can attempt the same URLs again."
+    "The Ondo Finance listing was verified on 2026-10-22; the original CareerJumpShip IT Engineer listing is retained only in the ignored audit copy.",
+    "The Ondo application service accepted the form and queued employer delivery; that is not employer-submission confirmation.",
+    "Live outcome counts below are an audit snapshot; recheck the saved outcome artifact before relying on later changes.",
+    "Known ATS coverage is inferred from saved job URLs; the generic CareerJumpShip workflow is a separate service, not an observed ATS.",
+    "Greenhouse roles in this shortlist belong to Baton; two roles may share the same form.",
+    "Workday, SmartRecruiters, iCIMS and other providers are absent from this sample."
   ],
   "cases": [
     {
@@ -132,21 +135,22 @@
     },
     {
       "case": 4,
-      "role_id": "role:a879206d471b222bd025426e",
+      "role_id": "url:e1367e0a7800421338e0f615",
       "provider_from_url": "generic_entry",
-      "company": "CareerJumpShip",
-      "title": "IT Engineer",
-      "url": "https://www.careerjumpship.com/jobs/it-engineer-ondo-finance-c1bb7b74",
-      "locations": [
-        "US"
-      ],
+      "company": "Ondo Finance via CareerJumpShip",
+      "title": "Infrastructure Engineer (DevOps)",
+      "url": "https://www.careerjumpship.com/jobs/infrastructure-engineer-devops-ondo-finance-8257c5e6",
+      "locations": [],
       "application_eligible": true,
       "preference_warnings": [],
-      "source_verified_at": "2026-10-15T02:38:02.973008+00:00",
-      "source_verification_run_id": "45ff1216-520a-4af4-a4d9-b2ebe83980b8",
-      "validation_focus": "Generic job-site entry: application-link discovery and any employer/ATS handoff",
-      "live_form_inspected": false,
-      "validation_result": "not_run"
+      "source_verified_at": "2026-10-22T01:54:32.509757+00:00",
+      "source_verification_run_id": null,
+      "validation_focus": "Generic service entry: application form, upload proof, consent, handoff and employer-delivery status",
+      "live_form_inspected": true,
+      "validation_result": "service_submission_pending",
+      "replaces_role_id": "role:a879206d471b222bd025426e",
+      "replacement_approval": "user explicitly approved a verified replacement",
+      "replacement_evidence": "logs/direct_submit_validation/20261021/fixes/replacement-verification.json"
     },
     {
       "case": 5,
@@ -274,5 +278,17 @@
       "validation_result": "not_run"
     }
   ],
-  "new_employer_actions": 0
+  "new_employer_actions": 0,
+  "outcomes": {
+    "source": "logs/direct_submit_validation/20261021/fixes/validation-outcomes.json",
+    "observed_at": "2026-10-22T03:17:55.491189+00:00",
+    "total": 10,
+    "all_employer_confirmed": false,
+    "counts": {
+      "confirmed": 6,
+      "email_verification_pending": 1,
+      "hcaptcha_unconfirmed": 2,
+      "service_submission_pending": 1
+    }
+  }
 }

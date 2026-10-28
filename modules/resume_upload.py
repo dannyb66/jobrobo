@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from copy import deepcopy
+from contextlib import nullcontext
 
 
 class ResumeUploadError(RuntimeError):
@@ -64,38 +65,68 @@ def upload_verified_resume(modal, resume_path, job_description, job_id,
     if not checks and not strict:
         return False,'Source checks disabled requires all-bullets rewriting'
     overrides = {}
+    failure_reason = None
     if rewrite_all_bullets is not None:
         overrides["rewrite_all_bullets"] = rewrite_all_bullets
     if rewrite_experience_concurrency is not None:
         overrides["rewrite_experience_concurrency"] = rewrite_experience_concurrency
     try:
         overrides['runtime_config_override']=deepcopy(config)
-        from modules.resume_progress import ResumeConsoleProgress
-        with ResumeConsoleProgress(log, job_id) as progress:
-            if log:
-                overrides['progress_callback'] = progress
-            optimized = optimize(
-                job_description=job_description, resume_path=resume_path, job_id=job_id,
-                job_title=job_title, first_name=first_name, last_name=last_name, **overrides,
+        cache = None
+        cached = None
+
+        def verify_cached(path):
+            from modules.resume_all_bullets import verify_strict_attachment
+            return verify_strict_attachment(path, expected_jd=job_description,
+                expected_job_id=job_id, expected_source_docx=resume_path,
+                expected_source_checks_enabled=checks, expected_config=config)
+
+        if strict and Path(resume_path).suffix.lower() == ".docx" and Path(resume_path).expanduser().is_file():
+            from modules.resume_cache import (cache_record_path, load_cached_resume,
+                resume_cache_fingerprint, resume_cache_lock, store_cached_resume)
+            fingerprint = resume_cache_fingerprint(
+                job_id=job_id, job_description=job_description, source_resume=resume_path,
+                job_title=job_title, first_name=first_name, last_name=last_name,
+                config=config, repo_root=Path(__file__).resolve().parent.parent,
             )
-        if optimized:
-            path = Path(optimized)
-            if path.is_file() and path.suffix.lower() == ".pdf":
-                if strict:
-                    report(f'[Resume {job_id}] Verifying generated PDF against this job and configuration')
-                    from modules.resume_all_bullets import verify_strict_attachment
-                    if not verify_strict_attachment(path,expected_jd=job_description,expected_job_id=job_id,expected_source_docx=resume_path,
-                            expected_source_checks_enabled=checks,expected_config=config):
-                        report("Strict generated attachment failed completion/artifact binding checks.")
-                        return False, "Strict rewrite incomplete"
-                return attach(path)
-        report(f"Optimized resume unavailable for Job ID {job_id}; checking the source PDF.")
+            cache = cache_record_path(resume_path, job_id, fingerprint)
+
+        with (resume_cache_lock(cache) if cache else nullcontext()):
+            if cache:
+                cached = load_cached_resume(cache, fingerprint, verify_cached)
+                if cached:
+                    report(f'[Resume {job_id}] Reusing verified job-specific optimized resume; optimizer API calls skipped')
+            if cached:
+                optimized = str(cached)
+            else:
+                from modules.resume_progress import ResumeConsoleProgress
+                with ResumeConsoleProgress(log, job_id) as progress:
+                    if log:
+                        overrides['progress_callback'] = progress
+                    optimized = optimize(
+                        job_description=job_description, resume_path=resume_path, job_id=job_id,
+                        job_title=job_title, first_name=first_name, last_name=last_name, **overrides,
+                    )
+            if optimized:
+                path = Path(optimized)
+                if path.is_file() and path.suffix.lower() == ".pdf":
+                    if strict and not cached:
+                        report(f'[Resume {job_id}] Verifying generated PDF against this job and configuration')
+                        if not verify_cached(path):
+                            report("Strict generated attachment failed completion/artifact binding checks.")
+                            return False, "Strict rewrite incomplete"
+                        if cache and store_cached_resume(cache, fingerprint, path):
+                            report(f'[Resume {job_id}] Saved verified optimized resume for reuse on this exact job and configuration')
+                    return attach(path)
+        report(f"Optimized resume unavailable for Job ID {job_id}." +
+               (" See the optimization failure above." if strict else " Checking the source PDF."))
     except Exception as exc:
+        failure_reason = str(exc)
         report(f"Optimized resume failed for Job ID {job_id}: {exc}")
 
     if strict:
-        report(f"Strict all-bullets rewrite incomplete for Job ID {job_id}; source fallback is disabled.")
-        return False, "Strict rewrite incomplete"
+        report(f"No verified job-specific optimized PDF is available for Job ID {job_id}; source fallback is disabled.")
+        return False, failure_reason or "No verified job-specific optimized PDF is available"
     source = Path(resume_path)
     fallback = source.with_suffix(".pdf") if source.suffix.lower() == ".docx" else source
     try:

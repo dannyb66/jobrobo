@@ -326,6 +326,9 @@ def checkpoint_job(job_id, status, reason=None):
                 budget.record(job_id)
             active_manifest.data["invocation_applied_count"] = budget.count
         active_manifest.record_job(active_search, job_id, status, reason, active_page)
+        from modules.linkedin_retry_reconciliation import sync_retry_checkpoint
+        sync_retry_checkpoint(active_manifest, active_search, job_id,
+                              submission_disabled=globals().get('prepare_only_run', False))
         if globals().get("active_result_sink"):
             active_result_sink(application_outcome(active_manifest, active_search, job_id))
 
@@ -405,6 +408,11 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
             diagnostics_dir = Path(globals().get('search_profile', None).search_state_dir).parent / 'job_detail_diagnostics' if globals().get('search_profile') else None
             live = wait_for_modern_details(driver, job_id, reselect=reselect, wait_factory=WebDriverWait,
                                            diagnostics_dir=diagnostics_dir, log=print_lg)
+            from modules.linkedin_job_details import header_identity_matches
+            if not header_identity_matches(live, title, company):
+                raise ValueError('Selected job header does not match its result card title and employer: '
+                                 f'card={title[:240]!r}, {company[:160]!r}; '
+                                 f'header={live["title"][:240]!r}, {live["company"][:160]!r}')
             title, company = live['title'], live['company']
             work_location, work_style = live['location'], live['workplace_type']
             skip = company in blacklisted_companies or job_id in rejected_jobs
@@ -587,7 +595,7 @@ def upload_optimized_resume(modal: WebElement, resume_path: str, job_description
         return current
     # A long API rewrite may outlive the DOM node passed by the form navigator.
     # Resolve a new dialog/input before attaching the already verified PDF.
-    target=resume_upload_target(driver,current_upload_modal(),refresh_modal=current_upload_modal)
+    target=resume_upload_target(driver,current_upload_modal(),refresh_modal=current_upload_modal,log=print_lg)
     if target is None:
         raise ResumeUploadError('Current application page has no resume upload control')
     return upload_verified_resume(
@@ -599,7 +607,84 @@ def upload_optimized_resume(modal: WebElement, resume_path: str, job_description
 # Function to answer common questions for Easy Apply
 def answer_common_questions(label: str, answer: str) -> str:
     if 'sponsorship' in label or 'visa' in label: answer = require_visa
+    elif re.search(r'\brelatives\b.*\b(?:working|employed)\b', label, re.I):
+        answer = 'Yes' if globals().get('application_relative_employee_names', '').strip() else 'No'
     return answer
+
+
+def _bounded_application_answer(value, limit):
+    """Keep generated prose within the form limit, ending at a word boundary."""
+    from modules.linkedin_form_fields import bounded_text
+    return bounded_text(value, limit)
+
+
+def _resume_work_history_dates(question, label_org, modal):
+    """Match a LinkedIn work-history date control to a dated source-resume role."""
+    import os
+    label = ' '.join(str(label_org or '').casefold().split())
+    if not re.search(r'\b(?:month|year)\b', label):
+        return None
+    source = globals().get('default_resume_docx_path')
+    if not source or not os.path.isfile(source):
+        return None
+    try:
+        from modules.resume_experience_dates import load_experience_ranges, best_experience_range
+        records = load_experience_ranges(source)
+        # Find the closest ancestor containing the complete role row, including
+        # its title/description and both date selectors.
+        containers = question.find_elements(By.XPATH,
+            './ancestor::*[count(.//*[@role="combobox" or @aria-haspopup="listbox" or self::select or self::button[normalize-space()="Month" or normalize-space()="Year"]]) >= 2]')
+        row_text = ''
+        rows = [row for row in containers if re.search(r'\bto\b', row.text or '', re.I)]
+        role_title = ''
+        if rows:
+            with_role_fields = [row for row in rows if row.find_elements(By.XPATH, './/input | .//textarea')]
+            row = min(with_role_fields or rows, key=lambda item: len(item.text or ''))
+            row_text = row.text or ''
+            fields = row.find_elements(By.XPATH, './/input | .//textarea')
+            for field in fields:
+                value = str(field.get_attribute('value') or field.get_attribute('placeholder') or '')
+                row_text += ' ' + value
+                tag_name = getattr(field, 'tag_name', '') or getattr(getattr(field, 'node', None), 'tag', '')
+                if not role_title and str(tag_name).lower() == 'input' and value.strip():
+                    role_title = value.strip()
+        else:
+            row_text = question.text or ''
+        # The editable position title is the strongest identity clue. Long
+        # descriptions can mention a different function (e.g. Product Owner)
+        # without changing the employment dates for the Software Engineer role.
+        match = best_experience_range(role_title or row_text, records)
+        if not match:
+            return None
+        # LinkedIn's custom work-history editor groups each Month/Year control
+        # under a From or To label. Walk inward-to-outward and use the smallest
+        # ancestor that identifies only one side of the range.
+        side = None
+        if re.search(r'\b(?:start|from)\b', label, re.I):
+            side = 'start'
+        elif re.search(r'\b(?:end|to)\b', label, re.I):
+            side = 'end'
+        if side is None:
+            identified = []
+            for ancestor in question.find_elements(By.XPATH, './ancestor::*'):
+                context = ' '.join((ancestor.text or '').split())
+                has_from = bool(re.search(r'\bfrom\b', context, re.I))
+                has_to = bool(re.search(r'\bto\b', context, re.I))
+                if has_from != has_to:
+                    identified.append((len(context), 'start' if has_from else 'end'))
+            if identified:
+                side = min(identified)[1]
+        # Legacy forms sometimes expose only the row-level "To" prompt.
+        if side is None and re.search(r'\b(?:to|end|ended|end date)\b', row_text, re.I):
+            side = 'end'
+        if side is None:
+            return None
+        if 'month' in label:
+            return match.start_month if side == 'start' else match.end_month
+        return match.start_year if side == 'start' else match.end_year
+    except Exception as exc:
+        print_lg(f'Could not map incomplete LinkedIn work-history date from the source resume ({type(exc).__name__})')
+        return None
 
 
 # Function to answer the questions for Easy Apply
@@ -615,12 +700,445 @@ def replace_text_verified(element, value):
     WebDriverWait(driver, 5).until(lambda _: element.get_attribute("value") == str(value))
 
 
+def _fill_resume_work_history_dates(modal, questions_list):
+    """Fill every missing custom Month/Year control independently.
+
+    LinkedIn sometimes puts the whole work-history entry in one form-element
+    wrapper. Processing only the first combobox in that wrapper leaves the
+    other three required controls blank, so enumerate and reacquire each one.
+    """
+    import re
+    try:
+        dates_present = driver.execute_script('''/* jobrobo-date-controls-present */
+            const root=arguments[0];
+            return /^(month|year)$/im.test(root.innerText||'') || [...root.querySelectorAll('select,button,input,[role="combobox"],[aria-haspopup="listbox"]')]
+              .some(e=>/\\b(month|year)\\b/i.test([
+                e.getAttribute('aria-label'),e.getAttribute('placeholder'),e.getAttribute('title'),
+                e.tagName==='SELECT' ? [...e.options].map(o=>o.textContent).join(' ') : e.textContent
+              ].filter(Boolean).join(' ')));
+        ''', modal)
+        if dates_present is False:
+            return
+    except Exception:
+        pass
+    selector = ("//*[@role='combobox' or @role='button' or @aria-haspopup='listbox' or self::select "
+                "or self::button or self::input or @tabindex][normalize-space(.)='Month' or normalize-space(.)='Year' "
+                "or contains(translate(@aria-label,'MONTHYEAR','monthyear'),'month') "
+                "or contains(translate(@aria-label,'MONTHYEAR','monthyear'),'year') "
+                "or contains(translate(@title,'MONTHYEAR','monthyear'),'month') "
+                "or contains(translate(@title,'MONTHYEAR','monthyear'),'year') "
+                "or contains(translate(@placeholder,'MONTHYEAR','monthyear'),'month') "
+                "or contains(translate(@placeholder,'MONTHYEAR','monthyear'),'year')]")
+    inferred_labels = {}
+    native_select_ids = set()
+    select_probe = []
+    def find_controls():
+        found = []
+        # On LinkedIn's nested application dialogs, Selenium's page-root
+        # XPath can omit descendants of the active dialog. Search the dialog
+        # first and then the document, deduplicating the same DOM nodes.
+        roots = [modal]
+        try:
+            from modules.linkedin_easy_apply import dialog_elements
+            roots.extend(dialog_elements(driver))
+        except Exception:
+            pass
+        roots.append(driver)
+        seen_roots = set()
+        for root in roots:
+            try:
+                root_id = root.id
+            except Exception:
+                root_id = id(root)
+            if root_id in seen_roots:
+                continue
+            seen_roots.add(root_id)
+            query = "." + selector if root is not driver else selector
+            try:
+                found.extend(root.find_elements(By.XPATH, query))
+            except (TypeError, AttributeError):
+                pass
+            # Native Month/Year selects in LinkedIn's current work-history
+            # step can have no accessible name; the selected placeholder is
+            # still a reliable way to identify them.
+            try:
+                selects = root.find_elements(By.CSS_SELECTOR, 'select')
+                if selects:
+                    summary = []
+                    for control in selects:
+                        options = control.find_elements(By.TAG_NAME, 'option')
+                        selected = next((option.text.strip() for option in options
+                                         if option.get_attribute('selected') is not None), '')
+                        relevant = [(option.text or '').strip() for option in options
+                                    if re.fullmatch(r'\d{4}', (option.text or '').strip())
+                                    or (option.text or '').strip().casefold() in {
+                                        'month', 'year', 'january', 'february', 'march', 'april', 'may',
+                                        'june', 'july', 'august', 'september', 'october', 'november', 'december'}]
+                        selected = selected if (selected.casefold() in {'month', 'year'}
+                                                or re.fullmatch(r'\d{4}', selected)) else ''
+                        summary.append({'selected_date_placeholder': selected, 'relevant_options': relevant[:14]})
+                    select_probe.append({'root_tag': getattr(root, 'tag_name', type(root).__name__),
+                                         'select_count': len(selects), 'selects': summary})
+                for control in selects:
+                    options = control.find_elements(By.TAG_NAME, 'option')
+                    selected = next((option for option in options
+                                     if option.get_attribute('selected') is not None),
+                                    options[0] if options else None)
+                    if selected and (selected.text or '').strip().casefold() in {'month', 'year'}:
+                        native_select_ids.add(control.id)
+                        found.append(control)
+                # LinkedIn's work-history dialog has four unlabeled native
+                # selects; placeholder values may be blank and the dialog's
+                # XPath text can omit its heading. Identify the pair by option
+                # vocabularies, then use rendered order: From Month, From Year,
+                # To Month, To Year.
+                month_names = {'january','february','march','april','may','june',
+                               'july','august','september','october','november','december'}
+                vocabularies = []
+                for control in selects:
+                    options = control.find_elements(By.TAG_NAME, 'option')
+                    texts = {(option.text or '').strip().casefold() for option in options}
+                    vocabularies.append((control, texts))
+                month_selects = [control for control, texts in vocabularies if texts & month_names]
+                year_selects = [control for control, texts in vocabularies
+                                if any(re.fullmatch(r'\d{4}', value) for value in texts)]
+                if len(selects) == 4 and len(month_selects) == 2 and len(year_selects) == 2:
+                    for control, inferred in zip(selects, ('From Month', 'From Year', 'To Month', 'To Year')):
+                        inferred_labels[control.id] = inferred
+                        native_select_ids.add(control.id)
+                        found.append(control)
+            except Exception:
+                pass
+            # LinkedIn sometimes renders these custom dropdowns as ordinary
+            # div/span text (no select, role, aria-label, or tabindex). Find
+            # the exact placeholder text within each dialog, then promote it
+            # to the nearest clickable/combobox ancestor.
+            try:
+                placeholders = root.find_elements(
+                    By.XPATH, ".//*[normalize-space(.)='Month' or normalize-space(.)='Year']")
+                for placeholder in placeholders:
+                    target = placeholder
+                    own_tag = (getattr(placeholder, 'tag_name', '') or '').lower()
+                    own_role = (placeholder.get_attribute('role') or '').casefold()
+                    own_popup = (placeholder.get_attribute('aria-haspopup') or '').casefold()
+                    own_tabindex = placeholder.get_attribute('tabindex')
+                    if not (own_tag in {'button', 'select'} or own_role in {'button', 'combobox'}
+                            or own_popup == 'listbox' or own_tabindex not in (None, '-1')):
+                        try:
+                            nested = placeholder.find_elements(
+                                By.XPATH, ".//*[self::button or self::select or @role='button' or @role='combobox' or @aria-haspopup='listbox' or (@tabindex and @tabindex!='-1')]"
+                            )
+                            if nested:
+                                target = nested[0]
+                        except Exception:
+                            pass
+                    if target is placeholder and not (own_tag in {'button', 'select'}
+                            or own_role in {'button', 'combobox'} or own_popup == 'listbox'
+                            or own_tabindex not in (None, '-1')):
+                        for ancestor in placeholder.find_elements(By.XPATH, './ancestor::*'):
+                            tag = (getattr(ancestor, 'tag_name', '') or '').lower()
+                            role = (ancestor.get_attribute('role') or '').casefold()
+                            aria_popup = (ancestor.get_attribute('aria-haspopup') or '').casefold()
+                            tabindex = ancestor.get_attribute('tabindex')
+                            if (tag in {'button', 'select'} or role in {'button', 'combobox'}
+                                    or aria_popup == 'listbox' or tabindex not in (None, '-1')):
+                                target = ancestor
+                                break
+                    found.append(target)
+            except Exception:
+                pass
+        # Some current LinkedIn dropdowns render a wrapper with placeholder
+        # text in a child span, so its normalized text is not on a button or
+        # combobox XPath match. Use the browser's own DOM query as a fallback
+        # while still returning normal WebElements for Selenium interaction.
+        execute_script = getattr(driver, 'execute_script', None)
+        if execute_script:
+            try:
+                script_controls = execute_script("""
+                    const requestedRoot=arguments[0];
+                    const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);
+                      return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none';};
+                    const descendants=root=>{const output=[],pending=[root],seen=new Set();
+                      while(pending.length){const current=pending.pop();if(!current||seen.has(current))continue;seen.add(current);
+                        for(const e of current.querySelectorAll('*')){output.push(e);if(e.shadowRoot)pending.push(e.shadowRoot);}}
+                      return output;};
+                      const interactive='button,[role="combobox"],[role="button"],[aria-haspopup="listbox"],select,input,[tabindex]:not([tabindex="-1"])';
+                    const controls=new Set();
+                    const candidates=[];
+                    const roots=[];
+                    if(requestedRoot&&requestedRoot.querySelectorAll) roots.push(requestedRoot);
+                    // Modern Easy Apply nests a native <dialog> inside a React
+                    // dialog, and Selenium's active-modal handle can be the
+                    // outer shell while controls render in the nested dialog.
+                    for(const root of document.querySelectorAll('dialog[open],[role="dialog"],.jobs-easy-apply-modal')) {
+                      if(visible(root)&&/\\bapply to\\b|\\beasy apply\\b/i.test(root.innerText||'')) roots.push(root);
+                    }
+                    for(const root of new Set(roots)) for(const e of descendants(root)) {
+                      const textValues=[e.innerText,e.textContent].filter(Boolean).map(v=>v.trim());
+                      const attributeValues=[e.getAttribute('aria-label'),e.getAttribute('title'),
+                                             e.getAttribute('placeholder'),e.getAttribute('data-placeholder'),
+                                             e.getAttribute('class'),...Array.from(e.attributes||[])
+                                               .filter(a=>a.name.startsWith('data-')).map(a=>a.value)]
+                                               .filter(Boolean).map(v=>v.trim());
+                      const isMonthYear=value=>/(^|[^a-z])(month|year)([^a-z]|$)/i.test(value);
+                      const interactiveControl=e.matches(interactive)||e.closest(interactive);
+                      if(!(textValues.some(isMonthYear)&&interactiveControl)
+                         &&!attributeValues.some(isMonthYear)||!visible(e)) continue;
+                      const candidateLabel=[...textValues,...attributeValues].find(isMonthYear)||'Month/Year';
+                      candidates.push(e.tagName.toLowerCase()+':'+candidateLabel.slice(0,50));
+                      const target=e.closest(interactive)||e.querySelector(interactive)||e;
+                      if(visible(target)) controls.add(target);
+                    }
+                    const employmentDatesVisible=/dates of employment/i.test(document.body.innerText||'');
+                    // LinkedIn sometimes renders these dropdowns as plain
+                    // div/span controls with no role, tabindex, label or
+                    // native <select>. Use their exact visible placeholders
+                    // in the active application dialog, preserving form order.
+                    const orderedPlaceholders=[];
+                    let placeholderProbe=[];
+                    const orderedDateSelects=[];
+                    if(employmentDatesVisible) {
+                      const allRoots=[document, ...Array.from(document.querySelectorAll('*')).filter(e=>e.shadowRoot).map(e=>e.shadowRoot)];
+                      const allElements=new Set();
+                      for(const root of allRoots) for(const element of descendants(root)) allElements.add(element);
+                      const exact=Array.from(allElements).filter(e=>visible(e)&&
+                        /^(month|year)$/i.test((e.innerText||e.textContent||'').trim())&&
+                        !Array.from(e.children||[]).some(child=>
+                          /^(month|year)$/i.test((child.innerText||child.textContent||'').trim())));
+                      const inApplyDialog=exact.filter(e=>{
+                        let parent=e, dialog=null;
+                        while(parent&&!dialog) {
+                          if(parent.matches&&parent.matches('dialog[open],[role="dialog"],.jobs-easy-apply-modal')) dialog=parent;
+                          if(!dialog) parent=parent.parentElement||((parent.getRootNode&&parent.getRootNode().host)||null);
+                        }
+                        return dialog&&visible(dialog)&&/\\bapply to\\b|\\beasy apply\\b/i.test(dialog.innerText||'');
+                      });
+                      placeholderProbe=inApplyDialog.map(e=>({text:(e.innerText||e.textContent||'').trim(),
+                        parent:e.parentElement&&e.parentElement.tagName,
+                        className:e.parentElement&&String(e.parentElement.className||'').slice(0,80)}));
+                      const ordered=inApplyDialog.length===4?inApplyDialog:(exact.length===4?exact:[]);
+                      ordered.sort((a,b)=>{const ar=a.getBoundingClientRect(),br=b.getBoundingClientRect();
+                        return Math.abs(ar.top-br.top)>3?ar.top-br.top:ar.left-br.left;});
+                      if(ordered.length===4) orderedPlaceholders.push(...ordered);
+                      const monthNames=['january','february','march','april','may','june','july','august','september','october','november','december'];
+                      for(const root of new Set(roots)) {
+                        if(!/\\bapply to\\b|\\beasy apply\\b/i.test(root.innerText||'')) continue;
+                        const selects=descendants(root).filter(e=>e.tagName==='SELECT');
+                        const dateSelects=selects.filter(e=>Array.from(e.options||[]).some(o=>
+                          monthNames.includes((o.textContent||'').trim().toLowerCase())||/^\\d{4}$/.test((o.textContent||'').trim())));
+                        if(dateSelects.length===4) {
+                          dateSelects.sort((a,b)=>{const ar=a.getBoundingClientRect(),br=b.getBoundingClientRect();
+                            return Math.abs(ar.top-br.top)>3?ar.top-br.top:ar.left-br.left;});
+                          orderedDateSelects.push(...dateSelects); break;
+                        }
+                      }
+                    }
+                    const controlSummary=employmentDatesVisible
+                      ?Array.from(document.querySelectorAll('button,[role="combobox"],[role="button"],[aria-haspopup="listbox"],select,input'))
+                         .filter(visible).slice(0,40).map(e=>[e.tagName.toLowerCase(),e.getAttribute('role'),e.getAttribute('aria-label'),
+                           e.getAttribute('title'),e.getAttribute('placeholder'),(e.innerText||e.value||'').trim().slice(0,30)].filter(Boolean).join('|'))
+                      :[];
+                    return {controls:Array.from(controls), orderedPlaceholders, orderedDateSelects, placeholderProbe, roots:roots.length, candidates:candidates.slice(0,12),
+                            employmentDatesVisible, controlSummary};
+                """, modal)
+                # Selenium returns WebElements here. Browser/test adapters may
+                # return serialized text or other JS values; never treat those
+                # as interactive controls.
+                if isinstance(script_controls, dict):
+                    controls_from_script = script_controls.get('controls')
+                    ordered_placeholders = script_controls.get('orderedPlaceholders') or []
+                    ordered_date_selects = script_controls.get('orderedDateSelects') or []
+                    if len(ordered_date_selects) == 4 and not controls_from_script:
+                        labels = ('From Month', 'From Year', 'To Month', 'To Year')
+                        for element, inferred in zip(ordered_date_selects, labels):
+                            try:
+                                inferred_labels[element.id] = inferred
+                                native_select_ids.add(element.id)
+                            except Exception:
+                                pass
+                        controls_from_script = ordered_date_selects
+                        globals().get('print_lg', lambda *_args, **_kwargs: None)(
+                            'Found four native date selects in the application dialog, including shadow DOM'
+                        )
+                    if len(ordered_placeholders) == 4 and not controls_from_script:
+                        labels = ('From Month', 'From Year', 'To Month', 'To Year')
+                        for element, inferred in zip(ordered_placeholders, labels):
+                            try:
+                                inferred_labels[element.id] = inferred
+                            except Exception:
+                                pass
+                        controls_from_script = ordered_placeholders
+                        globals().get('print_lg', lambda *_args, **_kwargs: None)(
+                            'Found four unlabeled work-history date dropdowns in visible dialog order'
+                        )
+                    if script_controls.get('employmentDatesVisible') and not controls_from_script:
+                        globals().get('print_lg', lambda *_args, **_kwargs: None)(
+                            f"Employment date DOM probe: {script_controls.get('roots')} matching dialogs; "
+                            f"labels={script_controls.get('candidates')}; "
+                            f"placeholders={script_controls.get('placeholderProbe')}; "
+                            f"controls={script_controls.get('controlSummary')}"
+                        )
+                    if not controls_from_script and script_controls.get('candidates'):
+                        globals().get('print_lg', lambda *_args, **_kwargs: None)(
+                            'Easy Apply date-control labels found without clickable controls: '
+                            + ', '.join(map(str, script_controls['candidates']))
+                        )
+                else:
+                    controls_from_script = script_controls
+                if isinstance(controls_from_script, (list, tuple)):
+                    found.extend(
+                        control for control in controls_from_script
+                        if callable(getattr(control, 'is_displayed', None))
+                        and callable(getattr(control, 'get_attribute', None))
+                    )
+            except Exception as exc:
+                globals().get('print_lg', lambda *_args, **_kwargs: None)(
+                    f'Could not inspect active Easy Apply date controls ({type(exc).__name__})'
+                )
+        unique = []
+        seen = set()
+        for control in found:
+            if not callable(getattr(control, 'is_displayed', None)):
+                continue
+            if not callable(getattr(control, 'get_attribute', None)):
+                continue
+            try:
+                key = control.id
+            except Exception:
+                key = id(control)
+            if key not in seen:
+                seen.add(key)
+                unique.append(control)
+        return unique
+    # LinkedIn can nest a transient dialog inside the application <dialog>;
+    # the work-history row is sometimes outside the innermost modal Selenium
+    # returns. Search the visible page, but only act on Month/Year controls.
+    controls = find_controls()
+    controls = [control for control in controls
+                if control.is_displayed() or getattr(control, 'id', None) in native_select_ids]
+    log = globals().get('print_lg', lambda *_args, **_kwargs: None)
+    if controls:
+        log(f'Resume work-history date controls detected: {len(controls)}')
+    else:
+        log('No visible Month/Year controls found in the active Easy Apply dialog; will retry normal form handling'
+            + (f'; native select probe={select_probe[-4:]}' if select_probe else ''))
+    for index in range(len(controls)):
+        controls = [control for control in find_controls()
+                    if control.is_displayed() or getattr(control, 'id', None) in native_select_ids]
+        if index >= len(controls):
+            break
+        combo = controls[index]
+        from modules.linkedin_form_fields import is_calendar_date_select
+        if not is_calendar_date_select(combo, inferred_labels.get(combo.id, '')):
+            continue
+        label = str(inferred_labels.get(combo.id) or combo.get_attribute('aria-label') or combo.get_attribute('title')
+                    or combo.get_attribute('placeholder') or combo.text or '').strip()
+        if not re.search(r'\b(?:month|year)\b', label, re.I):
+            try:
+                label = str(combo.find_element(By.XPATH, './/option[@selected]').text or '').strip()
+            except Exception:
+                pass
+        if not re.search(r'\b(?:month|year)\b', label, re.I):
+            continue
+        current = (combo.text or '').strip()
+        if ((getattr(combo, 'tag_name', '') or '').lower() == 'select'
+                or combo.id in native_select_ids):
+            try:
+                select_factory = globals().get('Select')
+                if select_factory is None:
+                    from selenium.webdriver.support.ui import Select as select_factory
+                current = select_factory(combo).first_selected_option.text.strip()
+            except Exception:
+                pass
+        if not (dropdown_placeholder(current) or current.casefold() in {'month', 'year'}):
+            continue
+        resume_date = _resume_work_history_dates(combo, label, driver)
+        if not resume_date:
+            continue
+        if ((getattr(combo, 'tag_name', '') or '').lower() == 'select'
+                or combo.id in native_select_ids):
+            try:
+                select_factory = globals().get('Select')
+                if select_factory is None:
+                    from selenium.webdriver.support.ui import Select as select_factory
+                select_factory(combo).select_by_visible_text(resume_date)
+                selected = select_factory(combo).first_selected_option.text.strip()
+                if selected.casefold() != resume_date.casefold():
+                    raise ValueError('selected date did not persist')
+                questions_list.add((label, resume_date, 'resume_work_history_date', current))
+                log('Completed a missing LinkedIn work-history date using the closest dated role in the source resume.')
+                continue
+            except Exception as exc:
+                # Hidden native selects behind LinkedIn's custom dropdown may
+                # reject Selenium's click-based Select implementation. Update
+                # the native value through its setter and emit React events.
+                try:
+                    value = next(option.get_attribute('value') for option in select_factory(combo).options
+                                 if option.text.strip().casefold() == resume_date.casefold())
+                    driver.execute_script("""const el=arguments[0], value=arguments[1];
+                      const setter=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;
+                      setter.call(el,value); el.dispatchEvent(new Event('input',{bubbles:true}));
+                      el.dispatchEvent(new Event('change',{bubbles:true})); return el.value;""", combo, value)
+                    selected = select_factory(combo).first_selected_option.text.strip()
+                    if selected.casefold() != resume_date.casefold():
+                        raise ValueError('native dropdown value did not persist')
+                    questions_list.add((label, resume_date, 'resume_work_history_date', current))
+                    log('Completed a missing LinkedIn work-history date via its native select state.')
+                    continue
+                except Exception:
+                    log(f'Could not select the resume-matched work-history date ({type(exc).__name__}); trying dropdown interaction')
+        combo.click()
+        options = modal.find_elements(By.XPATH, ".//*[@role='option' or self::option or self::li or self::button]")
+        option = next((item for item in options if (item.text or '').strip().casefold() == resume_date.casefold()
+                       and item.is_displayed() and item.is_enabled()), None)
+        if option is None:
+            options = driver.find_elements(By.XPATH, ".//*[@role='option' or self::option or self::li or self::button]")
+            option = next((item for item in options if (item.text or '').strip().casefold() == resume_date.casefold()
+                           and item.is_displayed() and item.is_enabled()), None)
+        if option is None:
+            raise ValueError(f'LinkedIn work-history date option {resume_date!r} was not available')
+        option.click()
+        questions_list.add((label, resume_date, 'resume_work_history_date', current))
+        log('Completed a missing LinkedIn work-history date using the closest dated role in the source resume.')
+
+
 def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None, *, draft_answer=None, job_id=None ) -> set:
     import re
+    from modules.linkedin_form_fields import field_limit, invalid_text, fill_text, education_checkbox_answers, short_numeric_rejection, inapplicable_followup, checkbox_prompt, demographic_request, clear_optional_choice, is_privacy_notice_choice, country_checkbox_answers, availability_answer, sponsorship_question
+    # LinkedIn can leave an outer dialog wrapper active after resume upload
+    # while the current application form is a nested dialog. Choose the visible
+    # Apply dialog that owns the Next/Review/Submit controls and its fields.
+    try:
+        from modules.linkedin_easy_apply import dialog_elements
+        application_forms = []
+        for candidate in dialog_elements(driver):
+            candidate_text = ' '.join((candidate.text or '').split())
+            heading = candidate.get_attribute('aria-label') or ''
+            buttons = candidate.find_elements(By.CSS_SELECTOR, 'button, [role="button"]')
+            navigation = any((button.text or '').strip().casefold() in {'next', 'review', 'submit application'}
+                             or (button.get_attribute('aria-label') or '').strip().casefold()
+                             in {'next', 'review', 'submit application'} for button in buttons)
+            fields = len(candidate.find_elements(By.CSS_SELECTOR, 'input, textarea, select'))
+            if navigation and fields and re.search(r'\bapply to\b|\beasy apply\b', heading + ' ' + candidate_text, re.I):
+                application_forms.append((fields, candidate))
+        if application_forms:
+            best = max(application_forms, key=lambda item: item[0])[1]
+            if best.id != modal.id:
+                modal = best
+                globals().get('print_lg', lambda *_args, **_kwargs: None)(
+                    'Reacquired the active Easy Apply dialog containing the current form fields'
+                )
+    except Exception:
+        pass
     def reference_field(label):
         import re
         return bool(re.search(r"\b(?:references|referees)\b|\b(?:your|professional|employment|personal)\s+reference\b|\breference(?:'s)?\s+(?:name|email|phone|contact)\b", label, re.I)
                     or re.fullmatch(r'\s*reference\s*#?\d*\s*[:*]?\s*', label, re.I))
+    _fill_resume_work_history_dates(modal, questions_list)
+    from modules.linkedin_form_fields import fill_binary_checkbox_groups
+    handled_checkboxes, checkbox_groups = fill_binary_checkbox_groups(
+        modal, answer_common_questions,
+        lambda control: actions.move_to_element(control).click().perform(), questions_list, globals())
     # Get all questions from the page
      
     all_questions = modal.find_elements(By.XPATH, ".//div[@data-test-form-element]")
@@ -640,13 +1158,28 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             if group.id not in seen:
                 seen.add(group.id)
                 all_questions.append(group)
-        for control in modal.find_elements(By.XPATH, ".//textarea[@aria-label] | .//select[@aria-label] | .//input[@aria-label][@type='text' or @type='email' or @type='tel' or @type='number' or @type='url']"):
+        # Some newer LinkedIn work-history dialogs expose only unlabeled
+        # native Month/Year selects (no data-test wrapper or associated label).
+        # Add just those placeholder selects so the resume-backed date matcher
+        # can populate them without treating other unlabeled selects as prompts.
+        for control in modal.find_elements(By.XPATH, ".//select"):
+            if control.id in seen or any(parent.id in seen for parent in control.find_elements(By.XPATH, './ancestor::*')):
+                continue
+            options = control.find_elements(By.TAG_NAME, 'option')
+            selected = next((option for option in options if option.get_attribute('selected') is not None),
+                            options[0] if options else None)
+            if selected and (selected.text or '').strip().casefold() in {'month', 'year'}:
+                seen.add(control.id)
+                all_questions.append(control)
+        for control in modal.find_elements(By.XPATH, ".//textarea[@aria-label] | .//select[@aria-label] | .//input[@aria-label][@type='text' or @type='email' or @type='tel' or @type='number' or @type='url' or @type='date'] | .//*[@role='combobox'] | .//button[@aria-haspopup='listbox']"):
             # Native SDUI fields sometimes have only an accessible name, no label.
             if any(parent.id in seen for parent in control.find_elements(By.XPATH, './ancestor::*')):
                 continue
             if control.id not in seen:
                 seen.add(control.id)
                 all_questions.append(control)
+    application_log = globals().get('print_lg', lambda *_args, **_kwargs: None)
+    application_log(f'Easy Apply form fields detected: {len(all_questions) + checkbox_groups}')
     # all_questions = modal.find_elements(By.CLASS_NAME, "jobs-easy-apply-form-element")
     # all_list_questions = modal.find_elements(By.XPATH, ".//div[@data-test-text-entity-list-form-component]")
     # all_single_line_questions = modal.find_elements(By.XPATH, ".//div[@data-test-single-line-text-form-component]")
@@ -668,14 +1201,64 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     pass
             except: pass
             label = label_org.lower()
+            select_element = select
             select = Select(select)
             selected_option = select.first_selected_option.text
+            # LinkedIn's work-history editor can render Month/Year selects
+            # without a visible label or accessible name. Their selected
+            # placeholder option is the reliable field identity in that case.
+            if (selected_option or '').strip().casefold() in {'month', 'year'} and not re.search(
+                    r'\b(?:month|year)\b', label_org, re.I):
+                label_org = selected_option.strip().title()
+                label = label_org.casefold()
+            resume_date = _resume_work_history_dates(Question, label_org, modal)
+            if resume_date and (overwrite_previous_answers or dropdown_placeholder(selected_option)
+                                or selected_option.strip().casefold() in {'month', 'year'}):
+                matching = next((option for option in select.options
+                                 if option.text.strip().casefold() == resume_date.casefold()), None)
+                if matching is not None and matching.is_enabled():
+                    select.select_by_visible_text(matching.text)
+                    answer = select.first_selected_option.text
+                    print_lg('Completed a missing LinkedIn work-history end date using the closest dated role in the source resume.')
+                    questions_list.add((f'{label_org} [ {" ".join(option.text for option in select.options)} ]',
+                                        answer, "select", selected_option))
+                    continue
+            if selected_option.strip().casefold() in {'month', 'year'}:
+                application_log('Could not populate one resume-backed work-history date field from available LinkedIn options')
             options = '"List of phone country codes"' if label == "phone country code" else "".join(
                 f' "{option.text}",' for option in select.options)
             prev_answer = answer = selected_option
-            if overwrite_previous_answers or dropdown_placeholder(selected_option):
+            choices = [{"text": option.text, "enabled": option.is_enabled(),
+                        "placeholder": dropdown_placeholder(option.text)} for option in select.options]
+            disclosure, disclosure_answer = demographic_request(label_org, choices, globals())
+            available = availability_answer(label_org, globals())
+            from modules.linkedin_form_fields import application_location_answer
+            application_location = application_location_answer(label_org, choices, work_location, globals().get('search_location', ''))
+            relatives_question = re.search(r'\brelatives\b.*\b(?:working|employed)\b', label, re.I) is not None
+            if disclosure and disclosure_answer is None:
+                if select_element.get_attribute('required') is not None or label_org.rstrip().endswith('*'):
+                    from modules.linkedin_easy_apply import MissingApplicationAnswer
+                    raise MissingApplicationAnswer('Required demographic question has no configured opt-out: ' + label_org)
+                if not dropdown_placeholder(selected_option):
+                    clear_optional_choice(driver, select_element)
+                questions_list.add((label_org, '', 'declined_optional', prev_answer))
+                continue
+            if overwrite_previous_answers or dropdown_placeholder(selected_option) or disclosure or label == 'country' or relatives_question or sponsorship_question(label) or available is not None or application_location is not None:
                 requested = None
-                if 'email' in label:
+                if sponsorship_question(label):
+                    requested = globals().get('require_visa')
+                elif available is not None:
+                    requested = available
+                    if available == 'Immediate':
+                        requested = next((option['text'] for option in choices if re.search(
+                            r'^(?:immediate(?:ly)?|asap|as soon as possible|0\s*days?)\s*$', option['text'], re.I)), available)
+                elif application_location is not None:
+                    requested = application_location
+                elif disclosure:
+                    requested = disclosure_answer
+                elif label == 'country':
+                    requested = globals().get('country')
+                elif 'email' in label:
                     requested = globals().get('email') or globals().get('username') or prev_answer
                 elif 'phone' in label:
                     requested = prev_answer if not dropdown_placeholder(prev_answer) else globals().get('country')
@@ -683,18 +1266,25 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 elif 'disability' in label: requested = globals().get('disability_status')
                 elif 'citizenship' in label or 'employment eligibility' in label: requested = globals().get('us_citizenship')
                 elif 'veteran' in label or 'protected' in label: requested = globals().get('veteran_status')
-                else: requested = answer_common_questions(label, None)
-                choices = [{"text": option.text, "enabled": option.is_enabled(),
-                            "placeholder": dropdown_placeholder(option.text)} for option in select.options]
+                else:
+                    from modules.linkedin_form_fields import experience_range_answer
+                    requested = answer_common_questions(label, None) or experience_range_answer(
+                        label, choices, globals().get('years_of_experience'))
                 index, defaulted = choose_index(choices, requested)
+                if (sponsorship_question(label) or available is not None or application_location is not None) and defaulted:
+                    from modules.linkedin_easy_apply import MissingApplicationAnswer
+                    raise MissingApplicationAnswer('Configured personal answer is not offered: ' + label_org)
                 select.select_by_index(index)
                 answer = select.first_selected_option.text
+                if (sponsorship_question(label) or available is not None or application_location is not None) and answer.strip() != choices[index]['text'].strip():
+                    from modules.linkedin_easy_apply import MissingApplicationAnswer
+                    raise MissingApplicationAnswer('Configured personal dropdown selection did not persist: ' + label_org)
                 if defaulted:
                     print_lg(f'No matching configured answer for "{label_org}"; defaulting to the first enabled option.')
                     globals().setdefault('defaulted_questions', set()).add((label_org, "select"))
             questions_list.add((f'{label_org} [ {options} ]', answer, "select", prev_answer))
             continue
-        
+
         # Check if it's a radio Question
         radio = try_xp(Question, './/fieldset[@data-test-form-builder-radio-button-form-component="true"]', False)
         native_radio = False
@@ -733,16 +1323,37 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 controls.append(role_control or option_label or option)
                 if option.is_selected(): prev_answer = text
             answer = prev_answer
-            if overwrite_previous_answers or prev_answer is None:
+            disclosure, disclosure_answer = demographic_request(label_org, choices, globals())
+            if disclosure and disclosure_answer is None:
+                if label_org.rstrip().endswith('*') or radio.get_attribute('aria-required') == 'true':
+                    from modules.linkedin_easy_apply import MissingApplicationAnswer
+                    raise MissingApplicationAnswer('Required demographic question has no configured opt-out: ' + label_org)
+                if prev_answer is not None:
+                    clear_optional_choice(driver, radio)
+                questions_list.add((label_org, '', 'declined_optional', prev_answer))
+                continue
+            if overwrite_previous_answers or prev_answer is None or disclosure or sponsorship_question(label):
                 requested = None
-                if 'gender' in label or 'sex' in label: requested = globals().get('gender')
+                if sponsorship_question(label): requested = globals().get('require_visa')
+                elif disclosure: requested = disclosure_answer
+                elif 'gender' in label or 'sex' in label: requested = globals().get('gender')
                 elif 'citizenship' in label or 'employment eligibility' in label: requested = globals().get('us_citizenship')
                 elif 'veteran' in label or 'protected' in label: requested = globals().get('veteran_status')
                 elif 'disability' in label or 'handicapped' in label: requested = globals().get('disability_status')
                 else: requested = answer_common_questions(label, None)
                 index, defaulted = choose_index(choices, requested)
+                if sponsorship_question(label) and defaulted:
+                    from modules.linkedin_easy_apply import MissingApplicationAnswer
+                    raise MissingApplicationAnswer('Configured sponsorship answer is not offered: ' + label_org)
                 actions.move_to_element(controls[index]).click().perform()
                 answer = choices[index]["text"]
+                if sponsorship_question(label):
+                    selected = option_nodes[index].is_selected() or controls[index].get_attribute('aria-checked') == 'true'
+                    conflicting = any(option.is_selected() or controls[i].get_attribute('aria-checked') == 'true'
+                                      for i, option in enumerate(option_nodes) if i != index)
+                    if not selected or conflicting:
+                        from modules.linkedin_easy_apply import MissingApplicationAnswer
+                        raise MissingApplicationAnswer('Configured sponsorship radio selection did not persist: ' + label_org)
                 if defaulted:
                     print_lg(f'No matching configured answer for "{label_org}"; defaulting to the first enabled option.')
                     globals().setdefault('defaulted_questions', set()).add((label_org, "radio"))
@@ -753,9 +1364,9 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
         # Check if it's a text question
         text = try_xp(Question, ".//input[@type='text']", False)
         if not text:
-            text = try_xp(Question, ".//input[@type='tel' or @type='email' or @type='number' or @type='url']", False)
+            text = try_xp(Question, ".//input[@type='tel' or @type='email' or @type='number' or @type='url' or @type='date']", False)
         if not text:
-            text = try_xp(Question, "self::input[@type='text' or @type='tel' or @type='email' or @type='number' or @type='url']", False)
+            text = try_xp(Question, "self::input[@type='text' or @type='tel' or @type='email' or @type='number' or @type='url' or @type='date']", False)
         if text: 
             do_actions = False
             label = try_xp(Question, ".//label[@for]", False)
@@ -766,13 +1377,28 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             label = label_org.lower()
 
             prev_answer = text.get_attribute("value")
+            limit = field_limit(driver, text, 500)
+            available = availability_answer(label_org, globals(), text.get_attribute('type') or 'text')
+            if available is not None:
+                fill_text(driver, text, available, limit)
+                questions_list.add((label_org, available, 'configured_availability', prev_answer))
+                continue
+            numeric_recovery = short_numeric_rejection(driver, text, limit)
+            drafted = False
+            if inapplicable_followup(driver, text, label_org):
+                if prev_answer:
+                    fill_text(driver, text, '', limit)
+                questions_list.add((label, '', 'inapplicable_followup', prev_answer))
+                continue
             preferred_first = globals().get("preferred_first_name", "")
             preferred_override = (isinstance(preferred_first, str) and preferred_first.strip()
                                   and re.fullmatch(r"(?:preferred\s+)?first\s+name\s*\*?", label.strip()))
+            empty_middle_name = (bool(re.fullmatch(r'\s*middle\s+name\s*\*?\s*', label))
+                                 and not str(middle_name or '').strip())
             configured_employer = globals().get('recent_employer', '')
             employer_override = (isinstance(configured_employer, str) and configured_employer.strip()
                                  and re.fullmatch(r'(?:(?:most\s+)?recent|current|present|latest|last)\s+(?:company|employer)(?:\s+name)?\s*\*?', label.strip()))
-            if not prev_answer or overwrite_previous_answers or preferred_override or employer_override:
+            if not prev_answer or overwrite_previous_answers or preferred_override or employer_override or invalid_text(text, limit) or numeric_recovery:
                 if reference_field(label):
                     answer = globals().get('references', '').strip()
                     if not answer and globals().get('prepare_only_run', False):
@@ -783,7 +1409,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     answer = answer or prev_answer or ''
                 elif employer_override: answer = configured_employer.strip()
                 elif preferred_override: answer = preferred_first.strip()
-                elif 'experience' in label or 'years' in label: answer = years_of_experience
+                elif re.search(r'\byears?\b|\bhow many\b.*\bexperience\b', label): answer = years_of_experience
                 elif 'email' in label or 'e-mail' in label:
                     answer = globals().get('email') or globals().get('username') or prev_answer
                     if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', str(answer or '')):
@@ -793,6 +1419,8 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 elif 'city' in label or 'location' in label or 'address' in label:
                     answer = current_city if current_city else work_location
                     do_actions = True
+                elif 'name' in label and re.search(r'\b(?:related|relatives)\b', label):
+                    answer = globals().get('application_relative_employee_names', '')
                 elif 'signature' in label: answer = full_name # 'signature' in label or 'legal name' in label or 'your name' in label or 'full name' in label: answer = full_name     # What if question is 'name of the city or university you attend, name of referral etc?'
                 elif 'name' in label:
                     if 'full' in label: answer = full_name
@@ -832,12 +1460,21 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 elif 'country' in label: answer = country
                 else: answer = answer_common_questions(label,answer)
                 ##> ------ Dheeraj Deshwal : dheeraj9811 Email:dheeraj20194@iiitd.ac.in/dheerajdeshwal9811@gmail.com - Feature ------
-                if answer == "" and not reference_field(label):
+                if answer == "" and not reference_field(label) and not empty_middle_name:
                     if draft_answer is not None and globals().get('ai_descriptive_answers_enabled', False):
-                        answer = draft_answer(label_org, 'descriptive', text.get_attribute('maxlength'))
+                        try:
+                            answer = draft_answer(label_org, 'numeric' if numeric_recovery else 'descriptive', str(limit))
+                        except Exception:
+                            if text.get_attribute('required') is not None or text.get_attribute('aria-required') == 'true':
+                                raise
+                            print_lg('Optional descriptive answer unavailable; leaving it blank and continuing')
+                            questions_list.add((label, prev_answer or '', 'text', prev_answer))
+                            continue
+                        drafted = True
                     elif use_AI and aiClient:
                         try:
                              answer = ai_answer_question(aiClient, label_org, question_type="text" ,job_description=job_description, user_information_all = user_information_all)
+                             drafted = True
                              print_lg(f'AI Answered recived for question"{label_org}" \nhere is answer : "{answer}"')
                         except Exception as e:
                             print_lg("Failed to get AI answer!", e)
@@ -845,11 +1482,16 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                         randomly_answered_questions.add((label_org, "text"))
                         answer = years_of_experience
                  ##<   
+                if empty_middle_name and (text.get_attribute('required') is not None
+                                          or text.get_attribute('aria-required') == 'true'):
+                    from modules.linkedin_easy_apply import MissingApplicationAnswer
+                    raise MissingApplicationAnswer('Required middle name is missing from config/personals.py')
+                if drafted or re.fullmatch(r'\s*(?:(?:linkedin|professional|profile)\s+)?headline\s*\*?\s*', label):
+                    answer = _bounded_application_answer(answer, limit)
                 if preferred_override:
                     replace_text_verified(text, answer)
                 else:
-                    text.clear()
-                    text.send_keys(answer)
+                    fill_text(driver, text, answer, limit)
                 if do_actions:
                     sleep(2)
                     actions.send_keys(Keys.ARROW_DOWN)
@@ -867,7 +1509,18 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             label = label_org.lower()
             answer = ""
             prev_answer = text_area.get_attribute("value")
+            limit = field_limit(driver, text_area, 1500)
+            available = availability_answer(label_org, globals())
+            if available is not None:
+                fill_text(driver, text_area, available, limit)
+                questions_list.add((label_org, available, 'configured_availability', prev_answer))
+                continue
             required = text_area.get_attribute('required') is not None or text_area.get_attribute('aria-required') == 'true'
+            if inapplicable_followup(driver, text_area, label_org):
+                if prev_answer:
+                    fill_text(driver, text_area, '', limit)
+                questions_list.add((label, '', 'inapplicable_followup', prev_answer))
+                continue
             if not prev_answer and not required and re.search(r'^\s*if\b.*\bselected\b.*\bother\b', label):
                 selected_other = False
                 for option in modal.find_elements(By.CSS_SELECTOR, 'input[type="radio"], input[type="checkbox"], option, [role="radio"], [role="checkbox"]'):
@@ -882,17 +1535,22 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     print_lg(f'Skipping inapplicable optional question: {label_org}')
                     questions_list.add((label, '', 'textarea', prev_answer))
                     continue
-            if not prev_answer or overwrite_previous_answers:
+            if not prev_answer or overwrite_previous_answers or invalid_text(text_area, limit):
                 if reference_field(label):
                     answer = globals().get('references', '').strip()
                     if not answer and globals().get('prepare_only_run', False):
                         answer = globals().get('test_references', '').strip()
+                elif re.search(r'\bhow many\b.*\byears?\b|\byears?\s+of\s+experience\b', label):
+                    if draft_answer is not None and globals().get('ai_descriptive_answers_enabled', False):
+                        answer = draft_answer(label_org, 'descriptive', str(min(150, limit)))
+                    else:
+                        answer = years_of_experience
                 elif draft_answer is not None and (
                         globals().get('ai_cover_letter_enabled', False) if 'cover' in label
                         else globals().get('ai_descriptive_answers_enabled', False)):
                     try:
                         answer = draft_answer(label_org, 'cover_letter' if 'cover' in label else 'descriptive',
-                                              text_area.get_attribute('maxlength'))
+                                              str(limit))
                     except Exception:
                         if required:
                             raise
@@ -912,8 +1570,8 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     else:
                         randomly_answered_questions.add((label_org, "textarea"))
                 if answer:
-                    text_area.clear()
-                    text_area.send_keys(answer)
+                    answer = _bounded_application_answer(answer, limit)
+                    fill_text(driver, text_area, answer, limit)
             if not text_area.get_attribute('value') and required:
                 from modules.linkedin_easy_apply import MissingApplicationAnswer
                 raise MissingApplicationAnswer(f'Required personal answer is missing: {label_org}')
@@ -926,9 +1584,13 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
     from modules.linkedin_easy_apply import MissingApplicationAnswer
     configured = globals().get('application_checkbox_answers', {})
     configured = {' '.join(str(k).casefold().split()):v for k,v in configured.items()} if isinstance(configured,dict) else {}
+    configured.update(education_checkbox_answers(modal, globals().get('default_resume_docx_path'), configured))
+    configured.update(country_checkbox_answers(modal, globals().get('country')))
     import os
     approved_signatures=set(filter(None,os.environ.get('JOBROBO_APPROVED_E_SIGNATURE_JOB_IDS','').split(',')))
     for checkbox in modal.find_elements(By.XPATH, ".//input[@type='checkbox'] | .//*[@role='checkbox'][not(.//input[@type='checkbox'])]"):
+        if checkbox.id in handled_checkboxes:
+            continue
         if checkbox.get_attribute('type') != 'checkbox' and checkbox.get_attribute('role') != 'checkbox':
             continue
         ident=checkbox.get_attribute('id') or ''
@@ -945,9 +1607,11 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             # Modern LinkedIn leaves <label for> empty and puts the visible
             # question in a sibling paragraph inside the ARIA checkbox.
             label_org=wrapper.text.strip()
+        prompt = checkbox_prompt(driver, checkbox)
+        prompt_text = ' '.join(prompt['text'].split())
         label=' '.join(label_org.casefold().split())
         previous=checkbox.is_selected() or wrapper.get_attribute('aria-checked')=='true'
-        required=checkbox.get_attribute('required') is not None or checkbox.get_attribute('aria-required')=='true' or wrapper.get_attribute('aria-required')=='true' or label_org.rstrip().endswith('*')
+        required=prompt['required'] or checkbox.get_attribute('required') is not None or checkbox.get_attribute('aria-required')=='true' or wrapper.get_attribute('aria-required')=='true' or label_org.rstrip().endswith('*')
         groups=checkbox.find_elements(By.XPATH,'./ancestor::*[.//label and count(.//input | .//select | .//textarea)=1][1]')
         if groups and '*' in groups[0].text:
             required=True
@@ -959,10 +1623,13 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
         # never authorizes other agreements or future employers' forms.
         signature_approved=(str(job_id) in approved_signatures and
             re.fullmatch(r'yes,?\s+i agree to sign electronically\.?\s*\*?',label) is not None)
+        privacy_approved=((globals().get('application_privacy_consent_default') is True
+            or str(job_id) in set(map(str, globals().get('application_privacy_consent_job_ids', []))))
+            and is_privacy_notice_choice(label, prompt_text))
         if signature_approved and label not in configured:
             requested=True
-        if requested and not previous and signing and not signature_approved:
-            raise MissingApplicationAnswer('Required agreement needs confirmation for this application')
+        if requested and not previous and signing and not (signature_approved or privacy_approved):
+            raise MissingApplicationAnswer('Required agreement needs confirmation for this application: ' + prompt_text)
         if requested != previous:
             if not checkbox.is_enabled() or wrapper.get_attribute('aria-disabled')=='true':
                 raise MissingApplicationAnswer('Required checkbox is disabled')
@@ -1393,6 +2060,9 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
     draft_enabled = globals().get('ai_cover_letter_enabled', False) or globals().get('ai_descriptive_answers_enabled', False)
     selected_resume_path = globals().get('default_resume_path', '')
     drafts = draft_client = None
+    work_history_recoveries = 0
+    education_recoveries = 0
+    text_validation_recoveries = 0
     globals().setdefault('draft_artifact_paths', {}).pop(str(job_id), None)
     globals().setdefault('resume_artifact_paths', {}).pop(str(job_id), None)
     # Preserve evidence before cleanup changes a failed opening dialog.
@@ -1467,7 +2137,7 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
             uploaded, resume = upload_optimized_resume(
                 upload_target, default_resume_docx_path, description, job_id, title, first_name, last_name, **options)
             if not uploaded:
-                raise ResumeUploadError("No verified resume was attached; discarding application.")
+                raise ResumeUploadError(resume or "No verified resume was attached; discarding application.")
         elif not use_AI_for_resume and (useNewResume or draft_enabled) and not uploaded:
             if upload_target is not None:
                 uploaded, resume = upload_resume(upload_target, default_resume_path)
@@ -1490,6 +2160,40 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
                 modal = wait_for_application_modal(driver)
 
     def manual_correction(reason):
+        nonlocal work_history_recoveries, text_validation_recoveries, education_recoveries
+        # Next can reveal an invalid saved experience entry only after the
+        # summary page was filled. Repair that newly opened editor, Save it,
+        # then let navigation reacquire and retry Next on the summary page.
+        if 'form validation' in reason and work_history_recoveries < 12:
+            from modules.linkedin_work_history import repair_work_history_dates
+            if repair_work_history_dates(driver, globals().get('default_resume_docx_path'),
+                                         questions, log=print_lg):
+                work_history_recoveries += 1
+                return True
+        if 'form validation' in reason and education_recoveries < 6:
+            from modules.linkedin_education import repair_education
+            def infer_education(payload):
+                from modules.education_inference import infer_education_choices
+                return infer_education_choices(payload,
+                    source_resume=globals().get('default_resume_docx_path'),
+                    profile=globals().get('user_information_all', ''),
+                    api_key=globals().get('llm_api_key', ''), base_url=globals().get('llm_api_url'),
+                    model=globals().get('llm_model'), log=print_lg)
+            if repair_education(driver, globals().get('default_resume_docx_path'),
+                                globals().get('application_education_overrides', {}), questions, log=print_lg,
+                                infer=infer_education if globals().get('ai_education_answers_enabled') is True else None):
+                education_recoveries += 1
+                return True
+        if 'form validation' in reason and text_validation_recoveries < 1:
+            from modules.linkedin_form_fields import field_limit, short_numeric_rejection
+            modal = wait_for_application_modal(driver)
+            rejected = any(short_numeric_rejection(driver, control, field_limit(driver, control, 500))
+                           for control in modal.find_elements(By.CSS_SELECTOR, 'input[type="text"]'))
+            if rejected:
+                text_validation_recoveries += 1
+                print_lg(f'Application [{job_id}]: repairing rejected short screening answer once')
+                fill_step(modal)
+                return True
         # User requested unattended processing: unresolved required fields are
         # retained in the retry ledger and the next job can proceed after cleanup.
         print_lg(f'Application [{job_id}] could not complete automatically; retaining for retry: {reason}')
@@ -1504,7 +2208,7 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
             except Exception:
                 pass
     if use_AI_for_resume and not uploaded:
-        raise ResumeUploadError("No verified resume was attached; discarding application.")
+        raise ResumeUploadError("This application offers no usable resume upload control; tailored resume required. Retaining job for retry.")
     if questions:
         print_lg(f"Answered {len(questions)} application questions; values omitted from console output.")
     return modal, questions, uploaded, resume
@@ -1552,8 +2256,19 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
     from modules.linkedin_easy_apply import EasyApplyError, EasyApplyLimitReached
     from modules.linkedin_job_details import JobDetailsUnavailable
     from modules.linkedin_post_submit import JobCardBlocked, PostSubmitUIBlocked
+    from modules.linkedin_failure_recovery import capture_failure, reconcile_submission, role_is_relevant
     retry_path = Path(search_profile.search_state_dir).parent / 'deferred_applications' / 'retry_jobs.json'
+    from modules.linkedin_retry_reconciliation import reconcile_retry_ledger
+    reconcile_retry_ledger(retry_path, search_profile.search_state_dir, file_name)
     retry_jobs = DeferredJobs(retry_path)
+
+    def capture_job_failure(job_id, spec, stage, error):
+        evidence = capture_failure(driver, job_id, stage, error,
+            Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
+        manifest.query(spec.query_id).setdefault('application_failures', []).append(evidence)
+        manifest.save()
+        print_lg(f'Application [{job_id}] {stage}: {type(error).__name__}; evidence: {evidence.get("report_path", "capture unavailable")}')
+        return evidence.get('screenshot_path', 'Not Available')
 
     def retain_job(job_id, title, company, description, spec, status, reason='', submit_enabled=None, requires_submission_check=None):
         retry_jobs.record(dict(job_id=job_id, title=title, company=company, description=description,
@@ -1563,6 +2278,44 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                                source_report=str(Path(search_profile.search_state_dir) / (manifest.data['run_id'] + '.json')),
                                requires_submission_check=not prepare_only if requires_submission_check is None else requires_submission_check))
         retry_jobs.export_markdown(retry_path.with_suffix('.md'))
+
+    def recover_search_after_cleanup(spec, job_id, error):
+        # A failed pre-submit job must not strand the whole batch. Navigation
+        # never clicks Submit. Unknown outcomes retain their durable holds and
+        # budget reservations while the browser moves to other postings.
+        from modules.linkedin_post_submit import _snapshot
+        directory = Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics'
+        recovery = dict(stage='job_ui_recovery', job_id=str(job_id),
+                        cause_type=type(error).__name__, status='started')
+        _snapshot(driver, recovery, directory)
+        manifest.query(spec.query_id).setdefault('ui_recoveries', []).append(recovery)
+        manifest.save()
+        print_lg(f'Application [{job_id}]: restoring search after cleanup failure; saved outcome is preserved')
+        try:
+            initialize = globals().get('initialize_browser')
+            if callable(initialize):
+                initialize()
+            driver.get('https://www.linkedin.com/jobs/')
+            result = prepare_search(driver, spec, wait_for_search, wait_for_search_results, apply_filters)
+            clear_post_submit_ui(driver, job_id, log=print_lg, diagnostics_dir=directory)
+            manifest.record_mode(spec, result.mode, result.fallback_reason, result.warnings,
+                                 diagnostics=result.diagnostics())
+        except Exception as recovery_error:
+            recovery.update(status='failed', recovery_error_type=type(recovery_error).__name__)
+            _snapshot(driver, recovery, directory)
+            manifest.save()
+            print_lg(f'Search recovery failed [{job_id}]: {type(recovery_error).__name__}; preserving checkpoint')
+            return False
+        recovery['status'] = 'recovered'
+        manifest.save()
+        print_lg(f'Search restored [{job_id}]; continuing other jobs and skipping processed IDs')
+        return True
+
+    def query_has_capacity(spec):
+        row = manifest.query(spec.query_id)
+        held = sum(job['status'] == 'submitting' for job in row['jobs'].values())
+        return row['applied_count'] + row['collected_count'] + held < spec.quota
+
     if prepare_only:
         from pathlib import Path
         from modules.linkedin_preparation_report import PreparationReport
@@ -1575,6 +2328,21 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
     current_city = current_city.strip()
 
     deferred_card_ids = set()
+    # A resumed run may already contain successful applications whose receipt
+    # was missed. Recheck a bounded number without submitting or counting them
+    # as new applications in this invocation.
+    resume_checks = 0
+    for pending_spec in manifest.queries():
+        for pending_id, pending_job in list(manifest.query(pending_spec.query_id)['jobs'].items()):
+            if pending_job['status'] != 'submitting' or resume_checks >= 3:
+                continue
+            resume_checks += 1
+            if reconcile_submission(driver, pending_id, timeout=3, log=print_lg):
+                manifest.record_job(pending_spec, pending_id, 'applied',
+                                    'Confirmed on the exact LinkedIn job page during resume reconciliation')
+                from modules.linkedin_retry_reconciliation import sync_retry_checkpoint
+                sync_retry_checkpoint(manifest, pending_spec, pending_id)
+                print_lg(f'Previously uncertain application [{pending_id}] reconciled as applied')
     for spec in manifest.queries():
         if application_budget is not None and application_budget.stop_if_reached(manifest):
             return
@@ -1585,18 +2353,23 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
         active_page = 1
         active_job_id = None
         query_card_failures = False
+        query_recovery_failed = False
         observed_card_ids = set()
         manifest.begin_query(spec)
         if manifest.has_uncertain_submission(spec):
-            row = manifest.query(spec.query_id)
-            row["status"], row["stop_reason"] = "pending", "submission_uncertain"
-            manifest.save()
-            print_lg(f"Query {spec.query_id} awaits verification of an uncertain submission on LinkedIn")
-            continue
-        if manifest.quota_met(spec):
-            manifest.finish_query(spec, "quota_met")
+            print_lg(f'Query {spec.query_id}: held submission IDs stay excluded; continuing other available jobs')
+        if not query_has_capacity(spec):
+            if manifest.has_uncertain_submission(spec):
+                row = manifest.query(spec.query_id)
+                row['status'], row['stop_reason'] = 'pending', 'submission_uncertain'
+                manifest.save()
+            else:
+                manifest.finish_query(spec, "quota_met")
             continue
         try:
+            initialize = globals().get('initialize_browser')
+            if callable(initialize):
+                initialize()
             if selected_jobs is None:
                 result = prepare_search(driver, spec, wait_for_search, wait_for_search_results, apply_filters)
             else:
@@ -1608,7 +2381,8 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
             warnings = list(result.warnings)
             for warning in warnings:
                 print_lg(warning)
-            while not manifest.quota_met(spec) and not manifest.has_uncertain_submission(spec):
+            while query_has_capacity(spec):
+                restart_results = False
                 if selected_jobs is None:
                     wait_for_search_results([])
                     pagination_element, current_page = get_page_info()
@@ -1629,7 +2403,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                     if application_budget is not None and application_budget.stop_if_reached(manifest, spec):
                         return
                     if keep_screen_awake: pyautogui.press('shiftright')
-                    if manifest.quota_met(spec) or manifest.has_uncertain_submission(spec): break
+                    if not query_has_capacity(spec): break
                     raw_job_id = str(job.get('linkedin_id', '')) if isinstance(job, dict) else search_card_id(job)
                     if not raw_job_id:
                         continue
@@ -1648,323 +2422,398 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                     checkpoint_job(raw_job_id, "in_progress", "Job processing started")
                     print_lg("\n-@-\n")
 
-                    if isinstance(job, dict):
-                        driver.get("https://www.linkedin.com/jobs/view/" + raw_job_id)
-                        job_id,title,company,work_location,work_style,skip = selected_live_details(job, spec)
-                    else:
+                    job_id = raw_job_id
+                    title = company = description = ''
+                    date_applied = 'Pending'
+                    try:
+                        if isinstance(job, dict):
+                            driver.get("https://www.linkedin.com/jobs/view/" + raw_job_id)
+                            job_id,title,company,work_location,work_style,skip = selected_live_details(job, spec)
+                        else:
+                            try:
+                                job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
+                            except JobCardBlocked as error:
+                                if error.diagnostics.get('cause_type') == 'OverlayRemainsVisible':
+                                    raise
+                                # Card-local pre-application failure: no form or Submit
+                                # was attempted. Continue only with verified clear UI.
+                                try:
+                                    clear_post_submit_ui(driver, raw_job_id, log=print_lg,
+                                        diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
+                                except Exception as cleanup_error:
+                                    raise JobCardBlocked(raw_job_id, dict(stage='select_job_card',
+                                        cause_type='OverlayRemainsVisible',
+                                        overlay=getattr(cleanup_error,'diagnostics',{}))) from cleanup_error
+                                deferred_card_ids.add(raw_job_id)
+                                query_card_failures = True
+                                manifest.query(spec.query_id).setdefault('ui_failures', []).append(error.diagnostics)
+                                checkpoint_job(raw_job_id, 'in_progress', str(error))
+                                retain_job(raw_job_id, '', '', '', spec, 'card_pending', str(error), requires_submission_check=False)
+                                print_lg(f'Job card [{raw_job_id}] retained for retry; continuing next available job')
+                                continue
+                        from modules.job_pipeline.careers import location_reasons
+                        geography_rejections = location_reasons(
+                            [work_location], work_style, spec.filters_snapshot["intent"].get("search_location", ""),
+                        )
+                        if geography_rejections:
+                            failed_job(job_id, "https://www.linkedin.com/jobs/view/" + job_id, "Pending", "Unknown",
+                                       "Location rejected: " + ", ".join(geography_rejections),
+                                       f"Observed {work_location!r} ({work_style}); configured location: {spec.filters_snapshot['intent'].get('search_location')}",
+                                       "Skipped", "Not Available")
+                            skip_count += 1
+                            continue
+                        if spec.pipeline_context:
+                            from modules.job_pipeline.linkedin import company_matches
+                            if not company_matches(spec.pipeline_context["company"], company):
+                                checkpoint_job(job_id, "skipped", "Employer does not match verified company")
+                                continue
+                    
+                        if skip:
+                            failed_job(job_id, "https://www.linkedin.com/jobs/view/" + job_id, "Pending", "Unknown",
+                                       "Previously applied or rejected by company gates", "", "Skipped", "Not Available")
+                            continue
+                        # Redundant fail safe check for applied jobs!
                         try:
-                            job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
-                        except JobCardBlocked as error:
-                            if error.diagnostics.get('cause_type') == 'OverlayRemainsVisible':
+                            if job_id in applied_jobs or find_by_class(driver, "jobs-s-apply__application-link", 2):
+                                print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
+                                checkpoint_job(job_id, 'skipped', 'Previously applied on LinkedIn')
+                                continue
+                        except Exception as e:
+                            print_lg(f'Trying to Apply to "{title} | {company}" job. Job ID: {job_id}')
+
+                        job_link = "https://www.linkedin.com/jobs/view/"+job_id
+                        application_link = "Easy Applied"
+                        date_applied = "Pending"
+                        hr_link = "Unknown"
+                        hr_name = "Unknown"
+                        connect_request = "In Development" # Still in development
+                        date_listed = "Unknown"
+                        skills = "Needs an AI" # Still in development
+                        resume = "Pending"
+                        reposted = False
+                        questions_list = None
+                        screenshot_name = "Not Available"
+
+                        try:
+                            rejected_jobs, blacklisted_companies, jobs_top_card = check_blacklist(rejected_jobs,job_id,company,blacklisted_companies)
+                        except ValueError as e:
+                            print_lg(e, 'Skipping this job!\n')
+                            failed_job(job_id, job_link, resume, date_listed, "Found Blacklisted words in About Company", e, "Skipped", screenshot_name)
+                            skip_count += 1
+                            continue
+                        except Exception as e:
+                            print_lg("Failed to scroll to About Company!")
+                            # print_lg(e)
+
+
+
+                        # Hiring Manager info
+                        try:
+                            hr_info_card = WebDriverWait(driver,2).until(EC.presence_of_element_located((By.CLASS_NAME, "hirer-card__hirer-information")))
+                            hr_link = hr_info_card.find_element(By.TAG_NAME, "a").get_attribute("href")
+                            hr_name = hr_info_card.find_element(By.TAG_NAME, "span").text
+                            # if connect_hr:
+                            #     driver.switch_to.new_window('tab')
+                            #     driver.get(hr_link)
+                            #     wait_span_click("More")
+                            #     wait_span_click("Connect")
+                            #     wait_span_click("Add a note")
+                            #     message_box = driver.find_element(By.XPATH, "//textarea")
+                            #     message_box.send_keys(connect_request_message)
+                            #     if close_tabs: driver.close()
+                            #     driver.switch_to.window(linkedIn_tab)
+                            # def message_hr(hr_info_card):
+                            #     if not hr_info_card: return False
+                            #     hr_info_card.find_element(By.XPATH, ".//span[normalize-space()='Message']").click()
+                            #     message_box = driver.find_element(By.XPATH, "//div[@aria-label='Write a message…']")
+                            #     message_box.send_keys()
+                            #     try_xp(driver, "//button[normalize-space()='Send']")
+                        except Exception as e:
+                            print_lg(f'HR info was not given for "{title}" with Job ID: {job_id}!')
+                            # print_lg(e)
+
+
+                        # Calculation of date posted
+                        try:
+                            # try: time_posted_text = find_by_class(driver, "jobs-unified-top-card__posted-date", 2).text
+                            # except:
+                            time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
+                            print("Time Posted: " + time_posted_text)
+                            if time_posted_text.__contains__("Reposted"):
+                                reposted = True
+                                time_posted_text = time_posted_text.replace("Reposted", "")
+                            date_listed = calculate_date_posted(time_posted_text)
+                        except Exception as e:
+                            print_lg("Failed to calculate the date posted!",e)
+
+
+                        description, experience_required, skip, reason, message = get_job_description()
+                        if skip:
+                            print_lg(message)
+                            failed_job(job_id, job_link, resume, date_listed, reason, message, "Skipped", screenshot_name)
+                            rejected_jobs.add(job_id)
+                            skip_count += 1
+                            continue
+
+                        if not role_is_relevant(title, description, spec):
+                            checkpoint_job(job_id, 'skipped', 'Role is outside configured engineering family or seniority')
+                            skip_count += 1
+                            print_lg(f'Skipping unrelated role [{job_id}]: {title}')
+                            continue
+
+                        description_rejections = description_geography_rejections(description, spec.filters_snapshot['intent'])
+                        if description_rejections:
+                            print_lg('Skipping job: ' + '; '.join(description_rejections))
+                            failed_job(job_id, job_link, resume, date_listed, 'JD location rejected',
+                                       '; '.join(description_rejections), 'Skipped', screenshot_name)
+                            skip_count += 1
+                            continue
+
+                    
+                        if spec.pipeline_context:
+                            from modules.job_pipeline.linkedin import role_matches
+                            if isinstance(job, dict) and job.get("_live_details"):
+                                from modules.job_pipeline.careers import evaluate_role
+                                live_role = dict(job["_live_details"], title=title, description=description,
+                                                 company=spec.pipeline_context["company"], status="open")
+                                canonical = dict(spec.filters_snapshot["intent"], **spec.filters_snapshot["gates"])
+                                if not evaluate_role(live_role, canonical)["eligible"]:
+                                    checkpoint_job(job_id, "skipped", "Live eligibility changed: " + ", ".join(live_role["exclusion_reasons"]))
+                                    continue
+                            if not role_matches(title, description, spec):
+                                checkpoint_job(job_id, "skipped", "Role is outside verified engineering family or seniority")
+                                continue
+                        if use_AI and aiClient and description != "Unknown":
+                            skills = ai_extract_skills(aiClient, description)
+
+                        uploaded = False
+                        # Case 1: Easy Apply Button
+                        if open_easy_apply(driver, job_id, log=print_lg,
+                                diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics'):
+                            if preparation_report is not None:
+                                preparation_report.record(dict(job_id=job_id, status='started', title=title, company=company,
+                                                               query_id=spec.query_id, query=spec.query_text,
+                                                               job_url='https://www.linkedin.com/jobs/view/' + job_id + '/',
+                                                               description=description))
+                                retain_job(job_id, title, company, description, spec, 'started')
+                            try:
+                                preparation_options = {'allow_manual_correction': False} if prepare_only else {}
+                                if globals().get('ai_cover_letter_enabled', False) or globals().get('ai_descriptive_answers_enabled', False):
+                                    preparation_options['company'] = company
+                                modal, questions_list, uploaded, resume = prepare_easy_apply(
+                                    job_id, title, description, work_location, **preparation_options)
+                                if preparation_report is not None:
+                                    modal, submit_button = current_submit_button(driver)
+                                    driver.execute_script('arguments[0].scrollIntoView({block: "center"});', submit_button)
+                                    image_path = validation_path.with_name(validation_path.stem + '-' + job_id + '.png')
+                                    driver.save_screenshot(str(image_path))
+                                    preparation_report.record(dict(job_id=job_id, status='ready', resume=resume,
+                                                                   uploaded=uploaded, screenshot=str(image_path), submit_enabled=True,
+                                                                   resume_artifact=globals().get('resume_artifact_paths',{}).get(str(job_id)),
+                                                                   draft_artifacts=globals().get('draft_artifact_paths', {}).get(str(job_id))))
+                                    retain_job(job_id, title, company, description, spec, 'ready', submit_enabled=True)
+                                    checkpoint_job(job_id, 'prepared', 'Validation only: final Submit enabled; submission disabled')
+                                    print_lg(f'PREPARED [{preparation_report.attempted}/{preparation_limit}] {job_id}: Submit enabled; submission disabled')
+                                    discard_application(driver)
+                                    continue
+                                if any('TEST DATA ONLY' in str(answer).upper()
+                                       for _, answer, *_ in questions_list):
+                                    raise RuntimeError('Synthetic test references cannot be submitted; replace them with real personal data.')
+                                cur_pause_before_submit = pause_before_submit
+                                if cur_pause_before_submit:
+                                    decision = pyautogui.confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
+                                    if decision not in {"Submit Application", "Disable Pause"}:
+                                        raise Exception("Job application discarded by user!")
+                                    pause_before_submit = decision != "Disable Pause"
+                                # The user may have edited fields or navigated backwards.
+                                # Verify the final state again before recording a submit attempt.
+                                modal, submit_button = current_submit_button(driver)
+                                follow_company(modal)
+                                modal, submit_button = current_submit_button(driver)
+                                driver.execute_script('arguments[0].scrollIntoView({block: "center"});', submit_button)
+                                receipt_baseline = submission_receipts(driver, job_id=job_id)
+                                checkpoint_job(job_id, "submitting", "Submission requested; verify LinkedIn if interrupted")
+                                try:
+                                    submit_button.click()
+                                    wait_for_submission_confirmation(driver, job_id, baseline=receipt_baseline)
+                                except Exception as confirmation_error:
+                                    capture_job_failure(job_id, spec, 'submission_confirmation', confirmation_error)
+                                    if not reconcile_submission(driver, job_id, log=print_lg):
+                                        raise
+                                date_applied = datetime.now()
+                                checkpoint_job(job_id, "applied", "Easy Apply confirmed by LinkedIn")
+
+                            except EasyApplyLimitReached:
                                 raise
-                            # Card-local pre-application failure: no form or Submit
-                            # was attempted. Continue only with verified clear UI.
+                            except Exception as e:
+                                screenshot_name = capture_job_failure(job_id, spec, 'easy_apply', e)
+                                if preparation_report is not None:
+                                    image_path = validation_path.with_name(validation_path.stem + '-' + job_id + '-failed.png')
+                                    try:
+                                        driver.save_screenshot(str(image_path))
+                                    except Exception:
+                                        pass
+                                    from modules.linkedin_easy_apply import MissingApplicationAnswer
+                                    preparation_report.record(dict(job_id=job_id, status='failed', reason=str(e), screenshot=str(image_path),
+                                                                   stage='missing_personal_data' if isinstance(e, MissingApplicationAnswer) else 'preparation',
+                                                                   draft_artifacts=globals().get('draft_artifact_paths', {}).get(str(job_id))))
+                                    checkpoint_job(job_id, 'failed', 'Preparation only: ' + str(e))
+                                    retain_job(job_id, title, company, description, spec, 'failed', str(e))
+                                    failed_count += 1
+                                    print_lg(f'PREPARATION FAILED [{preparation_report.attempted}/{preparation_limit}] {job_id}: {e}')
+                                    try:
+                                        discard_application(driver)
+                                    except Exception as cleanup_error:
+                                        if recover_search_after_cleanup(spec, job_id, cleanup_error):
+                                            restart_results = True
+                                            break
+                                        query_recovery_failed = True
+                                        break
+                                    continue
+                                print_lg("Failed to Easy apply!")
+                                if date_applied == 'Pending':
+                                    retain_job(job_id, title, company, description, spec, 'failed', str(e),
+                                               requires_submission_check=manifest.query(spec.query_id)['jobs'].get(job_id, {}).get('status') == 'submitting')
+                                # print_lg(e)
+                                critical_error_log("Somewhere in Easy Apply process",e)
+                                failed_job(job_id, job_link, resume, date_listed, "Problem in Easy Applying", e, application_link, screenshot_name)
+                                failed_count += 1
+                                if date_applied == "Pending":
+                                    deferred_card_ids.add(job_id)
+                                    try:
+                                        if manifest.query(spec.query_id)['jobs'].get(job_id, {}).get('status') == 'submitting':
+                                            if recover_search_after_cleanup(spec, job_id, e):
+                                                restart_results = True
+                                                break
+                                            query_recovery_failed = True
+                                            break
+                                        discard_job()
+                                    except Exception as cleanup_error:
+                                        if recover_search_after_cleanup(spec, job_id, cleanup_error):
+                                            restart_results = True
+                                            break
+                                        query_recovery_failed = True
+                                        break
+                                    continue
+                                print_lg("Submission succeeded; recording applied history despite a later UI error")
+                        else:
+                            if prepare_only and not globals().get('external_apply_enabled', False):
+                                checkpoint_job(job_id, 'skipped', 'Preparation only: no LinkedIn Easy Apply entry; external submissions disabled')
+                                continue
+                            # Case 2: Apply externally
+                            external_options = dict(job_title=title, job_description=description, company=company) if globals().get("external_apply_enabled", False) else {}
+                            if prepare_only:
+                                external_options['prepare_only'] = True
+                            external_result = external_apply(pagination_element, job_id, job_link, resume, date_listed, application_link, screenshot_name, **external_options)
+                            if hasattr(external_result, "status"):
+                                checkpoint_external_application(job_id, external_result)
+                                if prepare_only and preparation_report is not None:
+                                    preparation_report.record(dict(job_id=job_id, status='ready' if external_result.status == 'prepared' else 'failed',
+                                        reason=external_result.reason, external_application=external_result.to_dict()))
+                                    retain_job(job_id, title, company, description, spec, external_result.status, external_result.reason,
+                                               submit_enabled=getattr(external_result, 'submit_enabled', None), requires_submission_check=False)
+                                skip = external_result.status in {"failed", "discarded", "duplicate"}
+                                application_link = external_result.application_link
+                                if external_result.resume_name:
+                                    resume = external_result.resume_name
+                                if external_result.status == "applied":
+                                    date_applied = datetime.fromisoformat(external_result.submitted_at)
+                                elif external_result.status == "submitting":
+                                    if application_budget is not None:
+                                        application_budget.stop_if_reached(manifest, spec)
+                                    return
+                            else:
+                                skip, application_link, tabs_count = external_result
+                            if dailyEasyApplyLimitReached:
+                                raise EasyApplyLimitReached()
+                            if skip:
+                                if not hasattr(external_result, "status"):
+                                    checkpoint_job(job_id, "skipped", "External apply unavailable or Easy Apply required")
+                                continue
+                            if date_applied == "Pending" and not hasattr(external_result, "status"):
+                                checkpoint_job(job_id, "collected", "External application prepared/handed off; not submitted")
+
+                        submitted_jobs(job_id, title, company, work_location, work_style, description, experience_required, skills, hr_name, hr_link, resume, reposted, date_listed, date_applied, job_link, application_link, questions_list, connect_request)
+                        if uploaded:   useNewResume = False
+
+                        print_lg(f'Successfully saved "{title} | {company}" job. Job ID: {job_id} info')
+                        if application_link == "Easy Applied":
+                            easy_applied_count += 1
+                        elif date_applied != "Pending":
+                            external_applied_count = globals().get("external_applied_count", 0) + 1
+                        else:
+                            external_jobs_count += 1
+                        if date_applied != "Pending":
+                            applied_jobs.add(job_id)
+                            retain_job(job_id, title, company, description, spec, 'applied',
+                                       'Confirmed application recorded by the standard LinkedIn flow',
+                                       submit_enabled=False, requires_submission_check=False)
+                        if result_sink:
+                            result_sink(application_outcome(manifest, spec, job_id))
+                        if application_link == "Easy Applied" and date_applied != "Pending":
+                            try:
+                                clear_post_submit_ui(driver, job_id, log=print_lg,
+                                    diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
+                            except Exception as error:
+                                # Submission and CSV are already durable. Preserve
+                                # that success while restoring UI for other jobs.
+                                capture_job_failure(job_id, spec, 'post_submit_cleanup', error)
+                                if recover_search_after_cleanup(spec, job_id, error):
+                                    restart_results = True
+                                    break
+                                row = manifest.query(spec.query_id)
+                                row['status'], row['stop_reason'] = 'pending', 'post_submit_ui_blocked'
+                                row.setdefault('ui_failures', []).append(getattr(error, 'diagnostics',
+                                    dict(stage='post_submit_cleanup', job_id=job_id, cause_type=type(error).__name__)))
+                                query_recovery_failed = True
+                                break
+
+                    except EasyApplyLimitReached:
+                        raise
+                    except JobDetailsUnavailable as error:
+                        deferred_card_ids.add(raw_job_id)
+                        query_card_failures = True
+                        capture_job_failure(raw_job_id, spec, 'job_details_ready', error)
+                        checkpoint_job(raw_job_id, 'in_progress', str(error))
+                        retain_job(raw_job_id, title, company, description, spec, 'details_pending', str(error),
+                                   requires_submission_check=False)
+                        print_lg(f'Job details [{raw_job_id}] retained; continuing next card in this search')
+                        continue
+                    except Exception as error:
+                        deferred_card_ids.add(raw_job_id)
+                        query_card_failures = True
+                        capture_job_failure(raw_job_id, spec, 'job_processing', error)
+                        pending = manifest.query(spec.query_id)['jobs'].get(raw_job_id, {}).get('status') == 'submitting'
+                        entry_error = isinstance(error, (EasyApplyError, JobCardBlocked))
+                        checkpoint_job(raw_job_id, 'in_progress' if entry_error else 'failed', str(error))
+                        retain_job(raw_job_id, title, company, description, spec,
+                                   'submission_uncertain' if pending else 'entry_failed' if entry_error else 'failed', str(error),
+                                   requires_submission_check=pending)
+                        failed_count += 1
+                        if entry_error and not pending:
                             try:
                                 clear_post_submit_ui(driver, raw_job_id, log=print_lg,
                                     diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
-                            except Exception as cleanup_error:
-                                raise JobCardBlocked(raw_job_id, dict(stage='select_job_card',
-                                    cause_type='OverlayRemainsVisible',
-                                    overlay=getattr(cleanup_error,'diagnostics',{}))) from cleanup_error
-                            deferred_card_ids.add(raw_job_id)
-                            query_card_failures = True
-                            manifest.query(spec.query_id).setdefault('ui_failures', []).append(error.diagnostics)
-                            checkpoint_job(raw_job_id, 'in_progress', str(error))
-                            retain_job(raw_job_id, '', '', '', spec, 'card_pending', str(error), requires_submission_check=False)
-                            print_lg(f'Job card [{raw_job_id}] retained for retry; continuing next available job')
-                            continue
-                    from modules.job_pipeline.careers import location_reasons
-                    geography_rejections = location_reasons(
-                        [work_location], work_style, spec.filters_snapshot["intent"].get("search_location", ""),
-                    )
-                    if geography_rejections:
-                        failed_job(job_id, "https://www.linkedin.com/jobs/view/" + job_id, "Pending", "Unknown",
-                                   "Location rejected: " + ", ".join(geography_rejections),
-                                   f"Observed {work_location!r} ({work_style}); configured location: {spec.filters_snapshot['intent'].get('search_location')}",
-                                   "Skipped", "Not Available")
-                        skip_count += 1
-                        continue
-                    if spec.pipeline_context:
-                        from modules.job_pipeline.linkedin import company_matches
-                        if not company_matches(spec.pipeline_context["company"], company):
-                            checkpoint_job(job_id, "skipped", "Employer does not match verified company")
-                            continue
-                    
-                    if skip:
-                        failed_job(job_id, "https://www.linkedin.com/jobs/view/" + job_id, "Pending", "Unknown",
-                                   "Previously applied or rejected by company gates", "", "Skipped", "Not Available")
-                        continue
-                    # Redundant fail safe check for applied jobs!
-                    try:
-                        if job_id in applied_jobs or find_by_class(driver, "jobs-s-apply__application-link", 2):
-                            print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
-                            checkpoint_job(job_id, 'skipped', 'Previously applied on LinkedIn')
-                            continue
-                    except Exception as e:
-                        print_lg(f'Trying to Apply to "{title} | {company}" job. Job ID: {job_id}')
-
-                    job_link = "https://www.linkedin.com/jobs/view/"+job_id
-                    application_link = "Easy Applied"
-                    date_applied = "Pending"
-                    hr_link = "Unknown"
-                    hr_name = "Unknown"
-                    connect_request = "In Development" # Still in development
-                    date_listed = "Unknown"
-                    skills = "Needs an AI" # Still in development
-                    resume = "Pending"
-                    reposted = False
-                    questions_list = None
-                    screenshot_name = "Not Available"
-
-                    try:
-                        rejected_jobs, blacklisted_companies, jobs_top_card = check_blacklist(rejected_jobs,job_id,company,blacklisted_companies)
-                    except ValueError as e:
-                        print_lg(e, 'Skipping this job!\n')
-                        failed_job(job_id, job_link, resume, date_listed, "Found Blacklisted words in About Company", e, "Skipped", screenshot_name)
-                        skip_count += 1
-                        continue
-                    except Exception as e:
-                        print_lg("Failed to scroll to About Company!")
-                        # print_lg(e)
-
-
-
-                    # Hiring Manager info
-                    try:
-                        hr_info_card = WebDriverWait(driver,2).until(EC.presence_of_element_located((By.CLASS_NAME, "hirer-card__hirer-information")))
-                        hr_link = hr_info_card.find_element(By.TAG_NAME, "a").get_attribute("href")
-                        hr_name = hr_info_card.find_element(By.TAG_NAME, "span").text
-                        # if connect_hr:
-                        #     driver.switch_to.new_window('tab')
-                        #     driver.get(hr_link)
-                        #     wait_span_click("More")
-                        #     wait_span_click("Connect")
-                        #     wait_span_click("Add a note")
-                        #     message_box = driver.find_element(By.XPATH, "//textarea")
-                        #     message_box.send_keys(connect_request_message)
-                        #     if close_tabs: driver.close()
-                        #     driver.switch_to.window(linkedIn_tab) 
-                        # def message_hr(hr_info_card):
-                        #     if not hr_info_card: return False
-                        #     hr_info_card.find_element(By.XPATH, ".//span[normalize-space()='Message']").click()
-                        #     message_box = driver.find_element(By.XPATH, "//div[@aria-label='Write a message…']")
-                        #     message_box.send_keys()
-                        #     try_xp(driver, "//button[normalize-space()='Send']")        
-                    except Exception as e:
-                        print_lg(f'HR info was not given for "{title}" with Job ID: {job_id}!')
-                        # print_lg(e)
-
-
-                    # Calculation of date posted
-                    try:
-                        # try: time_posted_text = find_by_class(driver, "jobs-unified-top-card__posted-date", 2).text
-                        # except: 
-                        time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
-                        print("Time Posted: " + time_posted_text)
-                        if time_posted_text.__contains__("Reposted"):
-                            reposted = True
-                            time_posted_text = time_posted_text.replace("Reposted", "")
-                        date_listed = calculate_date_posted(time_posted_text)
-                    except Exception as e:
-                        print_lg("Failed to calculate the date posted!",e)
-
-
-                    description, experience_required, skip, reason, message = get_job_description()
-                    if skip:
-                        print_lg(message)
-                        failed_job(job_id, job_link, resume, date_listed, reason, message, "Skipped", screenshot_name)
-                        rejected_jobs.add(job_id)
-                        skip_count += 1
-                        continue
-
-                    description_rejections = description_geography_rejections(description, spec.filters_snapshot['intent'])
-                    if description_rejections:
-                        print_lg('Skipping job: ' + '; '.join(description_rejections))
-                        failed_job(job_id, job_link, resume, date_listed, 'JD location rejected',
-                                   '; '.join(description_rejections), 'Skipped', screenshot_name)
-                        skip_count += 1
-                        continue
-
-                    
-                    if spec.pipeline_context:
-                        from modules.job_pipeline.linkedin import role_matches
-                        if isinstance(job, dict) and job.get("_live_details"):
-                            from modules.job_pipeline.careers import evaluate_role
-                            live_role = dict(job["_live_details"], title=title, description=description,
-                                             company=spec.pipeline_context["company"], status="open")
-                            canonical = dict(spec.filters_snapshot["intent"], **spec.filters_snapshot["gates"])
-                            if not evaluate_role(live_role, canonical)["eligible"]:
-                                checkpoint_job(job_id, "skipped", "Live eligibility changed: " + ", ".join(live_role["exclusion_reasons"]))
+                                print_lg(f'Application entry [{raw_job_id}] retained; UI clear, continuing next job')
                                 continue
-                        if not role_matches(title, description, spec):
-                            checkpoint_job(job_id, "skipped", "Role is outside verified engineering family or seniority")
-                            continue
-                    if use_AI and aiClient and description != "Unknown":
-                        skills = ai_extract_skills(aiClient, description)
-
-                    uploaded = False
-                    # Case 1: Easy Apply Button
-                    if open_easy_apply(driver, job_id, log=print_lg,
-                            diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics'):
-                        if preparation_report is not None:
-                            preparation_report.record(dict(job_id=job_id, status='started', title=title, company=company,
-                                                           query_id=spec.query_id, query=spec.query_text,
-                                                           job_url='https://www.linkedin.com/jobs/view/' + job_id + '/',
-                                                           description=description))
-                            retain_job(job_id, title, company, description, spec, 'started')
-                        try:
-                            preparation_options = {'allow_manual_correction': False} if prepare_only else {}
-                            if globals().get('ai_cover_letter_enabled', False) or globals().get('ai_descriptive_answers_enabled', False):
-                                preparation_options['company'] = company
-                            modal, questions_list, uploaded, resume = prepare_easy_apply(
-                                job_id, title, description, work_location, **preparation_options)
-                            if preparation_report is not None:
-                                modal, submit_button = current_submit_button(driver)
-                                driver.execute_script('arguments[0].scrollIntoView({block: "center"});', submit_button)
-                                image_path = validation_path.with_name(validation_path.stem + '-' + job_id + '.png')
-                                driver.save_screenshot(str(image_path))
-                                preparation_report.record(dict(job_id=job_id, status='ready', resume=resume,
-                                                               uploaded=uploaded, screenshot=str(image_path), submit_enabled=True,
-                                                               resume_artifact=globals().get('resume_artifact_paths',{}).get(str(job_id)),
-                                                               draft_artifacts=globals().get('draft_artifact_paths', {}).get(str(job_id))))
-                                retain_job(job_id, title, company, description, spec, 'ready', submit_enabled=True)
-                                checkpoint_job(job_id, 'prepared', 'Validation only: final Submit enabled; submission disabled')
-                                print_lg(f'PREPARED [{preparation_report.attempted}/{preparation_limit}] {job_id}: Submit enabled; submission disabled')
-                                discard_application(driver)
-                                continue
-                            if any('TEST DATA ONLY' in str(answer).upper()
-                                   for _, answer, *_ in questions_list):
-                                raise RuntimeError('Synthetic test references cannot be submitted; replace them with real personal data.')
-                            cur_pause_before_submit = pause_before_submit
-                            if cur_pause_before_submit:
-                                decision = pyautogui.confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
-                                if decision not in {"Submit Application", "Disable Pause"}:
-                                    raise Exception("Job application discarded by user!")
-                                pause_before_submit = decision != "Disable Pause"
-                            # The user may have edited fields or navigated backwards.
-                            # Verify the final state again before recording a submit attempt.
-                            modal, submit_button = current_submit_button(driver)
-                            follow_company(modal)
-                            modal, submit_button = current_submit_button(driver)
-                            driver.execute_script('arguments[0].scrollIntoView({block: "center"});', submit_button)
-                            receipt_baseline = submission_receipts(driver, job_id=job_id)
-                            checkpoint_job(job_id, "submitting", "Submission requested; verify LinkedIn if interrupted")
-                            submit_button.click()
-                            wait_for_submission_confirmation(driver, job_id, baseline=receipt_baseline)
-                            date_applied = datetime.now()
-                            checkpoint_job(job_id, "applied", "Easy Apply confirmed by LinkedIn")
-
-                        except EasyApplyLimitReached:
-                            raise
-                        except Exception as e:
-                            if preparation_report is not None:
-                                image_path = validation_path.with_name(validation_path.stem + '-' + job_id + '-failed.png')
-                                try:
-                                    driver.save_screenshot(str(image_path))
-                                except Exception:
-                                    pass
-                                from modules.linkedin_easy_apply import MissingApplicationAnswer
-                                preparation_report.record(dict(job_id=job_id, status='failed', reason=str(e), screenshot=str(image_path),
-                                                               stage='missing_personal_data' if isinstance(e, MissingApplicationAnswer) else 'preparation',
-                                                               draft_artifacts=globals().get('draft_artifact_paths', {}).get(str(job_id))))
-                                checkpoint_job(job_id, 'failed', 'Preparation only: ' + str(e))
-                                retain_job(job_id, title, company, description, spec, 'failed', str(e))
-                                failed_count += 1
-                                print_lg(f'PREPARATION FAILED [{preparation_report.attempted}/{preparation_limit}] {job_id}: {e}')
-                                try:
-                                    discard_application(driver)
-                                except Exception as cleanup_error:
-                                    manifest.interrupt('preparation_cleanup_failed')
-                                    print_lg(f'Cannot safely continue after form cleanup failed: {cleanup_error}')
-                                    return
-                                continue
-                            print_lg("Failed to Easy apply!")
-                            if date_applied == 'Pending':
-                                retain_job(job_id, title, company, description, spec, 'failed', str(e))
-                            # print_lg(e)
-                            critical_error_log("Somewhere in Easy Apply process",e)
-                            failed_job(job_id, job_link, resume, date_listed, "Problem in Easy Applying", e, application_link, screenshot_name)
-                            failed_count += 1
-                            if date_applied == "Pending":
-                                try:
-                                    discard_job()
-                                except Exception as cleanup_error:
-                                    manifest.interrupt('application_cleanup_failed')
-                                    print_lg(f'Cannot continue after application cleanup failed: {cleanup_error}')
-                                    return
-                                continue
-                            print_lg("Submission succeeded; recording applied history despite a later UI error")
-                    else:
-                        if prepare_only and not globals().get('external_apply_enabled', False):
-                            checkpoint_job(job_id, 'skipped', 'Preparation only: no LinkedIn Easy Apply entry; external submissions disabled')
-                            continue
-                        # Case 2: Apply externally
-                        external_options = dict(job_title=title, job_description=description, company=company) if globals().get("external_apply_enabled", False) else {}
-                        if prepare_only:
-                            external_options['prepare_only'] = True
-                        external_result = external_apply(pagination_element, job_id, job_link, resume, date_listed, application_link, screenshot_name, **external_options)
-                        if hasattr(external_result, "status"):
-                            checkpoint_external_application(job_id, external_result)
-                            if prepare_only and preparation_report is not None:
-                                preparation_report.record(dict(job_id=job_id, status='ready' if external_result.status == 'prepared' else 'failed',
-                                    reason=external_result.reason, external_application=external_result.to_dict()))
-                                retain_job(job_id, title, company, description, spec, external_result.status, external_result.reason,
-                                           submit_enabled=getattr(external_result, 'submit_enabled', None), requires_submission_check=False)
-                            skip = external_result.status in {"failed", "discarded", "duplicate"}
-                            application_link = external_result.application_link
-                            if external_result.resume_name:
-                                resume = external_result.resume_name
-                            if external_result.status == "applied":
-                                date_applied = datetime.fromisoformat(external_result.submitted_at)
-                            elif external_result.status == "submitting":
-                                if application_budget is not None:
-                                    application_budget.stop_if_reached(manifest, spec)
-                                return
-                        else:
-                            skip, application_link, tabs_count = external_result
-                        if dailyEasyApplyLimitReached:
-                            raise EasyApplyLimitReached()
-                        if skip:
-                            if not hasattr(external_result, "status"):
-                                checkpoint_job(job_id, "skipped", "External apply unavailable or Easy Apply required")
-                            continue
-                        if date_applied == "Pending" and not hasattr(external_result, "status"):
-                            checkpoint_job(job_id, "collected", "External application prepared/handed off; not submitted")
-
-                    submitted_jobs(job_id, title, company, work_location, work_style, description, experience_required, skills, hr_name, hr_link, resume, reposted, date_listed, date_applied, job_link, application_link, questions_list, connect_request)
-                    if uploaded:   useNewResume = False
-
-                    print_lg(f'Successfully saved "{title} | {company}" job. Job ID: {job_id} info')
-                    if application_link == "Easy Applied":
-                        easy_applied_count += 1
-                    elif date_applied != "Pending":
-                        external_applied_count = globals().get("external_applied_count", 0) + 1
-                    else:
-                        external_jobs_count += 1
-                    if date_applied != "Pending":
-                        applied_jobs.add(job_id)
-                    if result_sink:
-                        result_sink(application_outcome(manifest, spec, job_id))
-                    if application_link == "Easy Applied" and date_applied != "Pending":
-                        try:
-                            clear_post_submit_ui(driver, job_id, log=print_lg,
-                                diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
-                        except Exception as error:
-                            # Submission and CSV are already durable. Cleanup must
-                            # never downgrade that success or attempt another job.
-                            globals()['application_ui_blocked'] = True
-                            row = manifest.query(spec.query_id)
-                            row['status'], row['stop_reason'] = 'pending', 'post_submit_ui_blocked'
-                            row.setdefault('ui_failures', []).append(getattr(error, 'diagnostics',
-                                dict(stage='post_submit_cleanup', job_id=job_id, cause_type=type(error).__name__)))
-                            manifest.interrupt('post_submit_ui_blocked')
-                            print_lg(f'Application confirmed [{job_id}]; stopping because post-submit UI is not clear: {error}')
-                            return
+                            except Exception:
+                                pass
+                        if recover_search_after_cleanup(spec, raw_job_id, error):
+                            restart_results = True
+                            break
+                        query_recovery_failed = True
+                        break
 
 
+                if query_recovery_failed:
+                    break
+                if restart_results:
+                    # Reacquire every result card after navigation; references
+                    # from the abandoned page are stale. Saved IDs prevent repeats.
+                    continue
                 if application_budget is not None and application_budget.stop_if_reached(manifest, spec):
                     return
-                if manifest.quota_met(spec) or manifest.has_uncertain_submission(spec):
+                if not query_has_capacity(spec):
                     break
                 # Switching to next page
                 if pagination_element == None:
@@ -1984,7 +2833,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                 row = manifest.query(spec.query_id)
                 row["status"], row["stop_reason"] = "pending", "submission_uncertain"
                 manifest.save()
-            elif query_card_failures and not manifest.quota_met(spec):
+            elif (query_card_failures or query_recovery_failed) and not manifest.quota_met(spec):
                 row = manifest.query(spec.query_id)
                 row['status'], row['stop_reason'] = 'pending', 'job_cards_pending'
                 manifest.save()
@@ -1995,17 +2844,16 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                 for job_id in manifest.query(spec.query_id)["jobs"]:
                     result_sink(application_outcome(manifest, spec, job_id))
         except JobCardBlocked as error:
-            globals()['application_ui_blocked'] = True
+            capture_job_failure(active_job_id or 'search', spec, 'query_card_blocked', error)
             row = manifest.query(spec.query_id)
             row['status'], row['stop_reason'] = 'pending', 'job_card_blocked'
             row.setdefault('ui_failures', []).append(error.diagnostics)
             if active_job_id:
                 checkpoint_job(active_job_id, 'in_progress', str(error))
-            manifest.interrupt('job_card_blocked')
-            print_lg(f'Stopping: job card is blocked; unfinished job remains pending: {error}')
+            print_lg(f'Query deferred: job card is blocked; trying next configured search: {error}')
             if active_job_id:
                 retain_job(active_job_id, '', '', '', spec, 'card_pending', str(error), requires_submission_check=False)
-            return
+            continue
         except JobDetailsUnavailable as error:
             row = manifest.query(spec.query_id)
             row['status'], row['stop_reason'] = 'pending', 'job_details_unavailable'
@@ -2051,12 +2899,12 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                 clear_post_submit_ui(driver, active_job_id, log=print_lg,
                     diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
             except Exception as cleanup_error:
-                globals()['application_ui_blocked'] = True
+                capture_job_failure(active_job_id or 'search', spec, 'query_entry_cleanup', cleanup_error)
                 row.setdefault('ui_failures', []).append(getattr(cleanup_error, 'diagnostics',
                     dict(stage='entry_cleanup', cause_type=type(cleanup_error).__name__)))
                 manifest.save()
-                print_lg('Stopping after entry failure: application UI could not be verified clear')
-                return
+                print_lg('Entry cleanup failed; deferring this query and trying the next configured search')
+                continue
             print_lg('Entry failure retained for retry; UI is clear, continuing other search queries')
             continue
         except Exception as e:
@@ -2070,7 +2918,10 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                 if isinstance(e, LocationSelectionError):
                     manifest.query(spec.query_id)["warnings"].append(f"Configured search location was not confirmed: {e}")
             else:
-                empty = search_results_ready(driver) == "empty"
+                try:
+                    empty = search_results_ready(driver) == "empty"
+                except Exception:
+                    empty = False  # A disconnected browser must not break error handling.
             if empty:
                 manifest.finish_query(spec, "results_exhausted")
             else:
@@ -2091,6 +2942,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
 
 
 def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs=None, result_sink=None, job_limit=None, application_budget=None,
+                  fresh_manifest=False,
                   prepare_only=False, preparation_limit=10):
     from modules.search_planner import role_priority
     global active_manifest, active_search, active_result_sink, active_application_budget
@@ -2110,7 +2962,8 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
         selection = {key: sorted(str(job["linkedin_id"]) for job in jobs) for key, jobs in selected_jobs.items()}
         configuration_id += ":selected:" + hashlib.sha256(json.dumps(selection, sort_keys=True).encode()).hexdigest()
     with file_lock(os.path.join(profile["search_state_dir"], ".runner.lock")):
-        manifest = SearchManifest.find_resume(profile["search_state_dir"], configuration_id) if profile["resume_search_enabled"] and not prepare_only else None
+        manifest = (SearchManifest.find_resume(profile["search_state_dir"], configuration_id)
+                    if profile["resume_search_enabled"] and not prepare_only and not fresh_manifest else None)
         if manifest is None:
             if prepared_specs is None and profile.get('ai_query_refinement_enabled', False):
                 print_lg('Refining search queries with AI; this can take a moment...')
@@ -2248,6 +3101,8 @@ def main() -> None:
         print_lg("\n\nTotal runs:                     {}".format(total_runs))
         print_lg("Jobs Easy Applied:              {}".format(easy_applied_count))
         print_lg(f"Confirmed this invocation:      {application_budget.count} (cap: {application_budget.limit})")
+        if application_budget.reserved_ids:
+            print_lg(f"Uncertain attempts reserved:   {len(application_budget.reserved_ids)} (excluded from retries)")
         print_lg("External job links collected:   {}".format(external_jobs_count))
         print_lg("Company-page applications:      {}".format(globals().get("external_applied_count", 0)))
         print_lg("                              ----------")
@@ -2440,6 +3295,77 @@ def run_pipeline(request):
         if request.output_path:
             write_artifact(result, request.output_path)
         return result
+
+
+def run_deferred_retries(retry_path, limit, job_id=None, *, auto_submit=False):
+    """Replay a bounded slice of the independent deferred-job ledger."""
+    from config import search as search_config, search_profile as profile_module
+    from copy import deepcopy
+    from modules.application_budget import ApplicationBudget
+    from modules.linkedin_deferred import build_retry_batch
+
+    if type(limit) is not int or limit < 1:
+        raise ValueError("Retry limit must be a positive integer")
+    if type(auto_submit) is not bool:
+        raise ValueError("auto_submit must be true or false")
+    load_runtime("apply")
+    validate_config()
+    global pause_before_submit, aiClient, driver, wait, actions, linkedIn_tab, tabs_count, _browser_background
+    from modules.job_pipeline.linkedin import mapping
+    config = mapping(search_config)
+    profile = mapping(profile_module)
+    from modules.linkedin_retry_reconciliation import reconcile_retry_ledger
+    reconciled = reconcile_retry_ledger(retry_path, profile['search_state_dir'], globals().get('file_name'))
+    if reconciled['changed']:
+        print_lg(f"Retry ledger reconciled: {len(reconciled['changed'])} updated records")
+    already_applied = get_applied_job_ids()
+    specs, selection = build_retry_batch(retry_path, profile, config, limit, already_applied, job_id)
+    selected_ids = [job["linkedin_id"] for rows in selection.values() for job in rows]
+    configured_cap = config.get("max_applications_per_run", limit)
+    cap = min(limit, configured_cap) if type(configured_cap) is int else limit
+    application_budget = ApplicationBudget(cap)
+    pause_before_submit = not auto_submit
+    current_pipeline_blocked_ids.clear()
+    try:
+        initialize_browser(background=False)
+        tabs_count = len(driver.window_handles)
+        driver.get("https://www.linkedin.com/login")
+        if not is_logged_in_LN():
+            login_LN()
+        if not is_logged_in_LN():
+            raise ValueError("LinkedIn authentication is required")
+        linkedIn_tab = driver.current_window_handle
+        if use_AI:
+            aiClient = ai_create_openai_client()
+        manifest = apply_to_jobs([], prepared_specs=specs, selected_jobs=selection,
+                                 job_limit=limit, application_budget=application_budget,
+                                 fresh_manifest=True)
+        results = []
+        if manifest is not None:
+            for query in manifest.data.get("queries", []):
+                results.extend({"job_id": job_id, **deepcopy(row)}
+                               for job_id, row in query.get("jobs", {}).items())
+        return {
+            "status": manifest.data.get("status", "failed") if manifest else "failed",
+            "run_id": manifest.data.get("run_id") if manifest else None,
+            "selected_job_ids": selected_ids,
+            "confirmed_submissions": application_budget.count,
+            "application_cap": cap,
+            "jobs": results,
+            "stop_reason": manifest.data.get("stop_reason") if manifest else "no_run_created",
+        }
+    finally:
+        if aiClient:
+            ai_close_openai_client(aiClient)
+            aiClient = None
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+            finally:
+                driver = wait = actions = None
+                _browser_background = None
 
 
 def cli_main(argv=None):

@@ -119,9 +119,13 @@ def collect_questions(fields):
         kind = "textarea" if item.get("tag") == "textarea" or item.get("type") == "textarea" else "select" if item.get("tag") == "select" or item.get("type", "").startswith("select") else item.get("type", "text")
         if kind in {"email", "tel", "url"}:
             kind = "text"
-        if kind == "select" and item.get("multiple"):
+        if item.get("combobox"):
+            # A combobox is a select whose choices only exist while open; the
+            # caller opens it before validation so the options are real.
+            kind = "multiselect" if item.get("multiple") else "select"
+        elif kind == "select" and item.get("multiple"):
             kind = "multiselect"
-        if item.get("combobox") or kind not in KINDS:
+        if kind not in KINDS:
             kind = "unsupported"
         label = item.get("question") or item.get("label") or ""
         group = item.get("group") or (item.get("name") if kind == "radio" else "")
@@ -225,7 +229,14 @@ class QuestionResolver:
             if not entries and not signature:
                 return Answer(reason="Consent needs an exact full-label configured boolean; signatures need an explicit candidate value. Otherwise answer manually.")
         if len(entries) > 1:
-            return Answer(reason="Multiple configured answers match; disambiguate provider/control name.")
+            # A provider-scoped entry is the disambiguation, so let it win over
+            # the '*'-scoped entry of the same question instead of demanding a
+            # control name. Two entries for the same provider still conflict.
+            scoped = [entry for entry in entries if entry.get("provider", "*") == provider]
+            if len(scoped) == 1:
+                entries = scoped
+            else:
+                return Answer(reason="Multiple configured answers match; disambiguate provider/control name.")
         value, source = None, None
         if entries:
             if entries[0].get("type") != question["kind"]:

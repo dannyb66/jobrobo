@@ -1,5 +1,7 @@
-"""Explicit browser construction; importing this module has no browser side effects."""
+"""Explicit browser construction; importing this module has no browser side effects.
 
+The debug port exists only so the CAPTCHA solver can attach over CDP.
+"""
 
 class ChromeProfileInUse(RuntimeError):
     """A live Chrome process already owns the configured user-data directory."""
@@ -33,6 +35,38 @@ def check_profile_available(profile):
     )
 
 
+def _free_port():
+    import socket
+    try:
+        sock = socket.socket()
+        try:
+            sock.bind(("127.0.0.1", 0))
+            return sock.getsockname()[1]
+        finally:
+            sock.close()
+    except OSError:
+        return 9222
+
+
+def _cdp_flags(options):
+    import os
+    if os.getenv("JOBROBO_DISABLE_CDP"):
+        return []
+    if any(arg.startswith("--remote-debugging-port") for arg in options.arguments):
+        return []
+    return [f"--remote-debugging-port={_free_port()}", "--remote-debugging-address=127.0.0.1"]
+
+
+# A session that looks like a real desktop: fixed window, matching locale and
+# timezone, and no automation switch left on. reCAPTCHA Enterprise scores are
+# depressed by headless and by framework artefacts such as the CDP
+# `Runtime.enable` tell, and by a locale/timezone that disagrees.
+_PERSONA_FLAGS = (
+    "--window-size=1280,900",
+    "--lang=en-US",
+)
+
+
 def create_browser(*, background=None):
     import os
     import importlib
@@ -55,6 +89,7 @@ def create_browser(*, background=None):
     in_background = settings.run_in_background if background is None else background
     if in_background:
         options.add_argument("--headless=new")
+    options.arguments.extend(_PERSONA_FLAGS)
     if settings.disable_extensions:
         options.add_argument("--disable-extensions")
     if not settings.safe_mode:
@@ -64,6 +99,7 @@ def create_browser(*, background=None):
             Path(profile).mkdir(parents=True, exist_ok=True)
             check_profile_available(profile)
             options.add_argument(f"--user-data-dir={profile}")
+    options.arguments.extend(_cdp_flags(options))
     browser = uc.Chrome(options=options) if settings.stealth_mode else webdriver.Chrome(options=options)
     try:
         browser.maximize_window()

@@ -45,7 +45,7 @@ manual_searches = [
 | Field | Required? | Behavior |
 | --- | --- | --- |
 | `id` | Yes | Unique within the profile, at most 100 characters. Start with a letter or digit; subsequent characters may also include `.`, `_`, or `-`. The resulting ID is `manual:<id>`. Keep it stable when editing the query. |
-| `query` | Yes | Nonempty natural-language text, at most 4,000 characters. Canonical search preferences are added to it. |
+| `query` | Yes | Nonempty role or job-keyword text, at most 4,000 characters. Profile skills are added; configured filters are applied separately. |
 | `enabled` | No | Defaults to `True`. Set `False` to omit the search. |
 | `quota` | No | Positive integer; defaults to `switch_number` from `config/search.py`. |
 | `role_label` | No | Optional nonempty text used as the shorter classic keyword fallback query. Defaults to the manual query. |
@@ -67,7 +67,7 @@ The planner snapshots these values from `config/search.py`:
 
 Application budgets also live in `config/search.py`: `switch_number = 10` sets the default per-query quota, and `max_applications_per_run = 1` caps confirmed submissions for the whole command. Set the latter to a positive integer or `None` to disable the command-wide cap. A manual search's `quota` overrides only its per-query quota.
 
-Each role query includes the applicable location, employment type, work arrangement, experience level, company, industry, date, salary, and applicant preferences, plus profile skills. Exclusion and experience hints also appear in the natural-language query. Existing checks on company and job descriptions still apply after discovery, including company exceptions and the configured master's-degree experience allowance. `current_experience = -1` disables the experience ceiling.
+Each broad search prompt contains the role and profile skills. Location, employment type, work arrangement, date, salary and other filter preferences remain in the canonical configuration snapshot and are attempted through LinkedIn's controls after results appear. Unavailable controls produce warnings; they are not silently described as applied. Company-specific searches from verified career pages also retain the target employer in their query. Existing checks on company and job descriptions still apply after discovery, including exclusions, company exceptions and the configured master's-degree experience allowance. `current_experience = -1` disables the experience ceiling.
 
 The runner also checks each job's location and work arrangement before opening an application form, using the query's canonical filter snapshot. With the configured San Francisco Bay Area preference, hybrid and on-site jobs must be in the Bay Area; US-eligible remote jobs remain allowed under the existing location policy. Missing or incompatible location evidence causes the job to be skipped. Official careers verification retains broad open engineering listings and records this location policy as application-readiness metadata. Selected application preparation and live LinkedIn checks enforce it, without a separate location setting in the profile.
 
@@ -79,7 +79,7 @@ The planner adds enabled manual searches first, legacy `search_terms` second, an
 
 Manual IDs come from their configured `id`. Legacy, generated, and AI-refined IDs are derived from their source and normalized role wording. Sources are `manual`, `legacy`, `generated`, or `ai_refined`. AI-refined lanes replace the deterministic generated lanes when refinement succeeds; manual and legacy definitions remain available.
 
-Refinement proposes distinct role variants ranked by profile coverage. The response is validated before use, and accepted titles go through the same canonical preference renderer. Invalid, empty, duplicate, unsupported, or failed responses trigger a warning and deterministic queries. If dynamic generation fails after manual or legacy queries have been planned, those queries can continue.
+Refinement proposes distinct role variants ranked by profile coverage. The response is validated before use, and accepted titles go through the same role-and-skills renderer. Invalid, empty, duplicate, unsupported, or failed responses trigger a warning and deterministic queries. If dynamic generation fails after manual or legacy queries have been planned, those queries can continue.
 
 Search refinement reads `OPENAI_API_KEY` or the existing `llm_api_key`, plus `llm_api_url` and `llm_model`. It uses a separate client with a bounded timeout, independently of `use_AI` and `use_AI_for_resume`. No available key produces a warning and deterministic search; search refinement does not require resume optimization to be enabled.
 
@@ -125,13 +125,15 @@ The per-query quota remains separate: successful Easy Apply submissions and coll
 
 For each query, the runner detects the current LinkedIn search interface. In the modern experience, it submits the rendered natural-language query through the visible prompt and applies supported inline filters below the search. Modern cards and pagination feed the existing application flow. Search completion uses recognized results or an explicit empty state; it does not require card elements to become stale, because LinkedIn can reuse them across searches.
 
+Initial submission verifies the original prompt. After native filter changes, readiness also accepts LinkedIn's recognized employment-type, Easy Apply and date annotations while retaining the original URL query check. Selected filters and location are verified independently before applications begin. Search diagnostics preserve the canonical and displayed prompts plus captured job IDs, titles, employers and URLs; a readiness timeout records which conditions failed and how many cards were detected. The card count describes loaded results, not LinkedIn's total result estimate.
+
 After a native search verifies its rendered filters and location, the adapter can reuse the observed URL state for later queries in the same browser session. Each replay must verify the new query, filters, location, and results again. A rejected replay is discarded and rebuilt through the native controls. These session recipes use observed parameters; they do not hardcode geography IDs or assume that a URL alone proves filter selection.
 
 The classic keyword route is used only when a native classic interface is positively detected. A modern-search failure is recorded for diagnosis instead of assuming that a constructed classic URL restores the older UI. Search diagnostics distinguish the submitted query, transport, detected interface, location confirmation, and verified, unavailable, or failed filters alongside actual mode (`ai` or `classic`), fallback reason, and warnings.
 
 Location confirmation follows the detected interface. Classic search selects the matching autocomplete option and verifies its committed geography and label. Modern search verifies rendered location confirmation; typed text alone is insufficient. The configured Easy Apply requirement must also be verified before application work proceeds. Every job still passes the existing location check before application, regardless of search mode or result ranking.
 
-Other unavailable controls leave their intent in the natural-language query and produce a warning; existing description and eligibility checks remain active. Most-recent ordering is best effort when its control is absent. Remote and Hybrid retain their configured OR meaning: the runner does not select a Remote-only control that would remove requested hybrid jobs. Contextual suggestion chips are not automatically treated as configured filters.
+Other unavailable controls retain their requested values in the filter report and produce a warning; existing description and eligibility checks remain active. Most-recent ordering is best effort when its control is absent. Remote and Hybrid retain their configured OR meaning: the runner uses a workplace multi-select when available and does not select a Remote-only control that would remove requested hybrid jobs. Contextual suggestion chips are not automatically treated as configured filters.
 
 Modern job details are tied to the selected job ID before company, location, and description checks run. The readers use scoped job/company sections and the full description DOM, including text hidden by a collapsed preview, so exclusion terms below the visible excerpt remain checked. Missing modern description evidence stops that job before the application form. The existing resume, review, quota, and submission checks follow these readers.
 
@@ -141,7 +143,7 @@ LinkedIn documents Date posted, Company, Experience level, Employment type, Remo
 
 Leave `resume_search_enabled = True` and rerun `python3 runAiBot.py`. The runner resumes the newest unfinished manifest matching the effective deterministic plan and refinement setting. It reuses the saved query list, including any prior AI-refined wording, without requesting new refinement. A changed effective plan starts a new run.
 
-A run stopped by the command-wide submission cap records `application_limit_reached`. Any unfinished queries remain resumable; the next invocation gets a fresh submission budget and continues that work, preserving per-query counts and duplicate protection. With a submission cap enabled, an uncertain submission pauses further applications until its LinkedIn outcome is verified.
+A run stopped by the command-wide submission cap records `application_limit_reached`. Any unfinished queries remain resumable; the next invocation gets a fresh submission budget and continues that work, preserving per-query counts and duplicate protection. Unknown submission outcomes reserve slots against the command cap and per-query quota without counting as confirmed submissions. Other available jobs continue while capacity remains; the unknown job stays excluded from retries.
 
 On resume:
 
@@ -149,9 +151,21 @@ On resume:
 2. The incomplete query restarts at page one, retaining its prior counts.
 3. Previously processed terminal outcomes are skipped across all queries in the run.
 4. Jobs recorded only as `in_progress` before submission may be retried.
-5. Jobs checkpointed as `submitting` remain protected even if the browser reports a submit error. Their query stops with `submission_uncertain` until you verify the application status on LinkedIn. Other queries can continue.
+5. Jobs checkpointed as `submitting` remain protected even if the browser reports a submit error. The bot checks the exact posting read-only after a confirmation timeout and rechecks up to three saved holds when resuming. Confirmed receipts update the applied checkpoint. Outcomes that remain unknown are held out of retries; other jobs and queries continue within the reserved limits.
 6. Previously submitted jobs in the applied CSV and jobs recorded as `applied` or uncertain `submitting` in any saved manifest are skipped, including across new runs.
 7. Pagination continues until the remaining quota is met or results are exhausted, then the next incomplete query runs.
+
+Application failures save a JSON error report, screenshot and private DOM snapshot under `logs/application_ui_diagnostics/` before cleanup. Input values and textarea answers are omitted from the DOM snapshot; screenshots remain local and may show form data. A card or header failure is deferred for the rest of that invocation, and the next card in the same query is attempted. If form cleanup fails, the runner rebuilds and verifies the search before continuing. If that recovery also fails, it defers the query and tries the next search. Daily LinkedIn limits, exhausted application capacity and manual interruption still stop the run.
+
+Configured engineering searches apply the role-family guard before résumé generation or opening the application. A contact-only application with no résumé control is retained with a clear blocker when tailored résumé upload is required; the bot does not invent an upload field or silently submit without the attachment.
+
+Availability questions use `available_start_date` in `config/questions.py` directly. The current setting is `"Immediate"` with `notice_period = 0`; a native calendar field receives today's local date. An explicit ISO date can be configured instead. Availability answers bypass AI drafting. Configured sponsorship answers override conflicting saved radio/select answers and are verified after selection.
+
+Résumé uploads normally wait 30 seconds for the exact PDF to finish and become selected. If LinkedIn reports “Uploading,” verification can extend once to 90 seconds total, without uploading a second copy or calling the optimizer again. A persistent stall saves the job for retry with the failed upload phase; the already verified PDF remains cached.
+
+Application navigation waits for two matching structural observations before filling or using Next/Review. If filling changes Review to Next, the runner verifies the same job and employer, then reacquires and refills the form, with at most three recoveries between navigation steps. Repeated changes retain the job for retry with before/after action, page and question-label evidence. This navigator never clicks Submit.
+
+Office-location dropdowns match the actual posting location before considering the existing configured search region. This replaces an incorrect saved first option, such as Los Angeles on an Oakland posting. Ambiguous or unmatched locations are retained for retry rather than receiving an arbitrary office.
 
 Set `resume_search_enabled = False` to start a new run with current settings. Successful and uncertain submissions are still skipped using CSV history and all manifests in `search_state_dir`, even when configuration changes or a submission was followed by failed CSV logging. Keep the manifests to retain that protection. Failed and skipped jobs from an old run can be considered again in a new run; their previous audit records remain intact.
 

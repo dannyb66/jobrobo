@@ -16,6 +16,7 @@ __pycache__/
 .DS_Store
 .venv/
 venv/
+.venv-captchakraken/
 /backups/
 /docstest/
 /logs/
@@ -25,6 +26,8 @@ venv/
 # Private, generated application prose and answer history
 /all resumes/application_drafts/
 /all resumes/**/*.application_drafts/
+# Bulk generated/cached resume scratch; large and reproducible.
+/all resumes/temp/
 
 # Private validation input can contain signed tokens in scraped page content.
 /jobs-validation.json

@@ -1,6 +1,6 @@
-# Frozen manual-validation sample from current Task 1 remaining roles.
+# Final ten-job validation input: nine Task 1 roles plus an approved replacement for a retired listing.
 # 10 URLs: Ashby 5, Lever 2, Greenhouse 2, generic entry 1.
-# Current forms have not been inspected by this selection task; read docs/manual-validation-run.md.
+# Case 4 was replaced after live verification; see docs/manual-validation-run.md for outcome counts and limits.
 # Manual tabs: python3 direct_apply.py submit --urls-file jobs-validation.txt --browser kernel --pause-before-submit always --limit 10
 
 # 01 | lever | Instrumentl | Senior Backend Engineer
@@ -12,8 +12,8 @@ https://job-boards.greenhouse.io/baton/jobs/5177637007
 # 03 | ashby | DuckDuckGo | Senior Privacy Engineer
 https://jobs.ashbyhq.com/duck-duck-go/80797cf4-64b2-4e94-9d87-6f2ecc45c862
 
-# 04 | generic_entry | CareerJumpShip | IT Engineer
-https://www.careerjumpship.com/jobs/it-engineer-ondo-finance-c1bb7b74
+# 04 | generic_entry | Ondo Finance via CareerJumpShip | Infrastructure Engineer (DevOps)
+https://www.careerjumpship.com/jobs/infrastructure-engineer-devops-ondo-finance-8257c5e6
 
 # 05 | ashby | Namespace | Infrastructure Software Engineer
 https://jobs.ashbyhq.com/namespace/168f6c0b-a28c-4b04-9432-228a297aeedc

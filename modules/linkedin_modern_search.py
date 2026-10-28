@@ -231,17 +231,35 @@ def _query_text(value):
     return " ".join(value.split())
 
 
-def _settle(driver, query, *, timeout=30, wait=None):
+def _prompt_matches(prompt, query, *, after_filters=False):
+    prompt, query = _query_text(prompt), _query_text(query)
+    if prompt == query:
+        return True
+    # Native filter commits annotate the prompt while
+    # preserving URL keywords. Do not accept arbitrary prefix/substring matches.
+    return bool(after_filters and prompt.startswith(query + " ") and re.fullmatch(
+        r"(?:(?: full-time| part-time| contract| temporary| internship| volunteer))?"
+        r"(?: Easy Apply)?(?: posted in the past (?:month|week|24 hours))?", prompt[len(query):], re.I))
+
+
+def _settle(driver, query, *, timeout=30, wait=None, after_filters=False):
     consecutive = 0
+    last_state = {}
     def ready(*_):
         nonlocal consecutive
         parsed = urlparse(_url(driver))
-        query_committed = parse_qs(parsed.query).get("keywords") == [query]
+        query_committed = (parsed.hostname in {"linkedin.com", "www.linkedin.com"}
+                           and parsed.path.rstrip("/") == "/jobs/search-results"
+                           and parse_qs(parsed.query).get("keywords") == [query])
         prompt = _prompt_text(driver)
         state = search_results_ready(driver)
         hydrated = (_first(_find(driver, LOCATION_PICKER_XPATH)) is not None
                     and _first(_find(driver, FACET_XPATH)) is not None)
-        if query_committed and _query_text(prompt) == _query_text(query) and state and hydrated:
+        matches = _prompt_matches(prompt, query, after_filters=after_filters)
+        last_state.update(query_committed=query_committed, prompt_matches=matches,
+                          results_state=state, hydrated=hydrated, rendered_prompt=prompt,
+                          canonical_query=query, phase="filters" if after_filters else "initial_query")
+        if query_committed and matches and state and hydrated:
             consecutive += 1
             return state if consecutive >= 2 else False
         consecutive = 0
@@ -251,7 +269,11 @@ def _settle(driver, query, *, timeout=30, wait=None):
     except SearchUIError:
         raise
     except Exception as error:
-        raise SearchUIError("Submitted LinkedIn query did not produce verified results", stage="query_results", details={"error_type": type(error).__name__}) from error
+        cards = get_search_cards(driver)
+        last_state["result_card_count"] = len(cards)
+        last_state["result_job_ids"] = [search_card_id(card) for card in cards]
+        raise SearchUIError("Submitted LinkedIn query did not produce verified results", stage="query_results",
+                            details={"error_type": type(error).__name__, "readiness": last_state}) from error
 
 
 def start_modern_search(driver, spec, *, wait_for_results=None, timeout=30, wait=None):
@@ -281,6 +303,8 @@ def _values(value):
 
 
 def _selected(element):
+    if element is None:
+        return None  # React can remove a pill while its result list hydrates.
     for attribute in ("aria-checked", "aria-pressed", "aria-selected"):
         value = _attribute(element, attribute)
         if value in {"true", "false"}:
@@ -306,7 +330,7 @@ def _facet(driver, key, desired=()):
             continue
         if key == "on_site" and set(desired) != {"Remote"} and _is_pill(facet):
             # The modern Remote-only pill is not a Hybrid/On-site menu.
-            # Unsupported arrangements stay in the prompt without narrowing.
+            # Report unsupported arrangements without narrowing to Remote only.
             continue
         labels = [_text(facet), _attribute(facet, "aria-label")]
         labels.extend(_attribute(child, "aria-label") for child in _find(facet, ".//*[@aria-label]"))
@@ -377,7 +401,7 @@ def _bootstrap_easy_apply(driver, *, timeout=30, wait=None, owners=None):
     # must still prove the search facet selected before the candidate is trusted.
     parameters["f_AL"] = ["true"]
     driver.get("https://www.linkedin.com/jobs/search-results/?" + urlencode(parameters, doseq=True))
-    _settle(driver, query, timeout=timeout, wait=wait)
+    _settle(driver, query, timeout=timeout, wait=wait, after_filters=True)
     facet = _facet(driver, "easy_apply_only")
     if facet is None or _selected(facet) is not True:
         return False
@@ -400,7 +424,7 @@ def _filter(driver, key, desired, *, verify_only=False, timeout=30, wait=None, o
             _click_target(trigger).click()
             _wait(driver, lambda *_: _selected(_facet(driver, key, desired)) is True, timeout, wait)
             query = (before.get("keywords") or [_prompt_text(driver)])[0]
-            _settle(driver, query, timeout=timeout, wait=wait)
+            _settle(driver, query, timeout=timeout, wait=wait, after_filters=True)
             _record_parameter_change(driver, key, before, owners)
         return True
     _click_target(trigger).click()
@@ -428,7 +452,7 @@ def _filter(driver, key, desired, *, verify_only=False, timeout=30, wait=None, o
         submit.click()
         # Re-open to confirm actual committed options, not just a changed URL.
         query = (before.get("keywords") or [_prompt_text(driver)])[0]
-        _settle(driver, query, timeout=timeout, wait=wait)
+        _settle(driver, query, timeout=timeout, wait=wait, after_filters=True)
         _record_parameter_change(driver, key, before, owners)
         if not _filter(driver, key, desired, verify_only=True, timeout=timeout, wait=wait):
             raise SearchUIError(f"Committed LinkedIn filter does not match {key}", stage="filter_validation", details={"filter": key})
@@ -519,18 +543,13 @@ def _apply_filters(driver, intent, *, verify_only=False, expected=None, timeout=
             _click_target(remote).click()
             _wait(driver, lambda *_: _selected(_facet(driver, "on_site", ["Remote"])) is False, timeout, wait)
             query = (parse_qs(urlparse(_url(driver)).query).get("keywords") or [_prompt_text(driver)])[0]
-            _settle(driver, query, timeout=timeout, wait=wait)
+            _settle(driver, query, timeout=timeout, wait=wait, after_filters=True)
     wanted_keys = list(expected) if expected is not None else list(intent)
     for key in wanted_keys:
         value = intent.get(key)
         if not _values(value) or key == "search_location":
             continue
         desired = _values(value)
-        if key == "on_site" and len(desired) > 1:
-            # A Remote-only toggle would discard configured Hybrid results.
-            report[key] = {"status": "prompt_only", "requested": desired}
-            warnings.append("Work arrangement remains in the prompt; Remote and Hybrid are not narrowed to Remote only")
-            continue
         if key not in FILTER_LABELS:
             report[key] = {"status": "unavailable", "requested": desired}
             warnings.append(f"Filter unavailable in modern search: {key}={value}")
@@ -590,6 +609,15 @@ def _learn_recipe(driver, intent, result):
     }
 
 
+def _record_results(driver, result):
+    cards = get_search_cards(driver)
+    result.notes.update(
+        rendered_prompt=_prompt_text(driver), result_card_count=len(cards),
+        result_cards=[{key: value for key, value in read_search_card(card).items()
+                       if key != "title_element"} for card in cards],
+    )
+
+
 def finish_modern_search(driver, spec, result, *, wait_for_results=None, timeout=30, wait=None):
     intent = spec.filters_snapshot.get("intent", {})
     owners = {}
@@ -600,17 +628,18 @@ def finish_modern_search(driver, spec, result, *, wait_for_results=None, timeout
         verified.append("search_location")
     result.filter_report, result.verified_filters = report, verified
     result.warnings.extend(warnings)
-    result.results_state = _settle(driver, spec.query_text, timeout=timeout, wait=wait)
+    result.results_state = _settle(driver, spec.query_text, timeout=timeout, wait=wait, after_filters=True)
     _verify_work_arrangement(driver, intent)
     final_report, final_verified, _ = _apply_filters(driver, intent, verify_only=True,
                                                      expected=[key for key in verified if key != "search_location"], timeout=timeout, wait=wait)
     result.filter_report.update(final_report)
     result.verified_filters = final_verified + (["search_location"] if location else [])
-    result.results_state = _settle(driver, spec.query_text, timeout=timeout, wait=wait)
+    result.results_state = _settle(driver, spec.query_text, timeout=timeout, wait=wait, after_filters=True)
     if location and not verify_modern_location(driver, location):
         raise SearchUIError("Location was reset by modern LinkedIn filters", stage="location_validation")
     result.notes["parameter_owners"] = owners
     _learn_recipe(driver, intent, result)
+    _record_results(driver, result)
     return result
 
 
@@ -627,7 +656,7 @@ def prepare_modern_search(driver, spec, *, wait_for_search=None, wait_for_result
             driver.get("https://www.linkedin.com" + recipe["route"] + "?" + urlencode(parameters, doseq=True))
             check_access(driver)
             result = SearchResult("ai", ui_variant="modern_prompt", transport="verified_url", executed_query=spec.query_text)
-            result.results_state = _settle(driver, spec.query_text, timeout=timeout, wait=wait)
+            result.results_state = _settle(driver, spec.query_text, timeout=timeout, wait=wait, after_filters=True)
             _verify_work_arrangement(driver, intent)
             expected = [item for item in recipe["verified_filters"] if item != "search_location"]
             report, verified, _ = _apply_filters(driver, intent, verify_only=True, expected=expected, timeout=timeout, wait=wait)
@@ -639,9 +668,10 @@ def prepare_modern_search(driver, spec, *, wait_for_search=None, wait_for_result
                 verified.append("search_location")
             result.filter_report = {**deepcopy(recipe["filter_report"]), **report}
             result.verified_filters, result.warnings = verified, list(recipe["warnings"])
-            result.results_state = _settle(driver, spec.query_text, timeout=timeout, wait=wait)
+            result.results_state = _settle(driver, spec.query_text, timeout=timeout, wait=wait, after_filters=True)
             if location and not verify_modern_location(driver, location):
                 raise SearchUIError("Replayed location changed during filter verification", stage="replay_location")
+            _record_results(driver, result)
             return result
         except SearchUIError as error:
             if error.stage == "auth_required":
@@ -757,7 +787,7 @@ def next_search_page(driver, page, *, timeout=30, wait=None):
                           and _first(_find(driver, PROMPT_XPATH)) is None)
         if detect_modern_ui(driver) and not legacy_classic:
             query = (before.get("keywords") or [_prompt_text(driver)])[0]
-            _settle(driver, query, timeout=timeout, wait=wait)
+            _settle(driver, query, timeout=timeout, wait=wait, after_filters=True)
     except SearchUIError:
         raise
     except Exception as error:

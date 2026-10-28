@@ -5,7 +5,7 @@
 # Keep the External Application tabs open?
 # Prepare supported hosted company-page applications with a verified resume and explicit review.
 # Requires easy_apply_only = False in config/search.py. Unsupported sites/controls stay manual.
-external_apply_enabled = False
+external_apply_enabled = True
 # Private local JSON with typed custom answers and optional dedicated-key AI drafts.
 external_questions_config_path = "~/.jobrobo/external-questions.json"
 # Private overrides used only by direct_apply submit, including its contact email.

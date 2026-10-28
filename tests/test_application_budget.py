@@ -54,6 +54,28 @@ class ApplicationBudgetTests(unittest.TestCase):
         self.assertFalse(budget.stopped)
         self.assertFalse(budget.stop_if_reached(self.manifest, self.spec))
 
+    def test_unknown_submission_reserves_one_slot_and_allows_other_jobs(self):
+        budget = ApplicationBudget(3)
+        self.manifest.record_job(self.spec, 'unknown', 'submitting')
+        self.assertFalse(budget.stop_if_reached(self.manifest, self.spec))
+        budget.record('confirmed')
+        self.assertFalse(budget.stop_if_reached(self.manifest, self.spec))
+        self.assertEqual(budget.count, 1)
+        self.assertEqual(self.manifest.data['invocation_reserved_count'], 1)
+        budget.record('another')
+        self.assertTrue(budget.stop_if_reached(self.manifest, self.spec))
+        self.assertEqual(budget.count, 2)
+
+    def test_unknown_reservation_survives_a_new_manifest_in_same_invocation(self):
+        budget = ApplicationBudget(2)
+        self.manifest.record_job(self.spec, 'unknown', 'submitting')
+        self.assertFalse(budget.stop_if_reached(self.manifest, self.spec))
+        fresh = SearchManifest.create(self.manifest.path.parent, [self.spec])
+        budget.record('confirmed')
+        self.assertTrue(budget.stop_if_reached(fresh, self.spec))
+        self.assertEqual(budget.count, 1)
+        self.assertEqual(budget.reserved_ids, {'unknown'})
+
 
 if __name__ == "__main__":
     unittest.main()

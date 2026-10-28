@@ -10,6 +10,103 @@ class ReferencesTests(unittest.TestCase):
         return apply_tests.NavigationTests().answer_native_form(markup, use_AI=False,
             aiClient=None, randomly_answered_questions=set(), **config)
 
+    def test_configured_headline_respects_counter(self):
+        browser, _ = self.answer('<dialog open><div><label for="headline">Headline</label>'
+            '<div><input id="headline" type="text"><span>0/127</span></div></div></dialog>',
+            linkedin_headline='Engineer ' * 22)
+        value = browser.find_element('css selector', 'input').get_attribute('value')
+        self.assertTrue(value)
+        self.assertLessEqual(len(value.encode('utf-16-le')) // 2, 127)
+
+    def test_external_privacy_heading_requires_specific_application_approval(self):
+        from test_search_runner import ReceiptRecoveryTests
+        markup = ('<section><p>You declare that you have read and agree to the privacy notice of Example.*</p>'
+                  '<div role="checkbox" aria-checked="false"><label for="consent"></label>'
+                  '<input id="consent" type="checkbox"><p>I consent</p></div></section>')
+        browser, ns = ReceiptRecoveryTests().checkbox_form(markup, application_privacy_consent_job_ids=['456'])
+        with self.assertRaisesRegex(MissingApplicationAnswer, 'privacy notice'):
+            ns['answer_questions'](browser.find_element('css selector', 'dialog'), set(), 'Bay Area', job_id='123')
+        browser, ns = ReceiptRecoveryTests().checkbox_form(markup, application_privacy_consent_job_ids=['123'])
+        ns['answer_questions'](browser.find_element('css selector', 'dialog'), set(), 'Bay Area', job_id='123')
+        self.assertEqual(browser.find_element('css selector', '[role="checkbox"]').get_attribute('aria-checked'), 'true')
+
+    def test_privacy_approval_does_not_approve_other_agreements(self):
+        from test_search_runner import ReceiptRecoveryTests
+        browser, ns = ReceiptRecoveryTests().checkbox_form('<section><p>Employment agreement*</p><div role="checkbox">'
+                '<input id="consent" type="checkbox"><label for="consent">I consent</label></div></section>',
+                application_privacy_consent_job_ids=['123'])
+        with self.assertRaisesRegex(MissingApplicationAnswer, 'confirmation'):
+            ns['answer_questions'](browser.find_element('css selector', 'dialog'), set(), 'Bay Area', job_id='123')
+
+    def test_approved_default_checks_only_recognized_required_privacy_question(self):
+        from test_search_runner import ReceiptRecoveryTests
+        markup = ('<section><p>You declare that you have read and agree to the privacy notice of Example.*</p>'
+                  '<div role="checkbox" aria-checked="false"><input type="checkbox"><p>I consent</p></div></section>')
+        browser, ns = ReceiptRecoveryTests().checkbox_form(markup, application_privacy_consent_default=True)
+        ns['answer_questions'](browser.find_element('css selector', 'dialog'), set(), 'Bay Area', job_id='789')
+        self.assertEqual(browser.find_element('css selector', '[role="checkbox"]').get_attribute('aria-checked'), 'true')
+        browser, ns = ReceiptRecoveryTests().checkbox_form('<div><input id="sign" type="checkbox">'
+            '<label for="sign">Yes, I agree to sign electronically.*</label></div>', application_privacy_consent_default=True)
+        with self.assertRaisesRegex(MissingApplicationAnswer, 'confirmation'):
+            ns['answer_questions'](browser.find_element('css selector', 'dialog'), set(), 'Bay Area', job_id='789')
+
+    def test_iherb_privacy_notice_variant_uses_approved_default(self):
+        from test_search_runner import ReceiptRecoveryTests
+        markup = ('<section><p>We respect the privacy of candidates for employment. The Privacy Notice sets forth '
+                  'how we use information when you apply for a position through this career site.*</p>'
+                  '<div role="checkbox"><input type="checkbox">'
+                  '<p>Yes, I have read and consent to the terms and conditions</p></div></section>')
+        browser, ns = ReceiptRecoveryTests().checkbox_form(markup, application_privacy_consent_default=True)
+        ns['answer_questions'](browser.find_element('css selector', 'dialog'), set(), 'Bay Area', job_id='123')
+        self.assertEqual(browser.find_element('css selector', '[role="checkbox"]').get_attribute('aria-checked'), 'true')
+
+    def test_recruitment_data_privacy_notice_uses_approved_default(self):
+        from test_search_runner import ReceiptRecoveryTests
+        markup = ('<section><p>Example collects personal information as part of its job application and '
+                  'recruitment process. See our Careers Privacy Notice.*</p>'
+                  '<div role="checkbox"><input type="checkbox"><p>I consent</p></div></section>')
+        browser, ns = ReceiptRecoveryTests().checkbox_form(markup, application_privacy_consent_default=True)
+        ns['answer_questions'](browser.find_element('css selector', 'dialog'), set(), 'Bay Area', job_id='123')
+        self.assertEqual(browser.find_element('css selector', '[role="checkbox"]').get_attribute('aria-checked'), 'true')
+
+    def test_privacy_link_does_not_approve_employment_contract(self):
+        from modules.linkedin_form_fields import is_privacy_notice_choice
+        self.assertFalse(is_privacy_notice_choice('i consent',
+            'Employment contract. We collect personal information in the recruitment process. Privacy notice.'))
+
+    def test_configured_demographic_opt_out_beats_first_option(self):
+        markup = ('<dialog open><select aria-label="Please indicate your gender.">'
+                  '<option value="">Select an option</option><option selected>Male</option><option>Not declared</option></select>'
+                  '<select aria-label="Please indicate your race/ethnicity."><option>Asian</option>'
+                  '<option>I do not wish to answer.</option></select></dialog>')
+        browser, _ = self.answer(markup, gender='Decline', ethnicity='Decline', unanswered_choice_policy='first_option')
+        selects = browser.find_elements('css selector', 'select')
+        self.assertEqual([n.find_element('css selector', 'option[selected]').text for n in selects],
+                         ['Not declared', 'I do not wish to answer.'])
+
+    def test_country_select_uses_configured_country(self):
+        browser, _ = self.answer('<dialog open><select aria-label="Country"><option>Select an option</option>'
+            '<option>Afghanistan</option><option>United States</option></select></dialog>', country='United States')
+        self.assertEqual(browser.find_element('css selector', 'option[selected]').text, 'United States')
+
+    def test_country_checkbox_group_uses_config(self):
+        from test_search_runner import ReceiptRecoveryTests
+        markup = ('<section><p>Please select the country of the position you are applying to.*</p><fieldset>'
+                  '<div role="checkbox" aria-checked="false"><input id="us" type="checkbox"><p>United States</p></div>'
+                  '<div role="checkbox" aria-checked="false"><input id="ca" type="checkbox"><p>Canada</p></div>'
+                  '</fieldset></section>')
+        browser, ns = ReceiptRecoveryTests().checkbox_form(markup, country='United States')
+        ns['answer_questions'](browser.find_element('css selector', 'dialog'), set(), 'Bay Area')
+        self.assertEqual([n.get_attribute('aria-checked') for n in browser.find_elements('css selector', '[role="checkbox"]')], ['true', 'false'])
+
+    def test_empty_configured_relatives_defaults_no_without_inventing_names(self):
+        markup = ('<dialog open><select aria-label="Do you have any relatives currently working at iHerb?*">'
+                  '<option>Choose an option</option><option selected>Yes</option><option>No</option></select></dialog>')
+        browser, _ = self.answer(markup, application_relative_employee_names='')
+        self.assertEqual(browser.find_element('css selector', 'option[selected]').text, 'No')
+        browser, _ = self.answer(markup, application_relative_employee_names='User-provided relative')
+        self.assertEqual(browser.find_element('css selector', 'option[selected]').text, 'Yes')
+
     def test_native_aria_textarea_uses_reusable_config(self):
         browser, questions = self.answer('''<dialog open><div><label for="elsewhere">Other</label>
             <input id="elsewhere" type="hidden"></div><div><p>3 References (1 Direct Manager)*</p>
@@ -58,6 +155,34 @@ class ReferencesTests(unittest.TestCase):
         self.assertEqual(browser.find_element('css selector', 'textarea').get_attribute('value'),
                          'A grounded architecture example')
         draft.assert_called_once()
+
+    def test_middle_name_is_not_sent_to_descriptive_drafter(self):
+        draft = Mock(side_effect=AssertionError('An empty optional middle name is personal data'))
+        browser, _ = self.answer('''<dialog open><input type="text" aria-label="Middle name"></dialog>''',
+            middle_name='', ai_descriptive_answers_enabled=True, _draft_answer=draft)
+        self.assertEqual(browser.find_element('css selector', 'input').get_attribute('value'), '')
+        draft.assert_not_called()
+
+    def test_required_middle_name_without_config_is_reported_as_personal_data_blocker(self):
+        with self.assertRaisesRegex(MissingApplicationAnswer, 'middle name'):
+            self.answer('''<dialog open><input type="text" aria-label="Middle name" required></dialog>''',
+                middle_name='', ai_descriptive_answers_enabled=True,
+                _draft_answer=Mock(side_effect=AssertionError('Must not draft identity data')))
+
+    def test_unbounded_single_line_ai_answer_is_capped(self):
+        draft = Mock(return_value='x' * 1800)
+        browser, _ = self.answer('''<dialog open><input type="text" aria-label="Vector Databases"></dialog>''',
+            ai_descriptive_answers_enabled=True, _draft_answer=draft)
+        value = browser.find_element('css selector', 'input').get_attribute('value')
+        self.assertEqual(len(value), 500)
+        draft.assert_called_once_with('Vector Databases', 'descriptive', '500')
+
+    def test_unbounded_years_textarea_gets_short_answer_limit(self):
+        draft = Mock(return_value='8 years')
+        browser, _ = self.answer('''<dialog open><textarea aria-label="How many years of MLOps experience do you have?"></textarea></dialog>''',
+            ai_descriptive_answers_enabled=True, _draft_answer=draft)
+        self.assertEqual(browser.find_element('css selector', 'textarea').get_attribute('value'), '8 years')
+        draft.assert_called_once_with('How many years of MLOps experience do you have?', 'descriptive', '150')
 
     def test_optional_other_relationship_is_not_drafted_when_other_is_unselected(self):
         draft = Mock(side_effect=AssertionError('An inapplicable relationship must not be invented'))

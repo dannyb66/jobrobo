@@ -6,8 +6,8 @@ from bs4 import BeautifulSoup
 from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver.common.by import By
 from modules.linkedin_easy_apply import (
-    EasyApplyError, advance_to_review, current_submit_button,
-    submission_receipts, wait_for_application_modal, wait_for_submission_confirmation,
+    EasyApplyError, MissingApplicationAnswer, advance_to_review, current_submit_button,
+    submission_receipts, wait_for_application_modal, wait_for_submission_confirmation, _signature,
 )
 from modules.application_choices import choose_index, dropdown_placeholder
 from test_search_runner import extract_functions
@@ -140,6 +140,42 @@ class NavigationTests(unittest.TestCase):
             '<p>You reached today’s Easy Apply limit</p></dialog>')])
         with self.assertRaises(EasyApplyLimitReached):self.navigate(browser)
         self.assertEqual(browser.clicks,[])
+
+    def test_daily_limit_dom_probe_avoids_serializing_large_dialog_text(self):
+        from modules.linkedin_easy_apply import EasyApplyLimitReached, check_easy_apply_limit
+        browser=Browser([self.safety_reminder()])
+        browser.execute_script=Mock(return_value=True)
+        with self.assertRaises(EasyApplyLimitReached):check_easy_apply_limit(browser)
+        browser.execute_script.assert_called_once()
+        self.assertIn('textContent', browser.execute_script.call_args.args[0])
+
+    def test_daily_limit_dom_probe_fast_path_returns_without_text_fallback(self):
+        from modules.linkedin_easy_apply import check_easy_apply_limit
+        browser=Browser([self.safety_reminder()])
+        browser.execute_script=Mock(return_value=False)
+        browser.find_elements=Mock(side_effect=AssertionError('expensive text fallback should not run'))
+        check_easy_apply_limit(browser)
+        browser.execute_script.assert_called_once()
+        browser.find_elements.assert_not_called()
+
+    def test_fit_warning_dom_probe_fast_path_skips_large_dialog_button_scan(self):
+        from modules.linkedin_easy_apply import _fit_warning
+        browser=Browser([self.safety_reminder()])
+        browser.execute_script=Mock(return_value=False)
+        browser.find_elements=Mock(side_effect=AssertionError('large dialog scan should not run'))
+        self.assertFalse(_fit_warning(browser))
+        browser.execute_script.assert_called_once()
+        browser.find_elements.assert_not_called()
+
+    def test_page_signature_uses_one_bounded_dom_snapshot(self):
+        modal=Mock()
+        modal.parent=Mock()
+        modal.parent.execute_script=Mock(return_value=(['Work history'], [['from-month', None, None]], ['Software Engineer']))
+        modal.find_elements=Mock(side_effect=AssertionError('per-element text reads should not run'))
+        self.assertEqual(_signature(modal, 'next'),
+                         ('next', ('Work history',), (('from-month', None, None),), ('Software Engineer',)))
+        modal.parent.execute_script.assert_called_once()
+        modal.find_elements.assert_not_called()
 
     def test_safety_reminder_cleanup_detection_never_continues(self):
         browser=Browser([self.safety_reminder()])
@@ -336,6 +372,70 @@ class NavigationTests(unittest.TestCase):
         self.navigate(browser, fill)
         self.assertEqual(browser.clicks, ['Next'])
 
+    def test_review_to_next_during_fill_reacquires_refills_and_never_submits(self):
+        browser = Browser([form('Location', 'Review'), form('Location', 'Next'), form('Review', 'Submit application')])
+        browser.current_url = 'https://www.linkedin.com/jobs/view/4480536892/'
+        filled = []
+        messages = []
+        def fill(modal):
+            filled.append(browser.page)
+            if browser.page == 0:
+                browser.page = 1
+                browser.render()
+        self.navigate(browser, fill, log=messages.append)
+        self.assertEqual(filled, [0, 1, 2])
+        self.assertEqual(browser.clicks, ['Next'])
+        self.assertTrue(any('review -> next' in message for message in messages))
+
+    def test_repeated_action_changes_are_bounded_and_keep_structural_evidence(self):
+        browser = Browser([form('Location', 'Review')])
+        browser.current_url = 'https://www.linkedin.com/jobs/view/123/'
+        def fill(modal):
+            action = 'Next' if 'Review' in browser.pages[0] else 'Review'
+            browser.pages[0] = form('Location', action, extra='<input value="PRIVATE ANSWER">')
+            browser.render()
+        with self.assertRaisesRegex(EasyApplyError, 'recovery limit') as raised:
+            self.navigate(browser, fill)
+        self.assertEqual(len(raised.exception.navigation_evidence), 4)
+        self.assertNotIn('PRIVATE ANSWER', str(raised.exception.navigation_evidence))
+        self.assertEqual(browser.clicks, [])
+
+    def test_job_change_during_fill_stops_without_clicking_navigation(self):
+        browser = Browser([form('Location', 'Review')])
+        browser.current_url = 'https://www.linkedin.com/jobs/view/123/'
+        def fill(modal):
+            browser.current_url = 'https://www.linkedin.com/jobs/view/999/'
+        with self.assertRaisesRegex(EasyApplyError, 'selected job changed'):
+            self.navigate(browser, fill)
+        self.assertEqual(browser.clicks, [])
+
+    def test_employer_change_during_fill_cannot_be_recovered_as_same_application(self):
+        browser = Browser([form('Location', 'Review')])
+        def fill(modal):
+            browser.pages[0] = form('Location', 'Next').replace('Apply to Example', 'Apply to Another company')
+            browser.render()
+        with self.assertRaisesRegex(EasyApplyError, 'application employer changed'):
+            self.navigate(browser, fill)
+        self.assertEqual(browser.clicks, [])
+
+    def test_state_must_stabilize_before_using_a_transient_review_control(self):
+        from unittest.mock import patch
+        from modules.linkedin_easy_apply import _settled_state, _state
+        transient = Browser([form('Location', 'Review')])
+        settled = Browser([form('Location', 'Next')])
+        states = [_state(transient), _state(settled), _state(settled)]
+        with patch('modules.linkedin_easy_apply._state', side_effect=states):
+            state = _settled_state(settled, .1, None, 'apply to example')
+        self.assertEqual(state[1], 'next')
+
+    def test_navigation_evidence_failure_does_not_replace_application_processing(self):
+        from modules.linkedin_easy_apply import _navigation_snapshot
+        modal = Mock()
+        modal.parent.execute_script.side_effect = StaleElementReferenceException()
+        result = _navigation_snapshot(modal, 'next')
+        self.assertEqual(result['capture_error'], 'StaleElementReferenceException')
+        self.assertEqual(result['questions'], [])
+
     def test_manual_field_correction_then_navigation_retries(self):
         browser = Browser([form(attributes='disabled'), form(action='Submit application')])
         def correct(reason):
@@ -433,9 +533,11 @@ class NavigationTests(unittest.TestCase):
         field = Mock()
         values = {'value': ''}
         field.get_attribute.side_effect = lambda key: values.get(key)
-        field.send_keys.side_effect = lambda value: values.update(value=value)
+        field.find_elements.return_value = []
+        field.send_keys.side_effect = lambda value: None if value == '\ue004' else values.update(value=value)
         label = SimpleNamespace(text='Summary')
-        question = Mock(); modal = Mock(); modal.find_elements.return_value = [question]
+        question = Mock(); modal = Mock()
+        modal.find_elements.side_effect = lambda by, selector: [question] if selector == './/div[@data-test-form-element]' else []
         def locate(target, selector, *args):
             if selector == './/textarea':
                 return field
@@ -444,9 +546,10 @@ class NavigationTests(unittest.TestCase):
             return False
         namespace = dict(By=By, try_xp=locate, driver=Mock(), overwrite_previous_answers=False,
                          linkedin_summary='Configured summary')
-        extract_functions(namespace, 'answer_questions')
+        extract_functions(namespace, 'answer_questions', 'answer_common_questions', '_bounded_application_answer', '_resume_work_history_dates', '_fill_resume_work_history_dates')
         result = namespace['answer_questions'](modal, set(), 'Bay Area')
-        field.send_keys.assert_called_once_with('Configured summary')
+        self.assertEqual(field.send_keys.call_args_list[0].args, ('Configured summary',))
+        self.assertEqual(field.send_keys.call_args_list[1].args, ('\ue004',))
         self.assertEqual(len(result), 1)
 
     def test_sdui_label_control_pairs_fill_tel_without_treating_resume_as_question(self):
@@ -465,7 +568,7 @@ class NavigationTests(unittest.TestCase):
                 return False
         namespace = dict(By=By, try_xp=locate, driver=browser, phone_number='5550100',
                          overwrite_previous_answers=True)
-        extract_functions(namespace, 'answer_questions')
+        extract_functions(namespace, 'answer_questions', 'answer_common_questions', '_bounded_application_answer', '_resume_work_history_dates', '_fill_resume_work_history_dates')
         questions = namespace['answer_questions'](modal, set(), 'Bay Area')
         self.assertEqual(modal.find_element(By.CSS_SELECTOR, '#phone').get_attribute('value'), '5550100')
         self.assertEqual(len(questions), 1)
@@ -476,7 +579,24 @@ class NavigationTests(unittest.TestCase):
         from selenium.common.exceptions import NoSuchElementException
         browser = DOMBrowser(markup)
         browser.chosen = []
-        browser.click = lambda node: browser.chosen.append(' '.join(node.itertext()).strip())
+        def click(node):
+            browser.chosen.append(' '.join(node.itertext()).strip())
+            target = node
+            if node.tag == 'label':
+                target = browser.root.xpath('//*[@id=$ident]', ident=node.get('for'))[0]
+            elif node.get('role') == 'radio':
+                target = node.xpath('.//input[@type="radio"]')[0]
+            if target.get('type') == 'radio':
+                groups = target.xpath('./ancestor::*[self::fieldset or @role="radiogroup"][1]')
+                scope = groups[0] if groups else browser.root
+                for option in scope.xpath('.//input[@type="radio"]'):
+                    option.attrib.pop('checked', None)
+                for role in scope.xpath('.//*[@role="radio"]'):
+                    role.set('aria-checked', 'false')
+                target.set('checked', '')
+                for role in target.xpath('./ancestor::*[@role="radio"][1]'):
+                    role.set('aria-checked', 'true')
+        browser.click = click
         def locate(node, selector, *args):
             try:
                 return node.find_element(By.XPATH, selector)
@@ -496,16 +616,135 @@ class NavigationTests(unittest.TestCase):
                 for node in self.options:
                     node.node.attrib.pop('selected', None)
                 self.options[index].node.set('selected', '')
+            def select_by_visible_text(self, text):
+                option = next(node for node in self.options if node.text.strip() == text)
+                self.select_by_index(self.options.index(option))
         draft_answer = configuration.pop('_draft_answer', None)
+        work_location = configuration.pop('_work_location', 'Bay Area')
         namespace = dict(By=By, try_xp=locate, driver=browser, re=re,
                          overwrite_previous_answers=configuration.pop('overwrite_previous_answers', False), find_by_class=missing_class,
                          actions=actions, choose_index=choose_index,
                          dropdown_placeholder=dropdown_placeholder, print_lg=lambda *args: None,
                          Select=NativeSelect, NoSuchElementException=NoSuchElementException,
                          **configuration)
-        extract_functions(namespace, 'answer_questions', 'answer_common_questions')
-        questions = namespace['answer_questions'](browser.find_element(By.CSS_SELECTOR, 'dialog'), set(), 'Bay Area', draft_answer=draft_answer)
+        extract_functions(namespace, 'answer_questions', 'answer_common_questions', '_bounded_application_answer', '_resume_work_history_dates', '_fill_resume_work_history_dates')
+        questions = namespace['answer_questions'](browser.find_element(By.CSS_SELECTOR, 'dialog'), set(), work_location, draft_answer=draft_answer)
         return browser, questions
+
+    def test_custom_work_history_end_date_uses_product_role_resume_range(self):
+        from test_linkedin_modern_search import DOMBrowser
+        from selenium.common.exceptions import NoSuchElementException
+        markup = '''<dialog open>
+          <section><input value="Product Owner"><textarea>Product planning and customer workflows</textarea>
+            <div><p>To</p>
+              <div data-test-form-element><button role="combobox" aria-label="To Month">Month</button></div>
+              <div data-test-form-element><button role="combobox" aria-label="To Year">Year</button></div>
+            </div>
+          </section><div role="option">January</div><div role="option">2022</div>
+        </dialog>'''
+        browser = DOMBrowser(markup)
+        modal = browser.find_element(By.CSS_SELECTOR, 'dialog')
+        def locate(node, selector, *args):
+            try:
+                return node.find_element(By.XPATH, selector)
+            except NoSuchElementException:
+                return False
+        class NativeSelect:
+            def __init__(self, element): self.options = []
+        namespace = dict(By=By, try_xp=locate, driver=browser, re=re,
+                         overwrite_previous_answers=False,
+                         dropdown_placeholder=dropdown_placeholder, Select=NativeSelect,
+                         print_lg=lambda *args: None, default_resume_docx_path='all resumes/default/resume.docx')
+        extract_functions(namespace, 'answer_questions', 'answer_common_questions', '_bounded_application_answer', '_resume_work_history_dates', '_fill_resume_work_history_dates')
+        result = namespace['answer_questions'](modal, set(), 'Bay Area')
+        self.assertEqual([browser.clicks[0][1], browser.clicks[2][1]], ['To Month', 'To Year'])
+        self.assertEqual([browser.clicks[1][0], browser.clicks[3][0]], ['option', 'option'])
+        self.assertEqual({item[1] for item in result}, {'January', '2022'})
+
+    def test_custom_work_history_fills_both_start_and_end_from_best_resume_match(self):
+        markup = '''<dialog open><section>
+          <input value="Software Engineer"><textarea>Product Owner, product strategy and product workflows</textarea>
+          <div><p>From</p>
+            <div data-test-form-element><button aria-label="From Month">Month</button></div>
+            <div data-test-form-element><button aria-label="From Year">Year</button></div>
+          </div>
+          <div><p>To</p>
+            <div data-test-form-element><button>Month</button></div>
+            <div data-test-form-element><button>Year</button></div>
+          </div>
+        </section><div role="option">January</div><div role="option">2016</div>
+        <div role="option">January</div><div role="option">2018</div></dialog>'''
+        browser, questions = self.answer_native_form(markup, default_resume_docx_path='all resumes/default/resume.docx')
+        self.assertEqual({item[1] for item in questions if item[2] == 'resume_work_history_date'},
+                         {'January', '2016', '2018'})
+        self.assertEqual(len(browser.chosen), 8)  # both Month fields and both Year fields were selected
+
+    def test_native_work_history_selects_infer_month_year_from_placeholder_options(self):
+        markup = '''<dialog open><section>
+          <input value="Software Engineer"><textarea>Product Owner, product strategy and product workflows</textarea>
+          <div><p>From</p><select><option selected>Month</option><option>January</option></select>
+          <select><option selected>Year</option><option>2016</option></select></div>
+          <div><p>To</p><select><option selected>Month</option><option>January</option></select>
+          <select><option selected>Year</option><option>2018</option></select></div>
+        </section></dialog>'''
+        browser, questions = self.answer_native_form(markup, default_resume_docx_path='all resumes/default/resume.docx')
+        selected = browser.find_elements(By.XPATH, "//select/option[@selected]")
+        self.assertEqual([option.text for option in selected], ['January', '2016', 'January', '2018'])
+
+    def test_work_history_select_order_handles_blank_custom_placeholders(self):
+        markup = '''<dialog open><section><p>Dates of employment</p>
+          <input value="Software Engineer"><textarea>Software engineering</textarea>
+          <div><p>From</p>
+            <select><option selected value="">Choose one</option><option>January</option></select>
+            <select><option selected value="">Choose one</option><option>2016</option></select>
+          </div>
+          <div><p>To</p>
+            <select><option selected value="">Choose one</option><option>January</option></select>
+            <select><option selected value="">Choose one</option><option>2018</option></select>
+          </div></section></dialog>'''
+        browser, questions = self.answer_native_form(markup, default_resume_docx_path='all resumes/default/resume.docx')
+        selected = browser.find_elements(By.XPATH, "//select/option[@selected]")
+        self.assertEqual([option.text for option in selected], ['January', '2016', 'January', '2018'])
+
+    def test_sponsorship_radio_overwrites_saved_no_with_configured_yes(self):
+        browser, questions = self.answer_native_form('''<dialog open><p>Would you require any sponsorship now or in future to continue your employment?*</p>
+          <fieldset role="radiogroup"><div role="radio" aria-checked="false"><input id="y" type="radio"><label for="y"></label><p>Yes</p></div>
+          <div role="radio" aria-checked="true"><input id="n" type="radio" checked><label for="n"></label><p>No</p></div></fieldset></dialog>''', require_visa='Yes')
+        self.assertEqual(browser.chosen, ['Yes'])
+        self.assertEqual([n.get_attribute('id') for n in browser.find_elements(By.CSS_SELECTOR, 'input[checked]')], ['y'])
+
+    def test_sponsorship_select_overwrites_saved_no_with_configured_yes(self):
+        browser, _ = self.answer_native_form('''<dialog open><label for="sponsor">Do you need visa sponsorship?</label>
+          <select id="sponsor"><option>Yes</option><option selected>No</option></select></dialog>''', require_visa='Yes')
+        self.assertEqual([n.text for n in browser.find_elements(By.CSS_SELECTOR,'option[selected]')], ['Yes'])
+
+    def test_current_sponsorship_no_overwrites_saved_yes(self):
+        browser, _ = self.answer_native_form('''<dialog open><fieldset><legend>Will you require visa sponsorship?</legend>
+          <input type="radio" id="yes" checked><label for="yes">Yes</label>
+          <input type="radio" id="no"><label for="no">No</label></fieldset></dialog>''', require_visa='No')
+        self.assertEqual(browser.chosen, ['No'])
+        self.assertEqual([n.get_attribute('id') for n in browser.find_elements(By.CSS_SELECTOR,'input[checked]')], ['no'])
+
+    def test_immediate_start_date_skips_ai_and_replaces_saved_answer(self):
+        provider = Mock(side_effect=AssertionError('Availability must not be drafted'))
+        browser, questions = self.answer_native_form('''<dialog open><label for="start">What is your potential start date?*</label>
+          <input id="start" type="text" value="30 days" required maxlength="200"></dialog>''',
+          available_start_date='Immediate', notice_period='0', ai_descriptive_answers_enabled=True, _draft_answer=provider)
+        self.assertEqual(browser.find_element(By.CSS_SELECTOR,'input').get_attribute('value'), 'Immediate')
+        provider.assert_not_called()
+        self.assertEqual(next(iter(questions))[2], 'configured_availability')
+
+    def test_immediate_availability_select_uses_immediately_option(self):
+        browser, _ = self.answer_native_form('''<dialog open><label for="start">Availability</label><select id="start">
+          <option selected>30 days</option><option>Immediately</option></select></dialog>''', available_start_date='Immediate')
+        self.assertEqual([n.text for n in browser.find_elements(By.CSS_SELECTOR,'option[selected]')], ['Immediately'])
+
+    def test_posting_location_replaces_saved_first_option_before_continuing(self):
+        browser, _ = self.answer_native_form('''<dialog open><label for="office">Which location are you applying for?</label>
+          <select id="office"><option>Select an option</option><option selected>Los Angeles, CA</option>
+          <option>Oakland, CA</option><option>New York, NY</option><option>Toronto</option></select></dialog>''',
+          search_location='San Francisco Bay Area', _work_location='Oakland, CA')
+        self.assertEqual([n.text for n in browser.find_elements(By.CSS_SELECTOR,'option[selected]')], ['Oakland, CA'])
 
     def test_native_sponsorship_radios_use_configured_answer(self):
         browser, questions = self.answer_native_form('''<dialog open><fieldset>
@@ -569,15 +808,14 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(browser.find_element(By.CSS_SELECTOR, 'option[selected]').get_attribute('value'), 'video')
         self.assertEqual(next(iter(questions))[1], 'Video')
 
-    def test_unmatched_configured_radio_answer_uses_first_enabled_option(self):
-        browser, questions = self.answer_native_form('''<dialog open><fieldset>
+    def test_unmatched_sponsorship_answer_is_not_silently_defaulted(self):
+        with self.assertRaisesRegex(MissingApplicationAnswer, 'Configured sponsorship answer is not offered'):
+            self.answer_native_form('''<dialog open><fieldset>
             <legend>Will you require visa sponsorship?</legend>
             <input type="radio" disabled id="disabled"><label for="disabled">Unavailable</label>
             <input type="radio" id="yes"><label for="yes">Yes</label>
             <input type="radio" id="no"><label for="no">No</label>
             </fieldset></dialog>''', require_visa='No matching answer')
-        self.assertEqual(browser.chosen, ['Yes'])
-        self.assertEqual(next(iter(questions))[1], 'Yes')
 
     def test_native_gender_radios_honor_personal_answer(self):
         browser, questions = self.answer_native_form('''<dialog open><fieldset><legend>Gender</legend>

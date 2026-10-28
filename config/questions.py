@@ -10,13 +10,44 @@ default_resume_docx_path = "all resumes/default/resume.docx"      # (In Developm
 # default_resume_docx_path = "all resumes/default/pm_resume.docx"      # (In Development)
 
 # What do you want to answer for questions that ask about years of experience you have, this is different from current_experience? 
-years_of_experience = "6"          # A number in quotes Eg: "0","1","2","3","4", etc.
+years_of_experience = "8"          # A number in quotes Eg: "0","1","2","3","4", etc.
 
 # Do you need visa sponsorship now or in future?
-require_visa = "No"               # "Yes" or "No"
+require_visa = "No"               # "Yes" or "No"; user selected No for now.
 
 # What is the link to your portfolio website, leave it empty as "", if you want to leave this question unanswered
-website = ""                        # "www.example.bio" or "" and so on....
+website = "https://dannyb66.github.io/"  # Portfolio website used in future applications.
+
+# GitHub profile URL used for GitHub-specific application fields.
+github = "https://github.com/dannyb66"
+
+# Actual discovery source for directly supplied job URLs (e.g. "LinkedIn" or "Web search").
+# Leave empty when unknown; --discovery-source overrides this for a specific run.
+application_source = "Web"
+
+# For unanswered selection fields in direct preparation: "manual" or "first_option".
+unanswered_choice_policy = "first_option"
+
+# Exact LinkedIn job IDs whose employer privacy-notice checkbox you approve.
+# Applies only to the observed "I consent" / privacy-notice question.
+application_privacy_consent_job_ids = []
+# Approved default for the recognized employer privacy-notice "I consent" box.
+# Does not approve electronic signatures, employment terms or optional marketing.
+application_privacy_consent_default = True
+
+# School-specific mappings for incomplete LinkedIn education entries.
+# Example: {"School name": {"degree": "High School", "field_of_study": "..."}}
+application_education_overrides = {}
+# Use CV/profile and the existing school/timeline to infer missing dropdown choices.
+# Inferred choices are saved separately for audit/reuse; explicit overrides win.
+ai_education_answers_enabled = True
+
+# Names of relatives currently working at an employer, if applicable.
+# Empty means answer No to the corresponding employer-relative question.
+application_relative_employee_names = ""
+
+# DEI/demographic choices use an explicit opt-out instead of the first option.
+dei_choice_policy = "prefer_not_to_answer"
 
 # Please provide the link to your LinkedIn profile.
 linkedIn = "https://www.linkedin.com/in/dannybasavaraju/"       # "https://www.linkedin.com/in/example" or "" and so on...
@@ -30,7 +61,7 @@ us_citizenship = "Non-citizen allowed to work for any employer"
 ## SOME ANNOYING QUESTIONS BY COMPANIES 🫠 ##
 
 # What to enter in your desired salary question (American and European), What is your expected CTC (South Asian and others)?, only enter in numbers as some companies only allow numbers,
-desired_salary = 200000          # 80000, 90000, 100000 or 120000 and so on... Do NOT use quotes
+desired_salary = 300000          # 80000, 90000, 100000 or 120000 and so on... Do NOT use quotes
 '''
 Note: If question has the word "lakhs" in it (Example: What is your expected CTC in lakhs), 
 then it will add '.' before last 5 digits and answer. Examples: 
@@ -42,7 +73,7 @@ And if asked in months, then it will divide by 12 and answer. Examples:
 '''
 
 # What is your current CTC? Some companies make it compulsory to be answered in numbers...
-current_ctc = 150000            # 800000, 900000, 1000000 or 1200000 and so on... Do NOT use quotes
+current_ctc = 250000            # 800000, 900000, 1000000 or 1200000 and so on... Do NOT use quotes
 '''
 Note: If question has the word "lakhs" in it (Example: What is your current CTC in lakhs), 
 then it will add '.' before last 5 digits and answer. Examples: 
@@ -57,7 +88,9 @@ then it will add '.' before last 5 digits and answer. Examples:
 # currency = "INR"                 # "USD", "INR", "EUR", etc.
 
 # What is your notice period in days?
-notice_period = 30                   # Any number >= 0 without quotes. Eg: 0, 7, 15, 30, 45, etc.
+notice_period = 0                    # User confirmed immediate availability.
+# Used directly for start-date/availability questions; these do not need AI.
+available_start_date = "Immediate"    # "Immediate" or an explicit ISO date, e.g. "2026-11-01".
 '''
 Note: If question has 'month' or 'week' in it (Example: What is your notice period in months), 
 then it will divide by 30 or 7 and answer respectively. Examples:
@@ -138,7 +171,7 @@ confidence_level = "8"             # Any number between "1" to "10" including 1 
 
 ## Allow Manual Inputs
 # Should the tool pause before every submit application during easy apply to let you check the information?
-pause_before_submit = True         # True or False, Note: True or False are case-sensitive
+pause_before_submit = False         # True or False, Note: True or False are case-sensitive
 '''
 Note: Will be treated as False if `run_in_background = True`
 '''

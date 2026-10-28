@@ -71,6 +71,30 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(request.input_sets[0]["stage"], input_stage)
                 self.assertEqual(json.loads(output.read_text())["stage"], result_stage)
 
+    def test_apply_linkedin_dispatches_deferred_retry_ledger(self):
+        path = self.directory / "retry_jobs.json"
+        path.write_text(json.dumps({"version": 1, "purpose": "retry_prepared_applications", "records": []}))
+        backend = Mock(return_value={"status": "complete", "selected_job_ids": ["123"], "confirmed_submissions": 1})
+        with patch.dict(sys.modules, {"runAiBot": SimpleNamespace(run_deferred_retries=backend)}):
+            self.assertEqual(self.invoke(["apply", "linkedin", "--input", str(path), "--limit", "1", "--job-id", "123"]), 0)
+        backend.assert_called_once_with(str(path), 1, "123")
+        self.assertEqual(json.loads(self.stdout.getvalue())["selected_job_ids"], ["123"])
+
+    def test_retry_auto_submit_is_explicitly_forwarded(self):
+        path = self.directory / "retry_jobs.json"
+        path.write_text(json.dumps({"version": 1, "purpose": "retry_prepared_applications", "records": []}))
+        backend = Mock(return_value={"status": "complete"})
+        with patch.dict(sys.modules, {"runAiBot": SimpleNamespace(run_deferred_retries=backend)}):
+            self.assertEqual(self.invoke(["apply", "linkedin", "--input", str(path), "--limit", "50", "--auto-submit"]), 0)
+        backend.assert_called_once_with(str(path), 50, None, auto_submit=True)
+
+    def test_auto_submit_without_retry_ledger_is_rejected(self):
+        backend = Mock()
+        with patch.dict(sys.modules, {"runAiBot": SimpleNamespace(run_pipeline=backend)}):
+            self.assertEqual(self.invoke(["apply", "linkedin", "--auto-submit"]), 2)
+        backend.assert_not_called()
+        self.assertIn('deferred retry ledger', self.stderr.getvalue())
+
     def test_repeatable_named_sets_are_validated_before_backend(self):
         with PipelineStore(self.db) as store:
             store.import_artifact(artifact("verified_roles", "one"))

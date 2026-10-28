@@ -593,29 +593,30 @@ class PreparationResolver:
                 )), 'candidate_config:employment_eligibility_statement', '')
             except ValueError:
                 return answer
-        # Qualified sponsorship prose can repeat explicit supplied policy, but
-        # never derive it from a visa/citizenship label or a JD requirement.
+        # Sponsorship wording varies between portals. Reuse only the explicit
+        # require_visa setting; never infer it from a visa/citizenship label or
+        # a JD requirement.
         sponsorship = normalize_label(question['label'])
-        if (self.job_country == 'US' and sponsorship in {
-            'will you now or in the future require company sponsorship to retain or extend your work authorization in the country where the job is located',
-            'will you now or in the future require sponsorship for employment visa status to work in this location'}
-            and self.typed.candidate.get('require_visa') in {'Yes', 'No'}):
+        sponsorship_question = bool(re.match(r'^will you\b', sponsorship) and
+            re.search(r'\brequir\w*\b', sponsorship) and re.search(r'\bsponsor\w*\b', sponsorship))
+        if (sponsorship_question and self.typed.candidate.get('require_visa') in {'Yes', 'No'} and
+            question.get('kind') in {'text', 'textarea', 'select', 'radio'}):
             try:
                 value = self.typed.candidate['require_visa']
                 equivalents = ('No, I do not and will not require immigration sponsorship to legally work in the country where the job is located.',) if value == 'No' else ()
                 return Answer(configured_fact_choice(question, value, equivalents), 'candidate_config:require_visa', '')
             except ValueError:
-                return Answer(reason='Configured answer does not match live sponsorship options')
-        if (question['kind'] in {'text', 'textarea'} and
-            re.match(r'^will you now or in the future require sponsorship for employment\b', sponsorship) and
-            self.typed.candidate.get('require_visa') in {'Yes', 'No'}):
-            value = self.typed.candidate['require_visa']
-            if value == 'Yes' and self.typed.candidate.get('visa_status'):
-                value += '. ' + self.typed.candidate['visa_status']
-            return Answer(validate_answer(question, value), 'candidate_config:require_visa', '')
+                if question.get('kind') in {'select', 'radio'}:
+                    return Answer(reason='Configured answer does not match live sponsorship options')
+                value = self.typed.candidate['require_visa']
+                return Answer(validate_answer(question, value), 'candidate_config:require_visa', '')
         discovery = self.typed.candidate.get('application_source')
         if re.search(r'\breferr(?:ed|er|al)\b.*\b(?:name|connection|someone|person)\b|\b(?:someone|person)\b.*\breferr', evidence, re.I):
-            return Answer(reason='A named referral/relationship requires an explicit configured answer; AI prose is not used')
+            source = normalize_label(discovery or '')
+            if question['kind'] in {'text', 'textarea'} and source in {'web', 'web search', 'internet', 'online'}:
+                return Answer(validate_answer(question, 'N/A — I found this opening online and applied directly; no personal referral.'),
+                              'candidate_config:application_source', '')
+            return Answer(reason='A named referral/relationship needs an explicit truthful answer; AI prose is not used')
         if discovery and re.search(r'how did you hear|where did you hear|how did you find', evidence, re.I):
             if question['kind'] in {'select', 'radio', 'multiselect'}:
                 options = question.get('options', [])

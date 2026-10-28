@@ -55,23 +55,24 @@ def refinement(roles, **overrides):
 
 
 class RenderingTests(unittest.TestCase):
-    def test_every_existing_intent_and_gate_is_preserved(self):
+    def test_keyword_prompt_keeps_constraints_in_snapshot_not_search_text(self):
         config = search_config()
         snapshot = filters_snapshot(config)
         self.assertEqual(snapshot["intent"], {key: config[key] for key in INTENT_FIELDS})
         self.assertEqual(snapshot["gates"], {key: config[key] for key in GATE_FIELDS})
         text = render_query("Staff AI Platform Engineer", profile(), config)
         for value in (
-            "Staff AI Platform Engineer", "San Francisco Bay Area", "$200,000+",
-            "Mid-Senior level", "Full-time", "Remote", "Hybrid", "Example Company",
-            "Oakland, California", "Software Development", "Engineering", "Staff Engineer",
-            "Medical insurance", "Career growth", "past month", "Easy Apply", "under 10 applicants",
-            "my network", "fair chance employers", "Python", "distributed systems",
-            "Staffing", "US Citizen", "contract-to-hire", "security clearance", "8 years",
-            "two additional years", "master's degree",
+            "Staff AI Platform Engineer",
+            "Python", "distributed systems",
         ):
             with self.subTest(value=value):
                 self.assertIn(value, text)
+        for value in ("San Francisco Bay Area", "$200,000+", "Full-time", "Remote", "Hybrid",
+                      "Example Company", "Easy Apply", "past month", "US Citizen", "Staffing",
+                      "security clearance", "8 years", "Medical insurance", "my network",
+                      "Job functions:", "Industries:", "Related titles:"):
+            with self.subTest(filter_value=value):
+                self.assertNotIn(value, text)
 
     def test_configuration_is_read_each_time_and_snapshot_is_independent(self):
         config = search_config()
@@ -80,7 +81,8 @@ class RenderingTests(unittest.TestCase):
         config["companies"].append("Another Company")
         second = build_search_plan(profile(), config)
         self.assertNotIn("New York", first[0].query_text)
-        self.assertIn("New York", second[0].query_text)
+        self.assertEqual(first[0].query_text, second[0].query_text)
+        self.assertEqual(second[0].filters_snapshot["intent"]["search_location"], "New York")
         self.assertEqual(first[0].filters_snapshot["intent"]["companies"], ["Example Company"])
         self.assertEqual(first[0].query_id, second[0].query_id)
         first[0].filters_snapshot["intent"]["companies"].append("Mutation")
@@ -89,7 +91,8 @@ class RenderingTests(unittest.TestCase):
     def test_module_like_configuration_is_supported(self):
         specs = build_search_plan(SimpleNamespace(**profile()), SimpleNamespace(**search_config()))
         self.assertEqual(len(specs), 2)
-        self.assertIn("San Francisco Bay Area", specs[0].query_text)
+        self.assertIn("Python", specs[0].query_text)
+        self.assertEqual(specs[0].filters_snapshot["intent"]["search_location"], "San Francisco Bay Area")
 
     def test_disabled_preferences_do_not_add_requirements(self):
         text = render_query("Staff Engineer", profile(skills=[]), search_config(
@@ -221,8 +224,8 @@ class RefinementTests(unittest.TestCase):
         specs = build_search_plan(settings, config, refine=refine)
         self.assertEqual([spec.source for spec in specs], ["ai_refined", "ai_refined"])
         self.assertEqual(specs[0].classic_query, "Principal Backend Systems Engineer")
-        self.assertTrue(all("Exclude descriptions containing: US Citizen, contract-to-hire" in spec.query_text for spec in specs))
-        self.assertTrue(all("San Francisco Bay Area" in spec.query_text for spec in specs))
+        self.assertTrue(all(spec.filters_snapshot["gates"]["bad_words"] == config["bad_words"] for spec in specs))
+        self.assertTrue(all(spec.filters_snapshot["intent"]["search_location"] == config["search_location"] for spec in specs))
         refine.assert_called_once_with(settings["role_lanes"], settings["skills"], filters_snapshot(config))
 
     def test_invalid_empty_duplicate_and_unsupported_responses_fall_back(self):

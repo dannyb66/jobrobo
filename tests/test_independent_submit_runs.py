@@ -1,19 +1,27 @@
 """Independent-run contracts; no network, credentials or employer actions."""
 import json
 import os
+import threading
+import uuid
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from modules.external_apply import ExternalApplicationLedger, ExternalApplicationResult
 from modules.generic_inputs import load_jobs
 from modules.job_pipeline.store import PipelineStore
-from modules.submit_runner import run_submissions
+from modules.submit_runner import explicit_portal_rejection, run_submissions
 from modules.submit_state import SubmitRun
 
 
 class IndependentRunsTests(TestCase):
+    def test_explicit_spam_rejection_is_distinguished_from_unknown_outcome(self):
+        rejected={'alerts':["We couldn't submit your application. Your application submission was flagged as possible spam."],
+                  'headings':[]}
+        self.assertIn('rejected the application',explicit_portal_rejection(rejected))
+        self.assertEqual(explicit_portal_rejection({'alerts':['Please check the required fields.']}),'')
+
     def setUp(self):
         self.temp=TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name).resolve()
@@ -136,3 +144,129 @@ class IndependentRunsTests(TestCase):
         self.assertEqual(resumed['counts'],{'submission_uncertain':1,'applied':1})
         self.assertEqual(self.visited,[jobs[1]['url']]);self.assertEqual(self.history.read_bytes(),historical)
         self.assertEqual(Path(resumed['options']['ledger_path']),self.root/'legacy/applications-ledger.json')
+
+    def test_parallel_workers_process_independent_jobs_concurrently_and_checkpoint_each(self):
+        jobs=sum((load_jobs(url=f'https://example.test/job/parallel-{i}') for i in range(1,5)),[])
+        gate=threading.Barrier(2);active=0;peak=0;guard=threading.Lock();created=[];first_urls=set()
+        def prepare(url,**kwargs):
+            nonlocal active,peak
+            with guard:
+                active+=1;peak=max(peak,active)
+            try:
+                with guard:
+                    wait_for_pair=url.endswith('/parallel-1') or url.endswith('/parallel-2')
+                    if wait_for_pair:first_urls.add(url)
+                    is_first_pair=wait_for_pair and len(first_urls)<=2
+                if is_first_pair:gate.wait(timeout=5)
+                return {'status':'blocked','blockers':['synthetic validation stop'],
+                    'output_dir':str(self.root/'synthetic'/url.rsplit('/',1)[-1]),
+                    'resume':{'pdf_sha256':'synthetic-sha'},'jd_sha256':'synthetic-jd'}
+            finally:
+                with guard:active-=1
+        def make_driver():
+            created.append(threading.get_ident())
+            driver=Mock();driver.capabilities={'goog:chromeOptions':{}}
+            driver.current_window_handle='worker-tab-'+str(uuid.uuid4())
+            return driver
+        result=run_submissions(jobs,config_dir=self.config,output_dir=self.cache,
+            services=self.services,driver_factory=make_driver,preparer=prepare,
+            workers=2,pause='never',max_applications=4,run_dir=self.root/'parallel-run')
+        self.assertEqual(peak,2)
+        self.assertEqual(result['counts'],{'blocked':4})
+        self.assertEqual(len(created),2,'each bounded worker should reuse its own browser context across URLs')
+        self.assertEqual(len({job['url'] for job in result['jobs']}),4)
+        self.assertEqual(len({job.get('worker_id') for job in result['jobs']}),2)
+        events=[json.loads(line) for line in (Path(result['run_dir'])/'events.jsonl').read_text().splitlines()]
+        self.assertEqual({event['job_key'] for event in events if event.get('stage')=='worker_reserved'},
+            {job['key'] for job in jobs})
+        self.assertTrue(all(job.get('attempts')==1 and job.get('stage')=='preparation_finished' for job in result['jobs']))
+
+    def test_ten_url_kernel_worker_run_reuses_four_sessions_without_submitting(self):
+        jobs=sum((load_jobs(url=f'https://example.test/synthetic-{i}') for i in range(10)),[])
+        gate=threading.Barrier(4);active=0;peak=0;guard=threading.Lock();created=[]
+        class FakeSwitch:
+            def __init__(self,driver):self.driver=driver
+            def new_window(self,_kind):
+                self.driver.current_window_handle='tab-'+str(uuid.uuid4())
+        class FakeKernelBrowser:
+            browser_backend='kernel'
+            def __init__(self,*,settings,run_id,session_id=None,client=None,telemetry_offset=0):
+                created.append(run_id);self.session_id='synthetic-session-'+run_id
+                self.current_window_handle='initial';self.switch_to=FakeSwitch(self)
+                self.capabilities={'goog:chromeOptions':{'debuggerAddress':'synthetic'}}
+            def set_window_size(self,*_args):pass
+            def set_page_load_timeout(self,*_args):pass
+            def finish(self,*,retain=False):pass
+        def prepare(url,**kwargs):
+            nonlocal active,peak
+            with guard:active+=1;peak=max(peak,active)
+            try:
+                if url.endswith(('synthetic-0','synthetic-1','synthetic-2','synthetic-3')):gate.wait(timeout=5)
+                return {'status':'blocked','blockers':['synthetic validation stop'],
+                    'output_dir':str(self.root/'synthetic'/url.rsplit('/',1)[-1]),
+                    'resume':{'pdf_sha256':'synthetic-sha'},'jd_sha256':'synthetic-jd'}
+            finally:
+                with guard:active-=1
+        with patch('modules.kernel_browser.browser_configuration',return_value=('kernel',{})), \
+             patch('modules.kernel_browser.kernel_preflight'), \
+             patch('modules.kernel_browser.KernelBrowser',FakeKernelBrowser):
+            result=run_submissions(jobs,config_dir=self.config,output_dir=self.cache,
+                services=self.services,preparer=prepare,workers=4,pause='never',max_applications=10,
+                browser_backend='kernel',run_dir=self.root/'kernel-ten-url-run')
+        self.assertEqual(peak,4)
+        self.assertEqual(len(created),4)
+        self.assertEqual(result['counts'],{'blocked':10})
+        self.assertEqual(len({job.get('worker_id') for job in result['jobs']}),4)
+        self.assertTrue(all(job.get('kernel_session_id','').startswith('synthetic-session-') for job in result['jobs']))
+        self.assertTrue(all(job.get('tab_handle') for job in result['jobs']))
+
+    def test_kernel_startup_permission_failure_stops_repeated_session_creation(self):
+        jobs=sum((load_jobs(url=f'https://example.test/denied-{i}') for i in range(10)),[])
+        calls=[]
+        class DeniedKernelBrowser:
+            def __init__(self,**_kwargs):
+                calls.append(1)
+                raise ValueError('Kernel browser setup failed (PermissionDeniedError); check credentials, connectivity and account limits')
+        with patch('modules.kernel_browser.browser_configuration',return_value=('kernel',{})), \
+             patch('modules.kernel_browser.kernel_preflight'), \
+             patch('modules.kernel_browser.KernelBrowser',DeniedKernelBrowser):
+            result=run_submissions(jobs,config_dir=self.config,output_dir=self.cache,
+                services=self.services,preparer=self.prepared,workers=4,pause='never',max_applications=10,
+                browser_backend='kernel',run_dir=self.root/'kernel-denied-run')
+        self.assertEqual(len(calls),1,'a shared Kernel startup failure should not trigger retries from other workers')
+        self.assertEqual(sum(state['status']=='failed_before_submit' for state in result['jobs']),len(calls))
+        self.assertEqual(sum(state['status']=='pending' for state in result['jobs']),10-len(calls))
+        self.assertTrue(all('PermissionDeniedError' in state.get('reason','')
+            for state in result['jobs'] if state['status']=='failed_before_submit'))
+
+    def test_parallel_resume_monitors_saved_worker_session_and_retains_unresolved(self):
+        jobs=load_jobs(url='https://example.test/resume-manual')
+        directory=self.root/'resume-worker'
+        saved=SubmitRun(directory,jobs=jobs,options={'config_dir':str(self.config),'output_dir':str(self.cache),
+            'pause':'always','max_applications':10,'workers':2,'browser_backend':'kernel',
+            'kernel_settings':{},'set_name':'direct-submissions'})
+        saved.update(jobs[0],status='awaiting_manual_submit',stage='manual_tab',worker_id='worker-01',
+            kernel_session_id='saved-session',tab_handle='saved-tab',manual_tab={'target_id':'saved-tab','token':'attempt'})
+        saved.close()
+        finished=[]
+        class FakeSwitch:
+            def window(self,_handle):pass
+        class FakeKernelBrowser:
+            browser_backend='kernel'
+            def __init__(self,**_kwargs):
+                self.session_id='saved-session';self.switch_to=FakeSwitch()
+            def set_window_size(self,*_args):pass
+            def set_page_load_timeout(self,*_args):pass
+            def finish(self,*,retain=False):finished.append(retain)
+        class FakeMonitor:
+            tabs={}
+            def __init__(self,*_args,**_kwargs):pass
+            def restore(self,**_kwargs):pass
+            def close(self):pass
+        with patch('modules.kernel_browser.browser_configuration',return_value=('kernel',{})), \
+             patch('modules.kernel_browser.kernel_preflight'), \
+             patch('modules.kernel_browser.KernelBrowser',FakeKernelBrowser):
+            result=run_submissions(resume_dir=directory,config_dir=self.config,services=self.services,
+                tab_monitor_factory=FakeMonitor,browser_backend='kernel')
+        self.assertEqual(result['counts'],{'awaiting_manual_submit':1})
+        self.assertEqual(finished,[True])
