@@ -330,7 +330,10 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                 from . import captcha_solver
                 if captcha_solver.enabled():
                     run.update(job, status='submitting', stage='captcha_after_submit')
-                    if captcha_solver.cleared(captcha_solver.solve(browser.driver)):
+                    outcome_record = captcha_solver.solve(browser.driver)
+                    report['challenge'] = outcome_record
+                    run.update(job, captcha_event=captcha_solver.describe(outcome_record))
+                    if captcha_solver.cleared(outcome_record):
                         solved_after_submit = True
                         continue
             if scoped and email_verification_required(state):
