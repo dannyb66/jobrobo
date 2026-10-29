@@ -1,6 +1,6 @@
 # Resume optimizer reference
 
-This page describes the implemented optimizer contract. See [How to ATS-optimize a resume](how-to-ats-optimize.md) for a walkthrough and [Architecture](architecture.md) for the system flow.
+This page describes the implemented optimizer contract. See [How to ATS-optimize a resume](how-to-ats-optimize.md) for a walkthrough and [Architecture](architecture.md) for the system flow. The mode tables and bank-selection behavior below describe the ordinary path. With `rewrite_all_bullets=true`, use the [complete bullet rewrite contract](resume-all-bullets.md); see [PDF formatting and verified reuse](resume-formatting.md) for fullness targets, PDF title metadata and upload-cache behavior.
 
 ## Public entry point
 
@@ -66,7 +66,7 @@ This is the path used by the loader, including when run outside macOS. Current b
 | `project_bullet_banks` | Company/project bank specifications used for exact bullet replacement. |
 | `role_profile` | `auto`, or an explicit profile name from the skills guide. |
 | `allow_unverified_bank_terms` | `true`; allows dagger-marked skills-bank vocabulary into keyword guidance. `false` filters those bank suggestions. |
-| `max_skills` | `50`; upper limit on Skills entries, also bounded by the original entry count. |
+| `max_skills` | `65`; ordinary-path upper limit on Skills entries, also bounded by the original entry count. With all-bullets Skills expansion enabled, it is the priority-pool size; see the complete bullet rewrite contract. |
 | `expected_page_count` | `2`; required number of rendered output pages. |
 | `resume_path` | Source DOCX or PDF path used by the GUI/module entry point. |
 | `job_id`, `job_title`, `job_description` | Output identifier and target job context. |

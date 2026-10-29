@@ -48,9 +48,12 @@ def _config_dependencies(config: dict, repo_root: Path) -> dict[str, str]:
                 pass
 
     visit(config)
+    # Every resume helper can change generation, layout or verification. Hash
+    # the complete family so upgrades cannot silently reuse an older artifact.
+    paths.update(path.resolve() for path in (repo_root / "modules").glob("resume_*.py")
+                 if path.is_file())
     paths.update((repo_root / relative).resolve() for relative in (
         "modules/ai/resume_optimizer.py",
-        "modules/resume_all_bullets.py",
         "config/prompts/resume_bullets.txt",
     ) if (repo_root / relative).is_file())
     result = {}

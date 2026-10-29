@@ -1,4 +1,6 @@
 # LinkedIn AI Auto Job Applier 🤖
+
+> Documentation snapshot of the programme working tree on 21 October 2026. This documentation-only branch does not release the implementation code. All-bullets optimization, direct employer applications, and newer CLI options require the corresponding implementation branch or local working tree; an older `main` checkout may not support them.
 This is a web scraping bot that automates the process of job applications on LinkedIn. It searches for jobs relevant to you, answers application questions from your configured profile, customizes the resume using job information, and can submit Easy Apply applications. The bot can process many applications quickly, but it should be run with a submission pause enabled until the answers and resume output have been reviewed.
 
 
@@ -556,6 +558,8 @@ Use this sequence before allowing unattended applications:
 The following bank-selection details describe the ordinary path when
 `rewrite_all_bullets=false`. The current saved all-bullets path has separate
 [policy, Skills-width, source-retention and attachment rules](docs/TASK11-README.md#current-optimizer-options).
+
+See the [PDF formatting and cache behavior](docs/resume-formatting.md) for line-fill settings, preserved layout, and reuse across fresh searches.
 
 The optimizer keeps the existing job-description keyword extraction flow and adds
 curated vocabulary guidance from
@@ -1157,7 +1161,7 @@ https://discord.gg/fFp7uUzWCY
 - **X/Twitter**: https://x.com/deepakcool3
 
 
-#### ℹ️ Version: [0.1.3.0](VERSION)
+#### ℹ️ Version: [0.1.6.0](VERSION)
 
 ---
 

@@ -41,6 +41,16 @@ class ResumeCacheTest(unittest.TestCase):
         (self.repo / "config" / "prompts" / "resume_bullets.txt").write_text("prompt v2")
         self.assertNotEqual(original, self.fingerprint())
 
+    def test_layout_and_verification_helper_changes_invalidate_key(self):
+        for name in ("resume_skills_layout.py", "resume_jd_experiment.py",
+                     "resume_company_context.py", "resume_layout.py"):
+            with self.subTest(module=name):
+                path = self.repo / "modules" / name
+                path.write_text("v1")
+                original = self.fingerprint()
+                path.write_text("v2")
+                self.assertNotEqual(original, self.fingerprint())
+
     def test_long_context_text_is_not_treated_as_a_filename(self):
         config = {**self.config, "company_context": "Morgan Stanley\n" + ("context " * 10000)}
         key = resume_cache_fingerprint(job_id="123", job_description="JD", source_resume=self.source,

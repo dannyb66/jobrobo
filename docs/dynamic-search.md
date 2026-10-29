@@ -7,12 +7,12 @@ Dynamic searches turn your role intent and existing search preferences into natu
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `profile_name` | `"staff-principal-ai-platform"` | Identifies the profile in manifests and CSV history. |
-| `profile_version` | `"2"` | Identifies the profile revision. Use a nonempty string. |
+| `profile_version` | `"3"` | Identifies the profile revision. Use a nonempty string. |
 | `dynamic_search_enabled` | `True` | Generates queries from `role_lanes`. Manual and legacy searches still run when disabled. |
 | `ai_query_refinement_enabled` | `True` | Attempts OpenAI role-query refinement for generated searches. |
 | `role_lanes` | 22 configured engineering lanes | Nonempty strings describing roles. At least one is required when dynamic search is enabled. |
 | `skills` | AI, platform, and infrastructure skills | Nonempty strings added to each natural-language query. |
-| `manual_searches` | One enabled Staff AI Platform Engineer search | Explicit queries with stable IDs and optional quota overrides. |
+| `manual_searches` | FDE enabled first; prior Staff AI Platform prompt saved disabled | Explicit queries with stable IDs and optional quota overrides. |
 | `resume_search_enabled` | `True` | Automatically resumes the latest matching unfinished run. |
 | `search_state_dir` | `"logs/search_runs"` | Stores run manifests and the runner lock. |
 
@@ -27,12 +27,18 @@ Edit `manual_searches` in `config/search_profile.py`:
 ```python
 manual_searches = [
     {
+        "id": "forward-deployed-engineer",
+        "query": "Forward Deployed Engineer (FDE) or Forward-Deployed Software Engineer",
+        "enabled": True,
+        "role_label": "Forward Deployed Engineer",
+        "notes": "Run this lane first; inherit switch_number from config/search.py.",
+    },
+    {
         "id": "staff-ai-platform",
         "query": "Staff AI Platform Engineer",
-        "enabled": True,
+        "enabled": False,
         "quota": 1,
-        "role_label": "Staff AI Platform Engineer",
-        "notes": "Keep this role as an explicit search lane.",
+        "notes": "Previous first prompt, retained for future reuse.",
     },
     {
         "id": "principal-backend",
@@ -75,7 +81,7 @@ The runner also checks each job's location and work arrangement before opening a
 
 ## Query generation and OpenAI fallback
 
-The planner adds enabled manual searches first, legacy `search_terms` second, and generated role lanes third. It deduplicates the rendered queries after Unicode normalization, case folding, and whitespace normalization. The first query retains its source, ID, and quota. With `randomize_search_order = True`, execution order is shuffled after planning; deduplication precedence remains the same.
+The planner adds enabled manual searches first, legacy `search_terms` second, and generated role lanes third. It deduplicates the rendered queries after Unicode normalization, case folding, and whitespace normalization. The first query retains its source, ID, and quota. FDE / Forward Deployed lanes execute first, followed by Staff/Principal lanes, other engineering lanes, and Founding lanes. The supplied FDE manual lane inherits `switch_number` (currently 10), then execution continues through the remaining searches. With `randomize_search_order = True`, execution order is shuffled after planning; deduplication precedence remains the same.
 
 Manual IDs come from their configured `id`. Legacy, generated, and AI-refined IDs are derived from their source and normalized role wording. Sources are `manual`, `legacy`, `generated`, or `ai_refined`. AI-refined lanes replace the deterministic generated lanes when refinement succeeds; manual and legacy definitions remain available.
 

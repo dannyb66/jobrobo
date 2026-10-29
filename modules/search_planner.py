@@ -30,6 +30,8 @@ def stable_id(source, text):
 
 
 def role_priority(title):
+    if re.search(r"\bfde\b|\bforward[\s-]+deployed\b", title, re.I):
+        return -1
     if re.search(r"\bfounding\b", title, re.I):
         return 2
     leveled = re.sub(r"\bmember(?: of)? technical staff\b", "", title, flags=re.I)

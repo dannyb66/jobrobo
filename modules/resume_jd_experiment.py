@@ -148,4 +148,3 @@ def replace_skills(doc, start, end, skills, optimizer):
             while pending and (not chosen or len(', '.join(chosen + pending[:1])) <= capacity):
                 chosen.append(pending.pop(0))
         optimizer._replace_paragraph_text(paragraph, ', '.join(chosen))
-

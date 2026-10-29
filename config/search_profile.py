@@ -1,7 +1,7 @@
 """Semantic search intent. Locations and filters belong in config/search.py."""
 
 profile_name = "staff-principal-ai-platform"
-profile_version = "2"
+profile_version = "3"
 dynamic_search_enabled = True
 ai_query_refinement_enabled = True
 
@@ -36,8 +36,15 @@ skills = [
 ]
 
 manual_searches = [
+    {"id": "forward-deployed-engineer",
+     "query": "Find Forward Deployed Engineer (FDE), Forward-Deployed Software Engineer, "
+              "and Forward Deployed AI Engineer roles focused on customer-facing implementation, "
+              "production AI deployments, technical integrations, and hands-on software engineering",
+     "role_label": "Forward Deployed Engineer",
+     "enabled": True},  # Uses switch_number from config/search.py.
+    # Previous first prompt retained for future reuse; set enabled=True to restore.
     {"id": "staff-ai-platform", "query": "Staff AI Platform Engineer",
-     "enabled": True, "quota": 1},
+     "enabled": False, "quota": 1},
 ]
 
 # Resume the latest unfinished run with the same configuration automatically.

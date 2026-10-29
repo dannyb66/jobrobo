@@ -131,6 +131,18 @@ class PlanningTests(unittest.TestCase):
         settings["manual_searches"][0]["query"] = "Principal Infrastructure Engineer"
         self.assertEqual(build_search_plan(settings, search_config())[0].query_id, specs[0].query_id)
 
+    def test_forward_deployed_lane_precedes_staff_and_inherits_quota(self):
+        for role in ("Forward Deployed Engineer", "Forward-Deployed Software Engineer", "FDE"):
+            with self.subTest(role=role):
+                settings = profile(manual_searches=[{
+                    "id": "fde", "query": role, "enabled": True,
+                }])
+                specs = build_search_plan(settings, search_config(
+                    search_terms=["Principal Software Engineer"], switch_number=10))
+                self.assertEqual(specs[0].query_id, "manual:fde")
+                self.assertEqual(specs[0].quota, 10)
+                self.assertEqual(specs[1].classic_query, "Principal Software Engineer")
+
     def test_legacy_only_runs_when_dynamic_search_is_disabled(self):
         specs = build_search_plan(profile(dynamic_search_enabled=False, role_lanes=[]),
                                   search_config(search_terms=["Software Engineer", "Backend Engineer"]))
