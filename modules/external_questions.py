@@ -163,7 +163,7 @@ def collect_questions(fields):
 CANDIDATE_LABELS = {
     "first name": "first_name", "last name": "last_name", "full name": "full_name", "name": "full_name",
     "email": "email", "email address": "email", "your email": "email", "your email address": "email", "phone": "phone", "phone number": "phone",
-    "linkedin": "linkedin", "linkedin profile": "linkedin", "linkedin url": "linkedin", "website": "website", "portfolio": "website", "github": "github",
+    "linkedin": "linkedin", "linkedin profile": "linkedin", "linkedin url": "linkedin", "website": "website", "portfolio": "website", "portfolio link to your work": "website", "github": "github",
     "github profile": "github", "github profile url": "github", "github url": "github",
     "full legal name": "full_name", "please state your full legal name": "full_name",
     "current city": "city", "city": "city", "street address": "street", "state": "state", "zip code": "zipcode", "postal code": "zipcode", "country": "country",
@@ -177,7 +177,12 @@ CANDIDATE_LABELS = {
 
 def _candidate_key(label):
     normalized = normalize_label(label)
-    key = CANDIDATE_LABELS.get(normalized) or (CANDIDATE_LABELS.get(normalized[5:]) if normalized.startswith('your ') else None)
+    # Prompts routinely append a hint inside the label, e.g. "Linkedin Profile
+    # (write N/A if you don't have one)". Try the bare label before the full one
+    # so a known field still maps; the hint is not part of the field's identity.
+    bare = normalize_label(re.sub(r'\([^()]*\)\s*$', '', str(label or '')))
+    key = (CANDIDATE_LABELS.get(bare) or CANDIDATE_LABELS.get(normalized)
+           or (CANDIDATE_LABELS.get(normalized[5:]) if normalized.startswith('your ') else None))
     if key:
         return key
     if re.fullmatch(r'(?:(?:please )?(?:state|enter|provide)|what is) (?:your )?(?:full )?legal name', normalized):

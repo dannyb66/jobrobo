@@ -348,3 +348,19 @@ class NativeFormTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class CandidateKeyHintTests(unittest.TestCase):
+    """A hint in parentheses is part of the prompt, not the field's identity."""
+
+    def test_known_field_survives_a_trailing_hint(self):
+        from modules.external_questions import _candidate_key
+        self.assertEqual(_candidate_key("Linkedin Profile (write N/A if you don't have one)"), 'linkedin')
+        self.assertEqual(_candidate_key('Email (work address preferred)'), 'email')
+
+    def test_hint_alone_does_not_invent_a_mapping(self):
+        from modules.external_questions import _candidate_key
+        self.assertIsNone(_candidate_key('Describe your day (in 200 words)'))
+
+    def test_portfolio_wording_maps_to_the_website(self):
+        from modules.external_questions import _candidate_key
+        self.assertEqual(_candidate_key('Portfolio/Link to your work'), 'website')
