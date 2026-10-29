@@ -26,6 +26,8 @@ def parser():
     prepare.add_argument("--config-dir", default=str(Path(__file__).resolve().parent / "config"))
     prepare.add_argument("--output-dir", default="logs/url_preparations")
     prepare.add_argument("--questions", help="Private typed per-question overrides")
+    prepare.add_argument("--captcha-solver", action="store_true",
+                         help="Clear vendor access challenges on employer pages (needs CAPTCHA_KRAKEN_API_KEY)")
     prepare.add_argument("--discovery-source", help="Actual source of this job URL, used only for referral-source questions")
     prepare.add_argument("--chrome-profile", help="Dedicated browser profile")
     prepare.add_argument("--leave-open", action="store_true", help="Keep the dedicated final draft open after saving evidence; close it before reusing its profile")
@@ -153,6 +155,12 @@ def main(argv=None):
         elif args.command == "prepare":
             from modules.generic_prepare import run_preparations
             from modules.generic_inputs import load_jobs
+            if args.captcha_solver:
+                from modules import captcha_solver as solver
+                solver.enable()
+                ready, why = solver.available()
+                if not ready:
+                    raise ValueError(f'--captcha-solver is unavailable: {why}')
             urls = load_jobs(args.inputs or ([args.urls_file] if args.urls_file else []), url=args.url,
                 db_path=args.db, selected_roles=args.role, limit=args.limit)
             results = run_preparations(urls, config_dir=args.config_dir, output_dir=args.output_dir,

@@ -1087,6 +1087,12 @@ Known limits: Greenhouse renders its required questions as react-select
 comboboxes, which stay manual. Ashby may flag a submission as possible spam
 after a clean solve; that is the employer's call, not the solver's.
 
+Review mode does not clear the challenge for you. `prepare` never clicks
+Submit, and an invisible reCAPTCHA stays idle until Submit runs it, so a
+challenge that only appears on submit is still the reviewer's job. A challenge
+already visible when the form loads is solved normally. Use
+`--pause-before-submit never` when you want the solver to handle it end to end.
+
 See `logs/captcha-eval/` for a dated live run across Ashby, Lever and Greenhouse.
 
 [back to index](#-content)
