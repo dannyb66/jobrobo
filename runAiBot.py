@@ -1185,7 +1185,17 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
     # all_single_line_questions = modal.find_elements(By.XPATH, ".//div[@data-test-single-line-text-form-component]")
     # all_questions = all_questions + all_list_questions + all_single_line_questions
 
-    for Question in all_questions:
+    field_errors = []
+    from modules.linkedin_easy_apply import MissingApplicationAnswer
+
+    def fill_independently(field, fill):
+        try:
+            fill(field)
+        except (MissingApplicationAnswer, ValueError) as error:
+            field_errors.append(error)
+            application_log(f'Application field unresolved ({type(error).__name__}); continuing other fields')
+
+    def fill_question(Question):
         # Check if it's a select Question
         select = try_xp(Question, ".//select", False)
         if not select:
@@ -1222,7 +1232,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     print_lg('Completed a missing LinkedIn work-history end date using the closest dated role in the source resume.')
                     questions_list.add((f'{label_org} [ {" ".join(option.text for option in select.options)} ]',
                                         answer, "select", selected_option))
-                    continue
+                    return
             if selected_option.strip().casefold() in {'month', 'year'}:
                 application_log('Could not populate one resume-backed work-history date field from available LinkedIn options')
             options = '"List of phone country codes"' if label == "phone country code" else "".join(
@@ -1242,7 +1252,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 if not dropdown_placeholder(selected_option):
                     clear_optional_choice(driver, select_element)
                 questions_list.add((label_org, '', 'declined_optional', prev_answer))
-                continue
+                return
             if overwrite_previous_answers or dropdown_placeholder(selected_option) or disclosure or label == 'country' or relatives_question or sponsorship_question(label) or available is not None or application_location is not None:
                 requested = None
                 if sponsorship_question(label):
@@ -1283,7 +1293,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     print_lg(f'No matching configured answer for "{label_org}"; defaulting to the first enabled option.')
                     globals().setdefault('defaulted_questions', set()).add((label_org, "select"))
             questions_list.add((f'{label_org} [ {options} ]', answer, "select", prev_answer))
-            continue
+            return
 
         # Check if it's a radio Question
         radio = try_xp(Question, './/fieldset[@data-test-form-builder-radio-button-form-component="true"]', False)
@@ -1308,20 +1318,15 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     preceding_title = try_xp(radio, './preceding-sibling::p[1]', False)
                     label_org = preceding_title.text if preceding_title else ''
                 if not label_org.strip() or label_org.strip().lower().startswith('resume'):
-                    continue
+                    return
             label = label_org.lower()
-            option_nodes = radio.find_elements(By.TAG_NAME, 'input')
-            choices, controls = [], []
-            for option in option_nodes:
-                ident = option.get_attribute("id")
-                option_label = try_xp(radio, f'.//label[@for="{ident}"]', False)
-                role_control = try_xp(option, './ancestor::*[@role="radio"][1]', False) if native_radio else False
-                text = option_label.text.strip() if option_label else ""
-                if not text and role_control:
-                    text = role_control.text.strip() or role_control.get_attribute('aria-label')
-                choices.append({"text": text, "enabled": option.is_enabled()})
-                controls.append(role_control or option_label or option)
-                if option.is_selected(): prev_answer = text
+            from modules.linkedin_form_fields import radio_options
+            options = radio_options(radio)
+            choices = [{'text': option['text'], 'enabled': option['enabled']} for option in options]
+            controls = [option['control'] for option in options]
+            for option in options:
+                if option['selected']:
+                    prev_answer = option['text']
             answer = prev_answer
             disclosure, disclosure_answer = demographic_request(label_org, choices, globals())
             if disclosure and disclosure_answer is None:
@@ -1331,8 +1336,8 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 if prev_answer is not None:
                     clear_optional_choice(driver, radio)
                 questions_list.add((label_org, '', 'declined_optional', prev_answer))
-                continue
-            if overwrite_previous_answers or prev_answer is None or disclosure or sponsorship_question(label):
+                return
+            if overwrite_previous_answers or prev_answer is None or disclosure or sponsorship_question(label) or sum(option['selected'] for option in options) != 1:
                 requested = None
                 if sponsorship_question(label): requested = globals().get('require_visa')
                 elif disclosure: requested = disclosure_answer
@@ -1347,19 +1352,18 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     raise MissingApplicationAnswer('Configured sponsorship answer is not offered: ' + label_org)
                 actions.move_to_element(controls[index]).click().perform()
                 answer = choices[index]["text"]
-                if sponsorship_question(label):
-                    selected = option_nodes[index].is_selected() or controls[index].get_attribute('aria-checked') == 'true'
-                    conflicting = any(option.is_selected() or controls[i].get_attribute('aria-checked') == 'true'
-                                      for i, option in enumerate(option_nodes) if i != index)
-                    if not selected or conflicting:
-                        from modules.linkedin_easy_apply import MissingApplicationAnswer
-                        raise MissingApplicationAnswer('Configured sponsorship radio selection did not persist: ' + label_org)
+                refreshed = radio_options(radio)
+                if (len(refreshed) != len(options) or refreshed[index]['text'] != choices[index]['text']
+                        or not refreshed[index]['selected'] or sum(option['selected'] for option in refreshed) != 1):
+                    from modules.linkedin_easy_apply import MissingApplicationAnswer
+                    prefix = 'Configured sponsorship radio' if sponsorship_question(label) else 'Radio'
+                    raise MissingApplicationAnswer(prefix + ' selection did not persist: ' + label_org)
                 if defaulted:
                     print_lg(f'No matching configured answer for "{label_org}"; defaulting to the first enabled option.')
                     globals().setdefault('defaulted_questions', set()).add((label_org, "radio"))
             label_org += ' [ ' + ', '.join(str(choice['text']) for choice in choices)
             questions_list.add((label_org+" ]", answer, "radio", prev_answer))
-            continue
+            return
         
         # Check if it's a text question
         text = try_xp(Question, ".//input[@type='text']", False)
@@ -1382,14 +1386,14 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             if available is not None:
                 fill_text(driver, text, available, limit)
                 questions_list.add((label_org, available, 'configured_availability', prev_answer))
-                continue
+                return
             numeric_recovery = short_numeric_rejection(driver, text, limit)
             drafted = False
             if inapplicable_followup(driver, text, label_org):
                 if prev_answer:
                     fill_text(driver, text, '', limit)
                 questions_list.add((label, '', 'inapplicable_followup', prev_answer))
-                continue
+                return
             preferred_first = globals().get("preferred_first_name", "")
             preferred_override = (isinstance(preferred_first, str) and preferred_first.strip()
                                   and re.fullmatch(r"(?:preferred\s+)?first\s+name\s*\*?", label.strip()))
@@ -1469,7 +1473,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                                 raise
                             print_lg('Optional descriptive answer unavailable; leaving it blank and continuing')
                             questions_list.add((label, prev_answer or '', 'text', prev_answer))
-                            continue
+                            return
                         drafted = True
                     elif use_AI and aiClient:
                         try:
@@ -1497,7 +1501,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     actions.send_keys(Keys.ARROW_DOWN)
                     actions.send_keys(Keys.ENTER).perform()
             questions_list.add((label, text.get_attribute("value"), "text", prev_answer))
-            continue
+            return
 
         # Check if it's a textarea question
         text_area = try_xp(Question, ".//textarea", False)
@@ -1514,13 +1518,13 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             if available is not None:
                 fill_text(driver, text_area, available, limit)
                 questions_list.add((label_org, available, 'configured_availability', prev_answer))
-                continue
+                return
             required = text_area.get_attribute('required') is not None or text_area.get_attribute('aria-required') == 'true'
             if inapplicable_followup(driver, text_area, label_org):
                 if prev_answer:
                     fill_text(driver, text_area, '', limit)
                 questions_list.add((label, '', 'inapplicable_followup', prev_answer))
-                continue
+                return
             if not prev_answer and not required and re.search(r'^\s*if\b.*\bselected\b.*\bother\b', label):
                 selected_other = False
                 for option in modal.find_elements(By.CSS_SELECTOR, 'input[type="radio"], input[type="checkbox"], option, [role="radio"], [role="checkbox"]'):
@@ -1534,7 +1538,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 if not selected_other:
                     print_lg(f'Skipping inapplicable optional question: {label_org}')
                     questions_list.add((label, '', 'textarea', prev_answer))
-                    continue
+                    return
             if not prev_answer or overwrite_previous_answers or invalid_text(text_area, limit):
                 if reference_field(label):
                     answer = globals().get('references', '').strip()
@@ -1556,7 +1560,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                             raise
                         print_lg('Optional descriptive answer unavailable; leaving it blank and continuing')
                         questions_list.add((label, prev_answer or '', 'textarea', prev_answer))
-                        continue
+                        return
                 elif 'summary' in label: answer = linkedin_summary
                 elif 'cover' in label: answer = cover_letter
                 if answer == "" and not reference_field(label):
@@ -1577,7 +1581,10 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 raise MissingApplicationAnswer(f'Required personal answer is missing: {label_org}')
             questions_list.add((label, text_area.get_attribute("value"), "textarea", prev_answer))
             ##<
-            continue
+            return
+
+    for Question in all_questions:
+        fill_independently(Question, fill_question)
 
     # Enumerate controls directly: SDUI checkboxes can be the question root,
     # wrap a hidden native input, or occur together outside classic form groups.
@@ -1588,14 +1595,14 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
     configured.update(country_checkbox_answers(modal, globals().get('country')))
     import os
     approved_signatures=set(filter(None,os.environ.get('JOBROBO_APPROVED_E_SIGNATURE_JOB_IDS','').split(',')))
-    for checkbox in modal.find_elements(By.XPATH, ".//input[@type='checkbox'] | .//*[@role='checkbox'][not(.//input[@type='checkbox'])]"):
+    def fill_checkbox(checkbox):
         if checkbox.id in handled_checkboxes:
-            continue
+            return
         if checkbox.get_attribute('type') != 'checkbox' and checkbox.get_attribute('role') != 'checkbox':
-            continue
+            return
         ident=checkbox.get_attribute('id') or ''
         if ident=='follow-company-checkbox':
-            continue
+            return
         roles=checkbox.find_elements(By.XPATH,'./ancestor::*[@role="checkbox"][1]')
         wrapper=roles[0] if roles else checkbox
         label_node=next(iter(modal.find_elements(By.XPATH, './/label[@for="'+ident+'"]')),None) if ident else None
@@ -1642,6 +1649,15 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 raise MissingApplicationAnswer('Checkbox selection did not persist')
         questions_list.add((label, requested, 'checkbox', previous))
 
+    for checkbox in modal.find_elements(By.XPATH, ".//input[@type='checkbox'] | .//*[@role='checkbox'][not(.//input[@type='checkbox'])]"):
+        fill_independently(checkbox, fill_checkbox)
+
+    if field_errors:
+        if len(field_errors) == 1:
+            raise field_errors[0]
+        error = MissingApplicationAnswer(f'{len(field_errors)} application fields remain unresolved: ' + '; '.join(str(item) for item in field_errors))
+        raise error from field_errors[0]
+
 
     # Select todays date
     try_xp(driver, "//button[contains(@aria-label, 'This is today')]")
@@ -1665,7 +1681,7 @@ def external_apply(pagination_element: WebElement, job_id: str, job_link: str, r
         try:
             if "exceeded the daily application limit" in driver.find_element(By.CLASS_NAME, "artdeco-inline-feedback__message").text: dailyEasyApplyLimitReached = True
         except: pass
-        print_lg("Easy apply failed I guess!")
+        print_lg(f'Skipping company-site application [{job_id}]: Easy Apply-only is configured')
         # Modern result pages may have no pagination. The Easy Apply policy
         # must block employer navigation regardless of the results layout.
         return True, application_link, tabs_count
@@ -2208,7 +2224,14 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
             except Exception:
                 pass
     if use_AI_for_resume and not uploaded:
-        raise ResumeUploadError("This application offers no usable resume upload control; tailored resume required. Retaining job for retry.")
+        from modules.linkedin_file_upload import contact_only_application
+        if globals().get('allow_contact_only_easy_apply') is True and contact_only_application(modal):
+            resume = 'Not requested (contact-only Easy Apply)'
+            print_lg(f'Application [{job_id}]: contact-only form allowed by configuration; no resume attachment requested')
+        else:
+            raise ResumeUploadError('resume_upload_unavailable: This application offers no usable resume upload control; '
+                                    'tailored resume required. Retaining job for retry. '
+                                    'Contact-only forms require allow_contact_only_easy_apply=True.')
     if questions:
         print_lg(f"Answered {len(questions)} application questions; values omitted from console output.")
     return modal, questions, uploaded, resume
@@ -2343,6 +2366,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                 from modules.linkedin_retry_reconciliation import sync_retry_checkpoint
                 sync_retry_checkpoint(manifest, pending_spec, pending_id)
                 print_lg(f'Previously uncertain application [{pending_id}] reconciled as applied')
+    previous_filter_failure = None
     for spec in manifest.queries():
         if application_budget is not None and application_budget.stop_if_reached(manifest):
             return
@@ -2354,6 +2378,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
         active_job_id = None
         query_card_failures = False
         query_recovery_failed = False
+        search_ready = False
         observed_card_ids = set()
         manifest.begin_query(spec)
         if manifest.has_uncertain_submission(spec):
@@ -2375,6 +2400,8 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
             else:
                 from modules.linkedin_search import SearchResult
                 result = SearchResult(spec.mode)
+            search_ready = True
+            previous_filter_failure = None
             manifest.record_mode(spec, result.mode, result.fallback_reason, result.warnings,
                                  diagnostics=result.diagnostics())
             print_lg(f'Now searching [{spec.query_id}, {spec.mode}]: {spec.query_text}')
@@ -2719,9 +2746,24 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                                 if external_result.status == "applied":
                                     date_applied = datetime.fromisoformat(external_result.submitted_at)
                                 elif external_result.status == "submitting":
-                                    if application_budget is not None:
-                                        application_budget.stop_if_reached(manifest, spec)
-                                    return
+                                    retain_job(job_id, title, company, description, spec, 'submission_uncertain',
+                                               external_result.reason or 'External submission receipt not confirmed',
+                                               requires_submission_check=True)
+                                    deferred_card_ids.add(job_id)
+                                    print_lg(f'Application [{job_id}]: uncertain submission retained in retries; '
+                                             'checking remaining capacity before continuing other jobs')
+                                    if application_budget is not None and application_budget.stop_if_reached(manifest, spec):
+                                        return
+                                    try:
+                                        clear_post_submit_ui(driver, job_id, log=print_lg,
+                                            diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
+                                    except Exception as cleanup_error:
+                                        if recover_search_after_cleanup(spec, job_id, cleanup_error):
+                                            restart_results = True
+                                            break
+                                        query_recovery_failed = True
+                                        break
+                                    continue
                             else:
                                 skip, application_link, tabs_count = external_result
                             if dailyEasyApplyLimitReached:
@@ -2939,6 +2981,21 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                     manifest.save()
                     print_lg(f"Timeout diagnostics saved in {manifest.path}")
                 critical_error_log("In Applier", e)
+                # The next query starts native search afresh, providing one
+                # bounded recovery attempt for a broken shared filter UI.
+                # Individual job errors still continue through the normal path.
+                details = diagnostics() if callable(diagnostics) else diagnostics
+                signature = None
+                if not search_ready and isinstance(details, dict) and details.get('filter'):
+                    context = details.get('filter_failure', details)
+                    signature = (details['filter'], context.get('substep'), details.get('error_type'))
+                if signature is not None and signature == previous_filter_failure:
+                    globals()['application_ui_blocked'] = True
+                    manifest.interrupt('search_filter_unavailable')
+                    print_lg(f"Stopping: repeated {signature[0]} filter failure after fresh-search recovery; "
+                             "unfinished queries remain pending. See search diagnostics before retrying.")
+                    return
+                previous_filter_failure = signature
 
 
 def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs=None, result_sink=None, job_limit=None, application_budget=None,

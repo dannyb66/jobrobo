@@ -230,6 +230,105 @@ class FilterBrowser(DOMBrowser):
             menu.set("hidden", "")
 
 
+class NativeFilterBrowser(FilterBrowser):
+    def __init__(self):
+        super().__init__()
+        native = html.fromstring((FIXTURES / "linkedin_native_filter_options.html").read_text())
+        for menu in native.xpath(".//div[@id='date-menu' or @id='job-menu']"):
+            old = self.root.xpath("//*[@id=$ident]", ident=menu.get("id"))[0]
+            old.getparent().replace(old, menu)
+        self.reject_date_commit = False
+
+    def type_into(self, node, value):
+        if value == "\ue00c":
+            for menu in self.root.xpath("//*[@id='date-menu' or @id='job-menu']"):
+                menu.set("hidden", "")
+        else:
+            super().type_into(node, value)
+
+    def click(self, node):
+        if node.tag == "label":
+            control = self.root.xpath("//input[@id=$ident]", ident=node.get("for"))[0]
+            if control.get("type") == "radio":
+                for sibling in control.xpath("ancestor::*[@id='date-menu'][1]//input"):
+                    sibling.attrib.pop("checked", None)
+                control.set("checked", "checked")
+            elif control.get("checked") is None:
+                control.set("checked", "checked")
+            else:
+                control.attrib.pop("checked", None)
+            return
+        if node.tag == "a" and node.text_content().strip() == "Show results":
+            menu = node.getparent()
+            if menu.get("id") in {"date-menu", "job-menu"}:
+                selected = [e.get("aria-label") for e in menu.xpath(".//input[@checked]")]
+                if menu.get("id") == "date-menu":
+                    self.set_params(f_TPR="r2592000")
+                    if self.reject_date_commit:
+                        for control in menu.xpath(".//input"):
+                            control.attrib.pop("checked", None)
+                else:
+                    self.set_params(f_SAL="full" if selected == ["Full-time"] else "other")
+                menu.set("hidden", "")
+                return
+        super().click(node)
+
+
+class NativeFilterOptionTests(unittest.TestCase):
+    def test_hidden_native_radios_and_checkboxes_commit_and_reopen(self):
+        from modules.linkedin_modern_search import _filter
+        browser = NativeFilterBrowser()
+        self.assertTrue(_filter(browser, "date_posted", ["Past month"], wait=immediate))
+        self.assertTrue(_filter(browser, "job_type", ["Full-time"], wait=immediate))
+        self.assertEqual([e.get("aria-label") for e in browser.root.xpath("//*[@id='job-menu']//input[@checked]")], ["Full-time"])
+        self.assertTrue(_filter(browser, "date_posted", ["Past month"], verify_only=True, wait=immediate))
+
+    def test_changed_url_without_checked_radio_is_rejected(self):
+        from modules.linkedin_modern_search import _filter
+        from modules.linkedin_search import SearchUIError
+        browser = NativeFilterBrowser()
+        browser.reject_date_commit = True
+        with self.assertRaises(SearchUIError):
+            _filter(browser, "date_posted", ["Past month"], wait=immediate)
+
+    def test_native_options_are_scoped_to_the_open_menu(self):
+        from modules.linkedin_modern_search import _menu_options
+        browser = NativeFilterBrowser()
+        browser.root.xpath("//*[@id='date-menu']")[0].attrib.pop("hidden", None)
+        self.assertEqual([option.text for option in _menu_options(browser)], ["Past month", "Past week", "Past 24 hours"])
+
+    def test_missing_native_options_report_substep_and_rendered_cards(self):
+        from unittest.mock import patch
+        from modules.linkedin_modern_search import _filter
+        from modules.linkedin_search import SearchUIError
+        browser = NativeFilterBrowser()
+        with patch('modules.linkedin_modern_search._menu_options', return_value=[]):
+            with self.assertRaises(SearchUIError) as caught:
+                _filter(browser, 'date_posted', ['Past month'], wait=immediate)
+        details = caught.exception.diagnostics()
+        self.assertEqual(details['substep'], 'read_options')
+        self.assertEqual(details['filter'], 'date_posted')
+        self.assertEqual(details['result_card_count'], 1)
+        self.assertEqual(details['result_job_ids'], ['123'])
+
+    def test_full_search_verifies_native_options_and_replays_next_query(self):
+        from modules.linkedin_modern_search import prepare_modern_search, clear_recipe_cache
+        clear_recipe_cache()
+        self.addCleanup(clear_recipe_cache)
+        browser = NativeFilterBrowser()
+        first = prepare_modern_search(browser, make_spec(), wait=immediate)
+        self.assertIn('date_posted', first.verified_filters)
+        self.assertIn('job_type', first.verified_filters)
+        self.assertEqual(first.results_state, 'jobs')
+        self.assertEqual(first.notes['result_card_count'], 1)
+        next_spec = make_spec()
+        next_spec.query_text = 'Find Forward Deployed Engineer roles'
+        second = prepare_modern_search(browser, next_spec, wait=immediate)
+        self.assertEqual(second.transport, 'verified_url')
+        self.assertIn('date_posted', second.verified_filters)
+        self.assertEqual(second.notes['result_card_count'], 1)
+
+
 class StalePromptElement(DOMElement):
     def get_attribute(self, name):
         if self.browser.prompt_stale and name in {"value", "textContent"}:
@@ -449,6 +548,34 @@ class ModernFilterReplayTests(unittest.TestCase):
     def prepare(self, spec=None):
         from modules.linkedin_modern_search import prepare_modern_search
         return prepare_modern_search(self.browser, spec or make_spec(), wait=immediate, timeout=0.1)
+
+    def test_native_top_bar_labels_toggle_easy_apply_and_clear_remote_narrowing(self):
+        fixture = html.fromstring((FIXTURES / 'linkedin_native_search_facets.html').read_text())
+        for name in ('Easy Apply', 'Remote'):
+            old = self.browser.root.xpath("//*[@data-view-name='job-search-facet-pill'][.//*[@aria-label=$label]]",
+                                          label='Filter by ' + name)[0]
+            new = fixture.xpath(".//div[@aria-label=$label]", label='Filter by ' + name)[0]
+            old.getparent().replace(old, new)
+        original = self.browser.click
+        def toggle_label(node):
+            if node.tag != 'label':
+                return original(node)
+            control = node.getparent().xpath('./input')[0]
+            if control.get('checked') is None:
+                control.set('checked', '')
+            else:
+                control.attrib.pop('checked')
+            if control.get('id') == 'easy':
+                self.browser.set_params(f_AL='true' if control.get('checked') is not None else 'false')
+            else:
+                self.browser.set_params(f_WT='2' if control.get('checked') is not None else '')
+        self.browser.click = toggle_label
+        result = self.prepare()
+        self.assertIn('easy_apply_only', result.verified_filters)
+        self.assertIsNotNone(self.browser.root.xpath('//input[@id="easy"]')[0].get('checked'))
+        self.assertIsNone(self.browser.root.xpath('//input[@id="remote"]')[0].get('checked'))
+        self.assertEqual(result.transport, 'native')
+        self.assertNotIn('f_WT', parse_qs(urlsplit(self.browser.current_url).query))
 
     def test_native_date_annotation_keeps_cards_and_full_filter_verification(self):
         original_click = self.browser.click

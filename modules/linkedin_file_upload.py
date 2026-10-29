@@ -9,6 +9,7 @@ Protocol: https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-se
 
 from pathlib import Path
 import math
+import re
 
 from modules.resume_upload import ResumeUploadError
 
@@ -54,8 +55,57 @@ def _wait(driver, predicate, timeout, wait):
 
 
 def _matching_selected(modal, filename):
-    return [radio for radio in modal.find_elements("xpath", SELECTED_RESUMES)
-            if radio.get_attribute("aria-label") == filename and _visible(radio)]
+    selected = [radio for radio in modal.find_elements("xpath", SELECTED_RESUMES)
+                if radio.get_attribute("aria-label") == filename and _visible(radio)]
+    # Modern LinkedIn renders a visually hidden native radio alongside a
+    # visible label. Its live selected property, rather than ARIA attributes,
+    # confirms the selection. Keep the lookup inside the active application.
+    for radio in modal.find_elements('xpath', ".//input[@type='radio' and not(ancestor::*[@role='radio'])]"):
+        if radio.get_attribute('role') == 'radio' and radio.get_attribute('aria-checked') is not None:
+            continue  # The ARIA wrapper/state remains authoritative.
+        if radio.get_attribute('aria-label') != filename or not radio.is_enabled() or not radio.is_selected():
+            continue
+        identity = radio.get_attribute('id')
+        labels = radio.find_elements('xpath', './following-sibling::label | ./preceding-sibling::label')
+        visible_label = any(_visible(label) and identity and label.get_attribute('for') == identity
+                            for label in labels)
+        visible_label |= any(_visible(label) for label in radio.find_elements('xpath', './ancestor::label[1]'))
+        if radio.is_displayed() or visible_label:
+            selected.append(radio)
+    return selected
+
+
+def contact_only_application(modal):
+    """Recognize a final form containing only basic contact fields.
+
+    An opt-in for these forms must not bypass an offered, broken upload control
+    or a selected older resume. Unknown screening fields remain unsupported.
+    """
+    if modal.find_elements('xpath', ".//input[@type='file' or @type='radio'] | .//*[@role='radio']"):
+        return False
+    if modal.find_elements('xpath', ".//*[self::button or self::a][contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'upload resume')]"):
+        return False
+    if modal.find_elements('xpath', ".//*[self::h1 or self::h2 or self::h3 or self::legend or self::label][translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='resume' or translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='cv']"):
+        return False
+    labels = modal.find_elements('xpath', './/label[@for]')
+    contact_fields = 0
+    for control in modal.find_elements('xpath', './/input | .//select | .//textarea'):
+        kind = (control.get_attribute('type') or 'text').casefold()
+        if kind == 'hidden':
+            continue
+        identity = control.get_attribute('id')
+        label = next((node.text.strip() for node in labels
+                      if identity and node.get_attribute('for') == identity and node.text.strip()), '')
+        label = label or control.get_attribute('aria-label') or ''
+        if kind == 'checkbox':
+            if identity == 'follow-company-checkbox' or re.match(r'^follow\b', label, re.I):
+                continue
+            return False
+        label = ' '.join(label.rstrip('*').strip().casefold().split())
+        if not re.fullmatch(r'(?:first name|last name|full name|name|email(?: address)?|mobile(?: phone)?(?: number)?|phone(?: number| country code)?|country code|telephone)', label):
+            return False
+        contact_fields += 1
+    return contact_fields > 0
 
 
 def _accepts_file(element, suffix):

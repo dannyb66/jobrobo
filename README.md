@@ -539,6 +539,7 @@ See the [job pipeline guide](docs/job-pipeline.md) for input contracts, official
 | `config/questions.py:pause_at_failed_question` | Legacy failed-question setting; current Easy Apply recovery records unresolved required fields for retry without a Help Needed popup. | Inspect retry reasons and configured answers |
 | `config/questions.py:default_resume_path` | PDF uploaded to LinkedIn. | `all resumes/default/resume.pdf` |
 | `config/questions.py:default_resume_docx_path` | DOCX source used when resume optimization is enabled. | `all resumes/default/resume.docx` |
+| `config/questions.py:allow_contact_only_easy_apply` | Allows final forms requesting only basic contact details when no résumé upload or selection is offered. Never bypasses a failed upload. | `False` keeps the tailored-résumé requirement; `True` opts into contact-only applications |
 | `config/resume_optimizer_defaults.json:optimization_mode` | Resume rewrite scope. | `skills`, `bullets`, or `full` |
 
 Keep secrets out of commits. Use environment variables or the repository's existing key-loader flow for OpenAI credentials, and do not paste real passwords into documentation, issues, or screenshots. If a credential has ever been committed, rotate it before continuing.

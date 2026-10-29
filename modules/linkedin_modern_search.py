@@ -17,7 +17,7 @@ from .linkedin_search import AI_INPUT_XPATH, CLASSIC_INPUT_XPATH, SearchResult, 
 PROMPT_XPATH = "//*[self::input or self::textarea or @contenteditable='true'][@data-view-name='job-search-tyah' or @componentkey='semanticSearchBox']"
 MODERN_CARD_XPATH = "//*[@data-view-name='job-search-job-card'] | //*[@role='button' and starts-with(@componentkey,'job-card-component-ref-') and not(ancestor::*[@data-view-name='job-search-job-card'])]"
 LEGACY_CARD_XPATH = "//li[@data-occludable-job-id]"
-FACET_XPATH = "//*[@data-view-name='job-search-facet-dropdown' or @data-view-name='job-search-facet-pill'] | //*[@role='button'][.//*[@aria-label and starts-with(@aria-label,'Filter by ')]] | //*[@role='radio' or @role='checkbox'][starts-with(@aria-label,'Filter by ')]"
+FACET_XPATH = "//*[@data-view-name='job-search-facet-dropdown' or @data-view-name='job-search-facet-pill'] | //*[@role='button'][.//*[@aria-label and starts-with(@aria-label,'Filter by ')]] | //*[@role='radio' or @role='checkbox'][starts-with(@aria-label,'Filter by ')] | //*[starts-with(@aria-label,'Filter by ')][./input[@type='checkbox' or @type='radio'] and ./label]"
 LOCATION_PICKER_XPATH = "//*[@data-view-name='job-search-location-picker'] | //*[@role='button'][.//*[@aria-label and starts-with(@aria-label,'Location ')]]"
 LOCATION_EDITOR_XPATH = "//*[@role='textbox' and @contenteditable='true' and not(@componentkey='semanticSearchBox')] | //input[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'location')]"
 MENU_OPTION_XPATH = ".//*[@role='radio' or @role='checkbox' or @role='menuitemradio' or @role='menuitemcheckbox'][not(starts-with(@aria-label,'Filter by ')) and not(@data-view-name='search-filter-top-bar-select')]"
@@ -309,6 +309,8 @@ def _selected(element):
         value = _attribute(element, attribute)
         if value in {"true", "false"}:
             return value == "true"
+    if _attribute(element, "type") in {"checkbox", "radio"}:
+        return bool(element.is_selected())
     for child in _find(element, ".//*[@role='checkbox' or @role='radio' or @role='switch'] | .//input"):
         for attribute in ("aria-checked", "aria-pressed", "aria-selected"):
             value = _attribute(child, attribute)
@@ -349,24 +351,116 @@ def _facet(driver, key, desired=()):
 
 def _click_target(element):
     target = _first(_find(element, ".//*[@role='button' or @role='checkbox' or @role='radio'] | .//button | .//a"))
+    if target is None:
+        controls = _find(element, "./input[@type='checkbox' or @type='radio']")
+        if len(controls) == 1:
+            native = _native_filter_option(controls[0], element)
+            if native is not None:
+                return native.target
     return target if target is not None else element
 
 
 def _is_pill(element):
     return (_attribute(element, "data-view-name") == "job-search-facet-pill"
             or _attribute(element, "role") in {"radio", "checkbox", "switch"}
-            and _attribute(element, "aria-label").startswith("Filter by "))
+            and _attribute(element, "aria-label").startswith("Filter by ")
+            or _attribute(element, "aria-label").startswith("Filter by ")
+            and bool(_find(element, "./input[@type='checkbox' or @type='radio']"))
+            and not _find(element, ".//*[starts-with(@id,'caret-down') or @data-testid='caret-down']"))
+
+
+class _NativeFilterOption:
+    """A hidden native input with a visible, associated click target."""
+    def __init__(self, control, target, label):
+        self.control, self.target, self.text = control, target, label
+
+    def get_attribute(self, name):
+        return self.control.get_attribute(name)
+
+    def is_selected(self):
+        return self.control.is_selected()
+
+    def click(self):
+        self.target.click()
+
+
+def _native_filter_option(control, root):
+    label = _attribute(control, "aria-label")
+    identity = _attribute(control, "id")
+    labels = [item for item in _find(root, ".//label[@for]")
+              if identity and _attribute(item, "for") == identity]
+    label = label or next((_text(item) for item in labels if _text(item)), "")
+    target = _first(labels)
+    if target is None:
+        # Some visible circles are CSS-only labels inside an aria-hidden
+        # wrapper. Use the nearest visible row owning exactly this input.
+        rows = _find(control, "ancestor::*[count(.//input[@type='radio' or @type='checkbox'])=1 and normalize-space(.)!='' and not(@aria-hidden='true')][1]")
+        target = _first(rows)
+        if target is not None:
+            label = label or _text(target)
+            if _location_normalize(_text(target)) != _location_normalize(label):
+                return None
+    if (target is None or not label or not control.is_enabled()
+            or _attribute(control, "aria-disabled") == "true"):
+        return None
+    return _NativeFilterOption(control, target, label)
+
+
+def _menu_root(driver):
+    submit = _first(_find(driver, MENU_SUBMIT_XPATH))
+    if submit is None:
+        return None
+    roots = _find(submit, "ancestor::*[not(self::main or self::body or self::html) and (.//*[@role='radio' or @role='checkbox' or @role='menuitemradio' or @role='menuitemcheckbox'][not(starts-with(@aria-label,'Filter by '))] or .//input[@type='radio' or @type='checkbox'])][1]")
+    return roots[0] if roots else None
 
 
 def _menu_options(driver):
-    submit = _first(_find(driver, MENU_SUBMIT_XPATH))
-    if submit is None:
+    root = _menu_root(driver)
+    if root is None:
         return []
-    roots = _find(submit, "ancestor::*[.//*[@role='radio' or @role='checkbox' or @role='menuitemradio' or @role='menuitemcheckbox'][not(starts-with(@aria-label,'Filter by '))]][1]")
-    if not roots:
-        return []
-    return [option for option in _find(roots[0], MENU_OPTION_XPATH) if _visible(option)
-            and _text(option) and _attribute(option, "aria-disabled") != "true"]
+    options = [option for option in _find(root, MENU_OPTION_XPATH) if _visible(option)
+               and _text(option) and _attribute(option, "aria-disabled") != "true"]
+    # ARIA wrappers remain authoritative when present; their native children
+    # can intentionally disagree. Only adapt controls without such a wrapper.
+    for control in _find(root, ".//input[@type='radio' or @type='checkbox'][not(ancestor::*[@role='radio' or @role='checkbox' or @role='menuitemradio' or @role='menuitemcheckbox'])]"):
+        option = _native_filter_option(control, root)
+        if option is not None:
+            options.append(option)
+    return options
+
+
+def _filter_failure_evidence(driver, key, phase):
+    """Capture the filter popup, never the whole page's HTML or form data."""
+    data = {"filter": key, "substep": phase}
+    try:
+        from .search_diagnostics import diagnostic_url
+        data.update(url=diagnostic_url(_url(driver)), result_card_count=len(get_search_cards(driver)))
+        data["result_job_ids"] = [search_card_id(card) for card in get_search_cards(driver)]
+        root = _menu_root(driver)
+        data["options"] = [{"label": _text(option), "selected": _selected(option)}
+                           for option in _menu_options(driver)]
+        if callable(getattr(driver, "save_screenshot", None)):
+            from datetime import datetime, timezone
+            from pathlib import Path
+            from uuid import uuid4
+            from config import search_profile
+            directory = Path(search_profile.search_state_dir).parent / "search_diagnostics" / "filter-errors"
+            directory.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            prefix = directory / f"{re.sub(r'[^a-zA-Z0-9_-]', '_', key)}-{stamp}-{uuid4().hex[:8]}"
+            screenshot = prefix.with_suffix(".png")
+            if driver.save_screenshot(str(screenshot)):
+                data["screenshot"] = str(screenshot)
+            if root is not None:
+                markup = prefix.with_suffix(".popup.html")
+                markup.write_text(_attribute(root, "outerHTML"), encoding="utf-8")
+                data["popup_markup"] = str(markup)
+            evidence = prefix.with_suffix(".json")
+            data["evidence"] = str(evidence)
+            evidence.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as error:
+        data["capture_error_type"] = type(error).__name__
+    return data
 
 
 def _dismiss_menu(driver, trigger, *, timeout=30, wait=None):
@@ -427,40 +521,60 @@ def _filter(driver, key, desired, *, verify_only=False, timeout=30, wait=None, o
             _settle(driver, query, timeout=timeout, wait=wait, after_filters=True)
             _record_parameter_change(driver, key, before, owners)
         return True
-    _click_target(trigger).click()
+    phase = "open_menu"
     try:
+        _click_target(trigger).click()
+        phase = "read_options"
         options = _wait(driver, lambda *_: _menu_options(driver), timeout, wait)
         wanted = {_location_normalize(value) for value in desired}
         selected = {_location_normalize(_text(option)) for option in options if _selected(option) is True}
         available = {_location_normalize(_text(option)) for option in options}
         if not wanted.issubset(available):
+            phase = "dismiss_unavailable_option"
             _dismiss_menu(driver, trigger, timeout=timeout, wait=wait)
             return False
         if verify_only:
+            phase = "dismiss_verification_menu"
             _dismiss_menu(driver, trigger, timeout=timeout, wait=wait)
             return selected == wanted
         if selected == wanted:
+            phase = "dismiss_already_selected_menu"
             _dismiss_menu(driver, trigger, timeout=timeout, wait=wait)
             return True
-        for option in options:
-            label, is_selected = _location_normalize(_text(option)), _selected(option)
-            if label in wanted and is_selected is not True:
+        phase = "select_options"
+        for label in sorted(available):
+            # Re-find after each click: React can replace every sibling.
+            matches = [item for item in _menu_options(driver)
+                       if _location_normalize(_text(item)) == label]
+            if len(matches) != 1:
+                raise SearchUIError("LinkedIn filter option is missing or ambiguous", stage="filter_validation", details={"filter": key})
+            option = matches[0]
+            is_selected = _selected(option)
+            checkbox = (_attribute(option, "role") in {"checkbox", "menuitemcheckbox"}
+                        or _attribute(option, "type") == "checkbox")
+            if (label in wanted and is_selected is not True
+                    or label not in wanted and is_selected is True and checkbox):
                 option.click()
-            elif label not in wanted and is_selected is True and _attribute(option, "role") in {"checkbox", "menuitemcheckbox"}:
-                option.click()
+        phase = "commit_show_results"
         submit = _wait(driver, lambda *_: _first(_find(driver, MENU_SUBMIT_XPATH)), timeout, wait)
         submit.click()
         # Re-open to confirm actual committed options, not just a changed URL.
         query = (before.get("keywords") or [_prompt_text(driver)])[0]
+        phase = "settle_results"
         _settle(driver, query, timeout=timeout, wait=wait, after_filters=True)
         _record_parameter_change(driver, key, before, owners)
+        phase = "verify_committed_options"
         if not _filter(driver, key, desired, verify_only=True, timeout=timeout, wait=wait):
             raise SearchUIError(f"Committed LinkedIn filter does not match {key}", stage="filter_validation", details={"filter": key})
         return True
-    except SearchUIError:
-        raise
     except Exception as error:
-        raise SearchUIError(f"LinkedIn filter {key} could not be verified", stage="filter", details={"filter": key, "error_type": type(error).__name__}) from error
+        evidence = _filter_failure_evidence(driver, key, phase)
+        if isinstance(error, SearchUIError):
+            error.details.setdefault("filter", key)
+            error.details.setdefault("filter_failure", evidence)
+            raise
+        raise SearchUIError(f"LinkedIn filter {key} could not be verified", stage="filter",
+                            details={"filter": key, "error_type": type(error).__name__, **evidence}) from error
 
 
 def _location_label(driver):

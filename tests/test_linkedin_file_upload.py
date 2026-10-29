@@ -33,6 +33,9 @@ class Element:
     def is_enabled(self):
         return self.node.get("disabled") is None
 
+    def is_selected(self):
+        return self.node.get("checked") is not None
+
     def get_attribute(self, name):
         return self.node.get(name)
 
@@ -54,8 +57,16 @@ class Element:
                 radio.set("aria-checked", "false")
             name = Path(value).name if self.browser.selection == "filename" else self.browser.selection
             parent = self.browser.root.find("body") if self.browser.outside_selection else self.browser.modal.node
-            etree.SubElement(parent, "div", {"id": "selected-new", "role": "radio", "aria-label": name,
-                                             "aria-checked": "true" if self.browser.selected else "false"})
+            if self.browser.native_selection:
+                row = etree.SubElement(parent, 'div', {'aria-label': name})
+                attributes = {'id': 'selected-new', 'type': 'radio', 'aria-label': name, 'hidden': ''}
+                if self.browser.selected:
+                    attributes['checked'] = ''
+                etree.SubElement(row, 'input', attributes)
+                etree.SubElement(row, 'label', {'for': 'selected-new'})
+            else:
+                etree.SubElement(parent, "div", {"id": "selected-new", "role": "radio", "aria-label": name,
+                                                 "aria-checked": "true" if self.browser.selected else "false"})
 
 
 class Browser:
@@ -68,6 +79,7 @@ class Browser:
         self.button_clicks = 0
         self.new_inputs = [{"id": "new-file", "accept": ".pdf,.doc,.docx", "hidden": ""}]
         self.selection, self.selected, self.outside_selection = "filename", True, False
+        self.native_selection = False
         self.click_error = self.send_error = self.enable_error = self.disable_error = None
 
     def find_elements(self, by, value):
@@ -102,6 +114,51 @@ class FileChooserUploadTests(unittest.TestCase):
     def attach(self):
         target = resume_upload_target(self.browser, self.browser.modal, wait=bounded_wait)
         target.find_element("name", "file").send_keys(str(self.pdf))
+
+    def test_hidden_native_checked_resume_with_visible_label_is_verified(self):
+        self.browser.native_selection = True
+        self.attach()
+        self.assertEqual(len(self.browser.sent), 1)
+        self.assert_cleaned()
+
+    def test_native_resume_must_be_checked_exact_and_inside_application(self):
+        for settings in ({'selected': False}, {'selection': 'another.pdf'}, {'outside_selection': True}):
+            with self.subTest(settings=settings):
+                self.browser = Browser()
+                self.browser.native_selection = True
+                for key, value in settings.items():
+                    setattr(self.browser, key, value)
+                with self.assertRaises(ResumeUploadError):
+                    self.attach()
+                self.assert_cleaned()
+
+    def test_existing_native_selection_does_not_prove_a_new_upload(self):
+        self.browser.selection = None
+        row = etree.SubElement(self.browser.modal.node, 'div')
+        etree.SubElement(row, 'input', {'type':'radio', 'id':'old', 'checked':'', 'hidden':'', 'aria-label':self.pdf.name})
+        etree.SubElement(row, 'label', {'for':'old'})
+        with self.assertRaises(ResumeUploadError):
+            self.attach()
+
+    def test_native_child_does_not_override_unchecked_aria_wrapper(self):
+        from modules.linkedin_file_upload import _matching_selected
+        row = etree.SubElement(self.browser.modal.node, 'div', {'role':'radio', 'aria-checked':'false', 'aria-label':self.pdf.name})
+        etree.SubElement(row, 'input', {'type':'radio', 'id':'nested', 'checked':'', 'aria-label':self.pdf.name})
+        self.assertEqual(_matching_selected(self.browser.modal, self.pdf.name), [])
+
+    def test_native_selection_requires_visible_matching_control_in_active_modal(self):
+        from modules.linkedin_file_upload import _matching_selected
+        row = etree.SubElement(self.browser.modal.node, 'div')
+        radio = etree.SubElement(row, 'input', {'type':'radio', 'id':'native', 'checked':'', 'hidden':'', 'aria-label':self.pdf.name})
+        label = etree.SubElement(row, 'label', {'for':'other'})
+        self.assertEqual(_matching_selected(self.browser.modal, self.pdf.name), [])
+        label.set('for', 'native')
+        self.assertEqual(len(_matching_selected(self.browser.modal, self.pdf.name)), 1)
+        row.set('hidden', '')
+        self.assertEqual(_matching_selected(self.browser.modal, self.pdf.name), [])
+        row.attrib.pop('hidden')
+        radio.set('disabled', '')
+        self.assertEqual(_matching_selected(self.browser.modal, self.pdf.name), [])
 
     def test_slow_upload_extends_wait_without_duplicate_attachment(self):
         self.browser.selection = None

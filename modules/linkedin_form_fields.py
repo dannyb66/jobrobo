@@ -8,6 +8,45 @@ from selenium.webdriver.common.keys import Keys
 TEXT_CONTROLS = './/input[not(@type) or @type="text" or @type="number" or @type="email" or @type="tel" or @type="url" or @type="date"] | .//textarea | .//select | .//*[@role="combobox"]'
 
 
+def radio_options(group):
+    """Read option captions within this group, including empty native labels.
+
+    The input's aria-label can repeat the question for every option, so it
+    cannot identify Yes versus No. Use the associated label, an ARIA option,
+    or the nearest bounded row that owns exactly one radio input.
+    """
+    options = group.find_elements(By.XPATH, ".//input[@type='radio']")
+    descendants = {node.id for node in group.find_elements(By.XPATH, './/*')}
+    result = []
+    for option in options:
+        identity = option.get_attribute('id')
+        labels = [label for label in group.find_elements(By.XPATH, './/label[@for]')
+                  if identity and label.get_attribute('for') == identity]
+        roles = [node for node in option.find_elements(By.XPATH, './ancestor::*[@role="radio"][1]')
+                 if node.id in descendants]
+        label = next((node for node in labels if node.is_displayed()), None)
+        role = roles[0] if roles else None
+        text = next((node.text.strip() for node in labels if node.text.strip()), '')
+        if not text and role is not None:
+            text = role.text.strip() or role.get_attribute('aria-label') or ''
+        if not text:
+            text = ' '.join(node.text.strip() for reference in (option.get_attribute('aria-labelledby') or '').split()
+                            for node in group.find_elements(By.XPATH, './/*[@id]')
+                            if node.get_attribute('id') == reference and node.text.strip())
+        if not text:
+            rows = option.find_elements(By.XPATH, "./ancestor::*[not(self::fieldset) and not(@role='radiogroup') and count(.//input[@type='radio'])=1 and normalize-space(.)!=''][1]")
+            row = next((node for node in rows if node.id in descendants and node.is_displayed()), None)
+            if row is not None:
+                text = row.text.strip()
+        control = role if role is not None and role.is_displayed() else label if label is not None else option
+        checked = role.get_attribute('aria-checked') if role is not None else None
+        selected = checked == 'true' if checked in {'true', 'false'} else option.is_selected()
+        result.append({'input': option, 'control': control, 'text': text,
+                       'enabled': option.is_enabled() and (role is None or role.get_attribute('aria-disabled') != 'true'),
+                       'selected': selected})
+    return result
+
+
 def availability_answer(question, settings, input_type='text', today=None):
     """Answer personal availability only from explicit config, never AI."""
     from datetime import date

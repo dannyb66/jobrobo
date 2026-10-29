@@ -877,6 +877,22 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual(manifest.query("working")["status"], "complete")
         self.assertEqual(self.visited, ["1"])
 
+    def test_repeated_filter_failure_stops_after_one_fresh_query_recovery(self):
+        from modules.linkedin_search import SearchUIError
+        searches = [spec("first"), spec("second"), spec("third")]
+        manifest = self.manifest(searches, {})
+        self.namespace['prepare_search'] = Mock(side_effect=lambda *args: (_ for _ in ()).throw(
+            SearchUIError('Date options unavailable', stage='filter',
+                          details={'filter': 'date_posted', 'substep': 'read_options',
+                                   'error_type': 'TimeoutException'})))
+        self.execute(manifest)
+        self.assertEqual(self.namespace['prepare_search'].call_count, 2)
+        self.assertEqual(manifest.data['stop_reason'], 'search_filter_unavailable')
+        self.assertEqual(manifest.data['status'], 'interrupted')
+        self.assertTrue(self.namespace['application_ui_blocked'])
+        self.assertTrue(all(manifest.query(row.query_id)['status'] == 'pending' for row in searches))
+        self.assertEqual(self.visited, [])
+
     def test_pending_external_link_is_collected_once_without_claiming_submission(self):
         first, second = spec("first"), spec("second")
         manifest = self.manifest([first, second], {"first": [["1"]], "second": [["1", "2"]]})
@@ -888,6 +904,71 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual([row["Date Applied"] for row in self.rows()], ["Pending", "Pending"])
         self.assertEqual(manifest.query("first")["applied_count"], 0)
         self.assertEqual(manifest.query("first")["collected_count"], 1)
+
+    def test_uncertain_external_submission_retained_while_remaining_capacity_is_used(self):
+        from modules.application_budget import ApplicationBudget
+        from modules.external_apply import ExternalApplicationResult
+        from modules.linkedin_deferred import DeferredJobs
+        first, second = spec('external-held', 3), spec('next', 3)
+        manifest = self.manifest([first, second], {'external-held': [['1', '2']], 'next': [['1', '3', '4']]})
+        extract_functions(self.namespace, 'checkpoint_external_application')
+        self.namespace['try_xp'] = lambda *args: self.visited[-1] != '1'
+        self.namespace['external_apply'] = Mock(return_value=ExternalApplicationResult(
+            'submitting', 'https://example.test/application', reason='Receipt not confirmed'))
+        budget = ApplicationBudget(3)
+        self.execute(manifest, budget)
+        self.assertEqual(self.visited, ['1', '2', '3'])
+        self.namespace['external_apply'].assert_called_once()
+        self.assertEqual(budget.count, 2)
+        self.assertEqual(budget.reserved_ids, {'1'})
+        self.assertEqual(manifest.query(first.query_id)['jobs']['1']['status'], 'submitting')
+        self.assertEqual(manifest.query(first.query_id)['stop_reason'], 'submission_uncertain')
+        self.assertEqual(load_applied_job_ids(self.directory / 'applied.csv'), {'2', '3'})
+        held = next(r for r in DeferredJobs(self.directory / 'deferred_applications/retry_jobs.json').records if r['job_id'] == '1')
+        self.assertEqual(held['status'], 'submission_uncertain')
+        self.assertTrue(held['requires_submission_check'])
+        self.assertEqual(held['company'], 'Example')
+
+    def test_uncertain_external_submission_reserves_last_capacity_slot(self):
+        from modules.application_budget import ApplicationBudget
+        from modules.external_apply import ExternalApplicationResult
+        search = spec('held-at-cap', 3)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        extract_functions(self.namespace, 'checkpoint_external_application')
+        self.namespace['try_xp'] = lambda *args: False
+        self.namespace['external_apply'] = Mock(return_value=ExternalApplicationResult('submitting', 'https://example.test/application'))
+        budget = ApplicationBudget(1)
+        self.execute(manifest, budget)
+        self.assertEqual(self.visited, ['1'])
+        self.assertEqual(budget.count, 0)
+        self.assertEqual(budget.reserved_ids, {'1'})
+        self.assertEqual(manifest.data['stop_reason'], 'submission_uncertain')
+
+    def test_uncertain_external_cleanup_recovers_search_without_reapplying_held_job(self):
+        from modules.external_apply import ExternalApplicationResult
+        search = spec('external-cleanup', 3)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        extract_functions(self.namespace, 'checkpoint_external_application')
+        self.namespace['try_xp'] = lambda *args: self.visited[-1] != '1'
+        self.namespace['external_apply'] = Mock(return_value=ExternalApplicationResult('submitting', 'https://example.test/application'))
+        self.namespace['clear_post_submit_ui'] = Mock(side_effect=[RuntimeError('Overlay remains'), None, None])
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1', '2'])
+        self.namespace['external_apply'].assert_called_once()
+        self.assertEqual(manifest.query(search.query_id)['ui_recoveries'][0]['status'], 'recovered')
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'submitting')
+        self.assertEqual(manifest.query(search.query_id)['jobs']['2']['status'], 'applied')
+
+    def test_easy_apply_only_never_opens_an_employer_site(self):
+        extract_functions(self.namespace, 'external_apply')
+        self.namespace['easy_apply_only'] = True
+        self.namespace['driver'] = Mock()
+        self.namespace['wait'].until = Mock()
+        result = self.namespace['external_apply'](None, '123', 'https://www.linkedin.com/jobs/view/123/',
+                                                  'resume.pdf', datetime.now(), '', '')
+        self.assertTrue(result[0])
+        self.namespace['driver'].get.assert_not_called()
+        self.namespace['wait'].until.assert_not_called()
 
     def test_successful_submission_survives_later_modal_failure(self):
         first, second = spec("first"), spec("second")
