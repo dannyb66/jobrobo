@@ -330,7 +330,12 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                 from . import captcha_solver
                 if captcha_solver.enabled():
                     run.update(job, status='submitting', stage='captcha_after_submit')
+                    solved_from = time.monotonic()
                     outcome_record = captcha_solver.solve(browser.driver)
+                    # The confirmation budget must not expire while we solve,
+                    # or a clear lands with no time left to observe it.
+                    if started is not None:
+                        started += time.monotonic() - solved_from
                     report['challenge'] = outcome_record
                     run.update(job, captcha_event=captcha_solver.describe(outcome_record))
                     if captcha_solver.cleared(outcome_record):
