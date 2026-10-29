@@ -93,9 +93,13 @@ order, replacing Skills as configured and preserving paragraph/run formatting
 and links. Actual PDF
 geometry requires every accepted bullet on exactly one nonempty line inside
 its original usable width. A glyph-width estimate guides bounded retries;
-final rendered geometry decides acceptance. There is no minimum fill in this
-mode; existing default-mode and Skills density checks remain. Pagination
-changes are reported; one-line compression may leave whitespace.
+final rendered geometry decides acceptance. `rewrite_bullet_min_fill_ratio=0.90`
+and `rewrite_bullet_target_fill_ratio=0.97` guide candidate selection and bounded
+expansion retries. These are soft targets: a shorter complete fitting candidate
+can survive a failed retry. The report records actual rendered fullness; existing
+default-mode and Skills density checks remain. Pagination changes are reported.
+See [PDF formatting and verified reuse](resume-formatting.md) for the title and
+per-job cache contract.
 
 Runs have unique directories under `temp/task11/`, with original/optimized
 DOCX/PDF, exact JD text, source inventory, coverage, scoring manifest, report,
