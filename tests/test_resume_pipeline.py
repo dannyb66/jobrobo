@@ -60,7 +60,7 @@ class ResumePipelineTest(unittest.TestCase):
         self.source.parent.mkdir()
         synthetic_source(self.source)
         mocked_convert(str(self.source), str(self.source.with_suffix(".pdf")))
-        self.config = {"optimization_mode": "full", "expected_page_count": 1, "project_bullet_banks": [], "max_skills": 50}
+        self.config = {"optimization_mode": "full", "expected_page_count": 1, "project_bullet_banks": [], "max_skills": 50, "layout_retry": False}
         self.optimizer = module.ResumeOptimizer.__new__(module.ResumeOptimizer)
         self.optimizer.client = Mock()
         self.optimizer.client.chat.completions.create.return_value = api_response('{"keywords": ["Python", "AWS", "Kubernetes"]}')
@@ -73,7 +73,7 @@ class ResumePipelineTest(unittest.TestCase):
         self.rewrite = patch.object(self.optimizer, "_call_openai_to_rewrite_bullets", side_effect=self.rewrite_entries).start()
 
     def rewrite_entries(self, entries, *args):
-        return [dict(entry, bullets=["Built Kubernetes service" for _ in entry["bullets"]]) for entry in entries]
+        return [dict(entry, bullets=[bullet.replace("using", "with").replace("Improved", "Enhanced") for bullet in entry["bullets"]]) for entry in entries]
 
     def run_pipeline(self, mode="full", source=None, job_id="test"):
         return module.run_resume_optimization("Python AWS Kubernetes", str(source or self.source), job_id,
@@ -91,8 +91,8 @@ class ResumePipelineTest(unittest.TestCase):
                 self.assertIsNotNone(result)
                 doc = Document(Path(result).with_suffix(".docx"))
                 text = "\n".join(paragraph.text for paragraph in doc.paragraphs)
-                self.assertIn("Kubernetes", text)
-                self.assertEqual("Built Kubernetes service" in text, mode != "skills")
+                self.assertNotIn("Kubernetes", text)
+                self.assertEqual("Built production services with Python" in text, mode != "skills")
                 self.assertEqual("Principal Engineer\t" in text, mode == "full")
                 self.assertEqual(self.rewrite.call_count, int(mode != "skills"))
                 report = self.report(result)
@@ -100,6 +100,13 @@ class ResumePipelineTest(unittest.TestCase):
                 self.assertEqual(report["effective_mode"], mode)
                 self.assertTrue(report["format_verification"]["passed"])
                 self.assertGreaterEqual(report["post_optimization"]["score"], report["pre_optimization"]["score"])
+                self.assertEqual(report["keyword_scoring_method"], "bounded-unique-concept-coverage-v1")
+                self.assertIn("Kubernetes", report["post_optimization"]["missing"])
+                self.assertIn("Kubernetes", report["keyword_provenance"]["absent_terms"])
+                self.assertIn("Kubernetes", report["skills_grounding"]["blocked_keywords"])
+                self.assertEqual(report["keyword_provenance"]["introduced_terms"], [])
+                self.assertIn("Python", report["keyword_provenance"]["retained_terms"])
+                self.assertFalse(report["keyword_provenance"]["facts_verified"])
 
     def test_invalid_mode_is_normalized_and_original_value_retained(self):
         result = self.run_pipeline("invalid")
@@ -120,14 +127,21 @@ class ResumePipelineTest(unittest.TestCase):
         accepted = {"passed": True, "checks": {"page_count": True}, "warnings": []}
         patch.object(self.optimizer, "verify_format", side_effect=[rejected, accepted]).start()
         result = self.run_pipeline()
-        self.assertIn("_layout_safe.pdf", result)
-        report = self.report(result)
-        self.assertEqual(report["status"], "accepted")
+        self.assertIsNone(result)
+        preview = next((self.root / "temp").glob("*_layout_safe.match_report.json"))
+        report = json.loads(preview.read_text())
+        self.assertEqual(report["status"], "not_rewritten")
+        self.assertFalse(report["rewrite_completed"])
         self.assertEqual(report["effective_mode"], "skills-fallback")
         self.assertEqual(report["selected_bullet_bank_ids"], [])
         self.assertEqual(report["project_bullet_bank_selections"], {})
         self.assertFalse(report["attempts"][0]["format_verification"]["passed"])
         self.assertEqual(report["attempts"][0]["project_bullet_bank_selections"], {"Example": ["A1"]})
+        self.assertIn("Kubernetes", report["keyword_provenance"]["absent_terms"])
+        self.assertIn("Kubernetes", report["skills_grounding"]["blocked_keywords"])
+        self.assertEqual(report["keyword_provenance"]["introduced_terms"], [])
+        self.assertIn("Python", report["keyword_provenance"]["retained_terms"])
+        self.assertFalse(report["keyword_provenance"]["facts_verified"])
         self.assertEqual(report["attempts"][1]["selected_bullet_bank_ids"], [])
 
     def test_both_attempts_rejected_returns_no_resume_and_saves_report(self):
@@ -188,8 +202,9 @@ class ResumePipelineTest(unittest.TestCase):
 
     def test_pdf_input_is_effectively_skills_only(self):
         result = self.run_pipeline("full", source=self.source.with_suffix(".pdf"))
-        self.assertIsNotNone(result)
-        report = self.report(result)
+        self.assertIsNone(result)
+        report = self.report()
+        self.assertEqual(report["status"], "not_rewritten")
         self.assertEqual(report["requested_mode"], "full")
         self.assertEqual(report["effective_mode"], "skills-pdf")
         self.rewrite.assert_not_called()
@@ -245,9 +260,10 @@ class ResumePipelineTest(unittest.TestCase):
     def test_keyword_api_failure_is_reported_without_crashing(self):
         self.optimizer.client.chat.completions.create.side_effect = RuntimeError("API unavailable")
         result = self.run_pipeline("skills")
-        self.assertIsNotNone(result)
-        self.assertEqual(self.report(result)["status"], "accepted")
-        self.assertIn("API unavailable", self.report(result)["api_warnings"])
+        self.assertIsNone(result)
+        self.assertEqual(self.report()["status"], "ai_unavailable")
+        self.assertIn("API unavailable", self.report()["api_warnings"])
+        self.assertEqual(self.report()["ai_activity"]["responses_received"], 0)
 
 
 class LibreOfficeConverterTest(unittest.TestCase):

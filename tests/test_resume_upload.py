@@ -9,6 +9,10 @@ from modules.resume_upload import ResumeUploadError, upload_verified_resume, ver
 
 class VerifiedResumeUploadTest(unittest.TestCase):
     def setUp(self):
+        # Legacy fallback tests are independent of the user's saved all-bullet setting.
+        config_patch=patch('modules.config_loader.peek_runtime_config',return_value={
+            'rewrite_all_bullets':False,'source_checks_enabled':True})
+        config_patch.start();self.addCleanup(config_patch.stop)
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.source = Path(self.directory.name) / "resume.docx"
@@ -34,6 +38,16 @@ class VerifiedResumeUploadTest(unittest.TestCase):
         self.file_input.send_keys.assert_called_once_with(str(self.optimized.resolve()))
         self.assertEqual(optimize.call_args.kwargs["job_title"], "Staff Engineer")
         self.verify.assert_not_called()
+
+    def test_upload_phase_failure_is_preserved_for_job_diagnostics(self):
+        reason = 'Resume upload timed out while waiting for the exact uploaded PDF; uploading observed: True'
+        self.file_input.send_keys.side_effect = ResumeUploadError(reason)
+        with patch('modules.resume_all_bullets.verify_strict_attachment', return_value=True):
+            result = upload_verified_resume(self.modal, str(self.pdf), 'JD', '123',
+                optimize=Mock(return_value=str(self.optimized)),
+                runtime_config_override={'rewrite_all_bullets':True, 'source_checks_enabled':True})
+        self.assertEqual(result, (False, reason))
+        self.assertEqual(self.file_input.send_keys.call_count, 1)
 
     def test_drafting_receives_exact_successfully_attached_pdf_path(self):
         attached = Mock()
@@ -118,8 +132,9 @@ class VerifiedResumeUploadTest(unittest.TestCase):
             "123", "Staff Engineer", "JD", "Bay Area")
         self.assertTrue(uploaded)
         self.assertEqual(resume, "verified.pdf")
-        namespace["upload_optimized_resume"].assert_called_once_with(
-            modal, str(self.source), "JD", "123", "Staff Engineer", "Test", "Candidate")
+        call=namespace['upload_optimized_resume'].call_args
+        self.assertEqual(call.args,(modal,str(self.source),'JD','123','Staff Engineer','Test','Candidate'))
+        self.assertNotIn('on_attached', call.kwargs)
 
     def test_later_job_reattaches_configured_pdf_before_ai_prose(self):
         namespace = self.bot_preparation(True)

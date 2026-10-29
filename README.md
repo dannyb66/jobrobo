@@ -493,6 +493,8 @@ The following bank-selection details describe the ordinary path when
 `rewrite_all_bullets=false`. The current saved all-bullets path has separate
 [policy, Skills-width, source-retention and attachment rules](docs/TASK11-README.md#current-optimizer-options).
 
+See the [PDF formatting and cache behavior](docs/resume-formatting.md) for line-fill settings, preserved layout, and reuse across fresh searches.
+
 The optimizer keeps the existing job-description keyword extraction flow and adds
 curated vocabulary guidance from
 `config/skills/Skills_Keyword_Bank_Staff_Principal_2026-10.md`. The job description

@@ -1,0 +1,54 @@
+Built 0→1 healthcare contract-intelligence platform: multi-tenant agentic AI serving 100+ clients on 5TB+ data
+Own agent architecture spanning ReAct, subagents, plan mode, memory, observability and per-query cost caps
+Built auditable agent control plane with registry, JIT discovery, org-gated skills and scope allowlists: 20+ tools, 40+ skills
+Hardened LLM tool use through 11 sequential gates, prompt-injection defense, tenant isolation and org-level kill switches
+Set agentic AI release bar: 150-case replay harness, L1–L3 tiers, golden-path tests, 25/25 routing and 14/14 E2E
+Set AI operating model for human-in-the-loop approvals, cost/latency budgets, rollout, incident response and rollback
+Led 158 API routes, 442 Snowflake procedures and ~870K LOC (TypeScript, SQL); authored ~48% of 4,700+ commits
+Set roadmap and mentored 10+ engineers through paved-road patterns, runbooks and reference agent implementations
+Built scalable production AI systems yielding 30% higher user engagement and 15% better user-flow efficiency
+Built secure, governable, high-performance backend (node.js, express.js, python) and responsive UI (react, next.js)
+Built complex enterprise AI features: 40% more automation and 25% less manual effort for clients
+Built financial AI/ML trading models yielding 35% better decision-making and 40% greater operational efficiency
+Built real-time data pipeline cutting latency by 50% to enhance AI-powered financial execution
+Led 5 developers across functions through agile cycles to accelerate feature releases by 30%
+Deployed scalable fund-management backend spanning strategy execution, performance and reliability
+Built internal automation scripts and tools: 50% more engineering productivity and 45% less manual intervention
+Built multi-tenant SaaS architecture delivering 99.9% uptime and a prototype in 3 months
+Built real-time order pipeline supporting $1M+ transactions and onboarding 10 enterprise clients
+Integrated OpenAI GPT personalization to raise retention by 25% and reduce support queries by 40%
+Built AI dynamic pricing using personalized displays and order flows to increase client revenue by 30%
+Built modular microservices infrastructure to accelerate releases by 50% and support rapid product iteration
+Led React and Nextjs full-stack delivery of a seamless omnichannel customer engagement platform
+Led AI-driven Product sales and marketing strategy for a $40M Amazon business, delivering 50% revenue growth
+Built $15M AI sales and marketing plan with predictive analytics to enhance seasonal sales and maximize ROI
+Owned lifecycle of 43 SKUs generating $75M Amazon revenue, optimizing pricing, inventory and operations
+Integrated AI supply-chain analytics for COVID-resilient logistics, fewer delays and $10M global revenue contribution
+Worked with cross-functional teams and executive leaders to present data-driven AI strategy insights to CEO and Board
+Built AI-logistics software supporting driver relay operations across a Pan-India network of 100+ cities
+Sole developer of Pickups module supporting 300,000+ pickups in 100+ cities and improving logistics delivery efficiency
+Led 3-member team building dashboards for 100+ clients with real-time messaging, tracking and insights
+Built self-hosted Codex LLM inference on vLLM and AWS GPUs using ECS, EC2 ASG and Terraform
+Raised 27B vLLM throughput 7x (14→100 tok/s) via MTP speculative decoding with ~96% token acceptance
+Tested 5 open models (AWQ/FP8/INT4, 14B–30B incl. MoE) on A10G and L40S GPUs for agentic coding compatibility
+Built GPU FinOps: 34GB→9GB images, 17→11.5 min cold starts, $0 idle; 14B–27B serving at ~$0.52–1.07/hr
+Secured inference via IAM+MFA-gated SSM tunnel without public ingress; fixed vLLM 400s through Responses API proxy
+Built multilingual corpus: 11 scriptures, 3,023 verses, 36K+ translations and 256K+ glosses spanning 12 languages
+Delivered AI-native scripture reader, open dataset and video pipeline using Astro, Cloudflare Workers and Turso
+Built text-to-video pipeline with TTS in 10 voices, React/Remotion rendering, FFmpeg encoding and R2 artifact storage
+Built SponsorSkip at hackathon: LLM-agent transcript ingestion, sponsored YouTube segment detection and auto-skipping
+Built agentic YouTube ad detection at Fetch.ai hackathon in 24 hours; 4-person team placed first of 50
+Created Pitch Deck for Developer SaaS startup fundraising, planning pitches to Angel investors and VCs
+Joined India’s first Web3 accelerator, Founder-ship, engaging Web3 founders, angel investors and VCs
+Advised EdTech startup with 25k downloads and $20K ARR on strategy, fundraising and go-to-market
+Supported seed-stage deep-tech startup personalizing video sales and marketing through mass automation
+Co-founded as CPTO to democratize high-school education, targeting 100M students globally by 2030
+Led 5 developers and designers to build MVP in 2 months for rapid deployment on AWS, React and Django
+Worked with interdisciplinary founders from Stanford, IIT Delhi and IIM Calcutta to drive impact
+Earned MBA Dean’s list at Hult International Business School in Semester 1 with GPA 3.8/4
+Received Institute Awards among 1/22 recipients, including DVC award for Credible & Outstanding Performance in first year
+Earned CGPA Rank 3 with 3.9/4 GPA in 2nd term; held CGPA Rank 14 through 2nd term with overall 3.6/4
+Ranked 30 All India in IIT-JEE, top 0.6% of 479,651 applicants, securing 1/848 IIT Delhi seats
+Ranked 35 (B.Arch) and 68 (B.Tech) All India in AIEEE, top 0.11% of 1,137,256 applicants
+Earned State Rank 8 in Mathematics Olympiad run by Association of Mathematics Teachers
+Ranked School Topper, consistently 1st and 2nd over 10 years at Atomic Energy Central School (CBSE), India
