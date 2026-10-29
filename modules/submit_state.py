@@ -195,11 +195,18 @@ class SubmitRun:
                 uncertain.append({'job': job, **state})
             elif state['status'] in {'failed_before_submit', 'blocked', 'interrupted_before_submit', 'deferred'}:
                 retry.append({'job': job, 'retryable': bool(state.get('retryable')), **state})
-        write_json(self.directory/'retry.json', {'schema': RETRY_SCHEMA, 'source_run_dir': str(self.directory), 'jobs': retry})
+        # Every non-success URL stays in the retry export so a later run can pick
+        # it up, even when it is not safe to replay automatically. The uncertain
+        # ones are marked not retryable, which surfaces them as needing manual
+        # resolution rather than silently dropping them.
+        tracked = retry + [{'job': r['job'], 'retryable': False, **{k: v for k, v in r.items() if k != 'job'}}
+                           for r in uncertain]
+        write_json(self.directory/'retry.json', {'schema': RETRY_SCHEMA, 'source_run_dir': str(self.directory), 'jobs': tracked})
         write_json(self.directory/'needs-review.json', {'schema': 'direct-submit-reconciliation-v1', 'jobs': uncertain})
         write_json(self.directory/'manual-review.json', {'schema':'direct-submit-manual-review-v1','jobs':manual})
         self._text('manual-review.txt', ''.join(r['job']['url']+'\n' for r in manual))
-        self._text('retry.txt', ''.join(r['job']['url']+'\n' for r in retry if r['retryable']))
+        self._text('retry.txt', ''.join(r['job']['url']+'\n' for r in tracked if r['retryable']))
+        self._text('retry-manual.txt', ''.join(r['job']['url']+'\n' for r in tracked if not r['retryable']))
         events = [{'sequence': seq, 'at': at, 'job_key': key, **json.loads(event)} for seq, at, key, event in self.db.execute('SELECT * FROM events ORDER BY sequence')]
         self._text('events.jsonl', ''.join(json.dumps(e, ensure_ascii=False)+'\n' for e in events))
         from .submission_tracking import publish_checkpoint
