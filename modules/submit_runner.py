@@ -241,7 +241,10 @@ def _parallel_submit_job(job, saved, *, attempt, index, total, run, options, ser
             driver.challenge_observer=lambda event:run.update(job,stage='captcha_solver',captcha_event=event)
         else:
             address=driver.capabilities.get('goog:chromeOptions',{}).get('debuggerAddress')
-            if address:run.update(job,debugger_address=address)
+            if address:
+                run.update(job,debugger_address=address)
+                # Run-level too: resume reattaches once for the whole session.
+                run.set_options({**run.options,'debugger_address':address})
         run.update(job,worker_id=worker_context['worker_id'])
         driver.switch_to.new_window('tab')
         run.update(job,tab_handle=str(driver.current_window_handle))

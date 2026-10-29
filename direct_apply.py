@@ -101,8 +101,26 @@ def parser():
     return result
 
 
+def _free_port():
+    import socket
+    sock = socket.socket()
+    try:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+    finally:
+        sock.close()
+
+
 def browser_factory(profile_path=None, *, debugger_address=None):
-    """Visible, dedicated Chrome. No LinkedIn, webdriver globals or credential loaders."""
+    """Visible, dedicated Chrome. No LinkedIn, webdriver globals or credential loaders.
+
+    A fixed debugging port matters beyond diagnostics: an unresolved tab is left
+    open for manual work, and a later ``--resume`` reattaches to it through this
+    port. With Selenium's default of port 0 it is ephemeral and unreachable, so
+    every retained tab was orphaned.
+    """
+    port = None if debugger_address else _free_port()
+
     def create():
         from selenium import webdriver
         options = webdriver.ChromeOptions()
@@ -112,8 +130,12 @@ def browser_factory(profile_path=None, *, debugger_address=None):
         else:
             options.add_argument("--user-data-dir=" + str(profile))
         if not debugger_address:
+            options.add_argument(f"--remote-debugging-port={port}")
+            options.add_argument("--remote-debugging-address=127.0.0.1")
             options.add_experimental_option("detach", True)
         return webdriver.Chrome(options=options)
+
+    create.port = port
     return create
 
 
