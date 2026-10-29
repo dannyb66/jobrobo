@@ -124,6 +124,11 @@ class PreparationBrowser:
     def read(self):
         self.guard()
         result = self.driver.execute_script(SNAPSHOT_JS)
+        # The probe is backend-specific; local Chrome needs its own answer or
+        # every `state['challenge']` check silently reads None.
+        if getattr(self.driver,'browser_backend',None)!='kernel':
+            from .generic_submit import CHALLENGE_PROBE
+            result['challenge'] = bool(self.driver.execute_script(CHALLENGE_PROBE))
         if getattr(self.driver,'browser_backend',None)=='kernel':
             from .kernel_challenges import CHALLENGE_PROBE
             result['challenge']=self.driver.frame.evaluate(CHALLENGE_PROBE)['active']
@@ -177,6 +182,7 @@ class PreparationBrowser:
             self.driver.execute_script('window.stop()')
         time.sleep(self.settle)
         self.actions.append({'action': 'navigate', 'url': target, 'at': stamp()})
+        self.dismiss_consent()
         self.guard()
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
@@ -187,6 +193,24 @@ class PreparationBrowser:
                 CLOSED.search(state.get('text', '')) or ACCESS.search(state.get('text', ''))):
                 break
             time.sleep(0.3)
+
+    def dismiss_consent(self, attempts=8):
+        """Accept a cookie/consent banner. It overlays controls and is per-site.
+
+        Banners usually arrive after paint, so retry across the load window
+        instead of sampling once.
+        """
+        from .generic_submit import CONSENT_JS
+        for _ in range(attempts):
+            try:
+                if self.driver.execute_script(CONSENT_JS):
+                    self.actions.append({'action': 'consent', 'at': stamp()})
+                    time.sleep(0.4)
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.5)
+        return False
 
     def click(self, button, *, kind):
         text = button['text'].strip()
@@ -210,9 +234,18 @@ class PreparationBrowser:
             self.driver.execute_script('window.__jobroboPrepare.openControl=arguments[0]', button['element'])
         else:
             raise ValueError('Unsupported preparation action')
-        button['element'].click()
+        try:
+            button['element'].click()
+        except Exception as error:
+            if type(error).__name__ != 'ElementClickInterceptedException' or not button['element'].is_displayed():
+                raise
+            # Usually a consent banner that arrived a beat late.
+            self.dismiss_consent(attempts=6)
+            button['element'].click()
         self.actions.append({'action': kind, 'label': text, 'at': stamp()})
         time.sleep(self.settle)
+        if self.dismiss_consent(attempts=2):
+            self.form_scope = None
         if kind == 'next':
             deadline = time.monotonic()+10
             while time.monotonic()<deadline:

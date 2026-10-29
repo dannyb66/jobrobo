@@ -49,7 +49,7 @@ def review_values(state):
 
 
 CHALLENGE_PROBE = (
-    "(function(){const f=[...document.querySelectorAll('iframe[src*=hcaptcha],iframe[src*=recaptcha],iframe[src*=turnstile]')];"
+    "return (function(){const f=[...document.querySelectorAll('iframe[src*=hcaptcha],iframe[src*=recaptcha],iframe[src*=turnstile]')];"
     "return f.some(e=>{const r=e.getBoundingClientRect();"
     "return r.height>150&&getComputedStyle(e).visibility!=='hidden';});})()"
 )
@@ -75,16 +75,18 @@ def _await_painted_challenge(browser, timeout=12.0):
 
 
 CONSENT_JS = r"""
+return (function(){
 const want=/^(accept|accept all|allow all|got it|agree|ok)$/i;
 const visible=e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden';
-const hit=[...document.querySelectorAll('button,a[role=button]')]
-  .filter(e=>visible(e)&&want.test((e.textContent||'').trim()))
-  .filter(e=>/cookie|consent|privacy|gdpr/i.test(
-      (e.closest('[class*=cookie],[id*=cookie],[class*=consent],[id*=consent],[class*=banner]')||{}).className||'') ||
-      /accept/i.test((e.textContent||'').trim()));
+const near=e=>{for(let n=e,i=0;i<6&&n;i++,n=n.parentElement){
+  const tag=(n.className||'')+' '+(n.id||'');if(/cookie|consent|privacy|gdpr|banner/i.test(tag))return true;}return false;};
+const hit=[...document.querySelectorAll('button,a,[role=button],input[type=button]')]
+  .filter(e=>visible(e))
+  .filter(e=>want.test(((e.textContent||e.value||'').trim())))
+  .filter(e=>/accept/i.test((e.textContent||e.value||'').trim())||near(e));
 if(!hit.length)return null;
 hit[0].click();
-return (hit[0].textContent||'').trim();
+return (hit[0].textContent||'').trim();})()
 """
 
 
