@@ -220,7 +220,10 @@ class QuestionResolver:
     def resolve(self, question, provider, *, allow_ai=True):
         label = question["label"]
         evidence_text = " ".join([label, question.get("name", "").replace("_", " "), *question.get("options", [])])
-        consent = bool(CONSENT.search(evidence_text))
+        # Only a consent-shaped *control* is held to the strict exact-boolean
+        # rule. A free-text prompt that merely mentions "terms" is ordinary prose
+        # and must keep normal configured-answer handling.
+        consent = bool(CONSENT.search(evidence_text)) and question["kind"] in {"checkbox", "radio", "select"}
         if question["kind"] == "unsupported" or question.get("ambiguous"):
             return Answer(reason="Unsupported control or ambiguous question/options.")
         entries = [entry for entry in self.config.get("answers", []) if normalize_label(entry.get("question")) == normalize_label(label)

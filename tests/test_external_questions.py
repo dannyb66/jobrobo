@@ -389,3 +389,24 @@ class FactVsDraftTests(unittest.TestCase):
         q = {"label": "Degree", "kind": "text", "name": "n", "fields": [], "options": []}
         r = self.resolver([{"question": "Degree", "type": "text", "answer": "Bachelor's"}])
         self.assertEqual(r.resolve(q, "ashby").source, "question_config")
+
+class ConsentVersusProseTests(unittest.TestCase):
+    """A free-text prompt mentioning "terms" is prose, not a consent box."""
+
+    LABEL = ("As experience and the ability to draft terms and cost models are "
+             "essential, share a partnership where you helped finalize a contract.")
+
+    def test_free_text_mentioning_terms_takes_a_text_answer(self):
+        from modules.external_questions import QuestionResolver
+        r = QuestionResolver({"answers": [{"question": self.LABEL, "type": "textarea",
+                                          "answer": "Renegotiated an MSA."}]}, {})
+        q = {"label": self.LABEL, "kind": "textarea", "name": "n", "fields": [], "options": []}
+        self.assertEqual(r.resolve(q, "ashby").source, "question_config")
+
+    def test_a_real_consent_checkbox_still_needs_an_exact_boolean(self):
+        from modules.external_questions import QuestionResolver
+        label = "I consent to the privacy policy"
+        r = QuestionResolver({"answers": [{"question": label, "type": "checkbox", "answer": True}]}, {})
+        q = {"label": label, "kind": "checkbox", "name": "n", "fields": [], "options": []}
+        self.assertEqual(r.resolve(q, "ashby").source, "question_config")
+        self.assertEqual(r.resolve(dict(q, label="I consent to the privacy policy."), "ashby").source, "manual")
