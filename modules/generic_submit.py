@@ -48,6 +48,119 @@ def review_values(state):
 
 
 
+CHALLENGE_PROBE = (
+    "(function(){const f=[...document.querySelectorAll('iframe[src*=hcaptcha],iframe[src*=recaptcha],iframe[src*=turnstile]')];"
+    "return f.some(e=>{const r=e.getBoundingClientRect();"
+    "return r.height>150&&getComputedStyle(e).visibility!=='hidden';});})()"
+)
+
+
+def _await_painted_challenge(browser, timeout=12.0):
+    """Block until a challenge paints, or the window closes.
+
+    An invisible widget only draws its frame once Submit runs it, so asking the
+    moment we click finds nothing and reads as "no CAPTCHA". Poll instead, and
+    stop early when it appears so a real one is never waited out.
+    """
+    runtime = getattr(browser, 'driver', None)
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        try:
+            if runtime.execute_script(CHALLENGE_PROBE):
+                return True
+        except Exception:
+            pass
+        time.sleep(0.25)
+    return False
+
+
+CONSENT_JS = r"""
+const want=/^(accept|accept all|allow all|got it|agree|ok)$/i;
+const visible=e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden';
+const hit=[...document.querySelectorAll('button,a[role=button]')]
+  .filter(e=>visible(e)&&want.test((e.textContent||'').trim()))
+  .filter(e=>/cookie|consent|privacy|gdpr/i.test(
+      (e.closest('[class*=cookie],[id*=cookie],[class*=consent],[id*=consent],[class*=banner]')||{}).className||'') ||
+      /accept/i.test((e.textContent||'').trim()));
+if(!hit.length)return null;
+hit[0].click();
+return (hit[0].textContent||'').trim();
+"""
+
+
+def _accept_cookie_banner(browser):
+    """Dismiss a consent banner if one is up; it overlays the submit button."""
+    try:
+        return browser.driver.execute_script(CONSENT_JS)
+    except Exception:
+        return None
+
+
+CODE_FIELD_JS = r"""
+const f=[...document.querySelectorAll('input')].find(e=>{
+ const id=(e.id||'')+' '+(e.name||'');
+ return (id.includes('security-input')||id.includes('verification')||id.includes('code'))
+   && e.getClientRects().length;});
+return f||null;
+"""
+
+
+def complete_email_verification(browser, *, timeout=120, wait=time.sleep):
+    """Fill an emailed verification code into the retained form.
+
+    Returns the code on success, else None. Off unless a mailbox is configured;
+    the caller keeps the tab open either way.
+    """
+    from . import email_codes
+    if not email_codes.configured():
+        return None
+    driver = browser.driver
+    try:
+        field = driver.execute_script(CODE_FIELD_JS)
+    except Exception:
+        field = None
+    if field is None:
+        return None
+    started = time.time()
+    code = email_codes.await_code(timeout=timeout, after=started)
+    if not code:
+        return None
+    try:
+        field.clear()
+        field.send_keys(code)
+    except Exception:
+        return None
+    # Submitting the code is the site's own button, never the application Submit.
+    try:
+        button = driver.execute_script(
+            "const f=arguments[0];const s=f.closest('form')||document;"
+            "return [...s.querySelectorAll('button,input[type=submit]')]"
+            ".find(b=>/verify|continue|submit|confirm/i.test((b.textContent||b.value||'')));", field)
+        if button is not None:
+            button.click()
+    except Exception:
+        pass
+    wait(2)
+    return code
+
+
+def _activate(*, driver, element):
+    """Click the final Submit, falling back to a DOM click.
+
+    Sites raise ElementClickInterceptedException over sticky footers/cookie
+    banners that paint above the button. A DOM click still runs the page's own
+    handler, and the caller has already armed the submit guard.
+    """
+    try:
+        element.click()
+        return 'native'
+    except Exception as error:
+        if type(error).__name__ != 'ElementClickInterceptedException' or not element.is_displayed():
+            raise
+        driver.execute_script('arguments[0].click()', element)
+        return 'script'
+
+
 def _identity_ok(current_url, expected_url, *, allow_local=False):
     expected = identify_ats(expected_url)
     if expected:
@@ -208,6 +321,10 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                 return {'status': 'applied', 'submitted_at': outcome.submitted_at, 'confirmation_verified': True,
                         'final_review_verified': True, 'blockers': []}
             if scoped and email_verification_required(state):
+                if complete_email_verification(browser):
+                    # The code was entered; give the page a beat, then let the
+                    # normal confirmation loop judge the result.
+                    continue
                 target=browser.driver.execute_cdp_cmd('Target.getTargetInfo',{})['targetInfo']['targetId']
                 continuation={'target_id':target,'token':attempt_id,'aliases':aliases,
                     'resolved_url':report['resolved_url'],'form_url':state['url'],
@@ -249,6 +366,11 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     return {'status':'submission_uncertain','blockers':['CAPTCHA timeout after possible activation']}
                 run.update(job,status='blocked',stage='captcha_timeout_before_submit',retryable=True)
                 return {'status':'blocked','blockers':['CAPTCHA timeout before final activation'],'pre_submit_retryable':True}
+            _accept_cookie_banner(browser)
+            if getattr(browser.driver, 'browser_backend', None) != 'kernel':
+                # Local Chrome has no challenge runtime, so wait for a late
+                # widget here rather than letting the click land underneath it.
+                _await_painted_challenge(browser)
             state, button, reason = validate_final(browser, report)
             if review and incomplete and not missing_required(state['fields']) and any(NEXT.fullmatch(b['text']) for b in state['buttons']) and not button:
                 return {'status':'preparing','blockers':[],'resume_preparation':True}
@@ -282,7 +404,7 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                 activated=True; started=time.monotonic()
                 run.update(job, status='submitting', stage='waiting_for_confirmation')
                 browser.actions.append({'action':'submit','source':'explicit_submit_or_review','at':now()})
-                button['element'].click()
+                _activate(driver=browser.driver, element=button['element'])
             elif not review and not button:
                 if not release():
                     raise ValueError('Cannot establish that no submission occurred')

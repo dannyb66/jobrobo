@@ -206,6 +206,49 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
 
 
+
+class SubmitActivationTests(TestCase):
+    """Pure helpers; no browser needed."""
+
+    def test_intercepted_final_submit_falls_back_to_a_dom_click(self):
+        """A footer overlaying Submit must not fail the whole application."""
+        from modules.generic_submit import _activate
+
+        class Element:
+            def __init__(self, error=None):
+                self.error, self.clicks = error, 0
+            def is_displayed(self): return True
+            def click(self):
+                self.clicks += 1
+                if self.error: raise self.error
+
+        class Driver:
+            def __init__(self): self.scripts = []
+            def execute_script(self, script, *a): self.scripts.append(script)
+
+        driver = Driver()
+        self.assertEqual(_activate(driver=driver, element=Element()), 'native')
+        self.assertEqual(driver.scripts, [])
+
+        class ElementClickInterceptedException(Exception):
+            pass
+
+        intercepted = Element(ElementClickInterceptedException('element click intercepted'))
+        self.assertEqual(_activate(driver=driver, element=intercepted), 'script')
+        self.assertEqual(driver.scripts, ['arguments[0].click()'])
+
+    def test_other_click_errors_are_not_swallowed(self):
+        from modules.generic_submit import _activate
+
+        class Element:
+            def is_displayed(self): return True
+            def click(self): raise RuntimeError('stale element reference')
+
+        class Driver:
+            def execute_script(self, *a): raise AssertionError('should not fall back')
+
+        with self.assertRaises(RuntimeError):
+            _activate(driver=Driver(), element=Element())
 @skipUnless(os.getenv('JOBROBO_BROWSER_TESTS')=='1','Opt-in local real Chrome submissions')
 class SubmitBrowserTests(TestCase):
     @classmethod
@@ -229,6 +272,7 @@ class SubmitBrowserTests(TestCase):
             'resume_provider':lambda job,root:{'pdf':str(self.pdf),'pdf_sha256':digest(self.pdf),'job_id':'synthetic'},
             'ledger_path':self.ledger}
     def jobs(self,*paths):return load_jobs(url=self.base+paths[0],allow_local=True) if len(paths)==1 else sum((load_jobs(url=self.base+p,allow_local=True) for p in paths),[])
+
     def run_jobs(self,jobs,**kwargs):
         return run_submissions(jobs,run_dir=self.root/'run',config_dir=self.config,output_dir=self.root/'reports',
             services=self.services,driver_factory=self.factory,allow_local=True,confirmation_timeout=.7,**kwargs)

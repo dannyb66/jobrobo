@@ -834,6 +834,43 @@ def _custom_choice_once(browser, field, resolver, provider):
     return True, answer.source, ''
 
 
+# Resume parsing rewrites name/email/phone a beat after upload, so a value we
+# write during that window is overwritten. These keys are the ones the parser
+# owns; re-check them across a short grace period before judging a fill.
+PARSER_OWNED_KEYS = {'first_name', 'last_name', 'full_name', 'email', 'phone'}
+PERSIST_GRACE_S = 2.5
+
+
+def _settle_or_restore(browser, question, expected, *, country=''):
+    """Re-read a parser-owned field until it sticks, restoring if it is wiped.
+
+    Returns the final observation. A fill that the site's own autofill resets is
+    re-applied once; if the field then already holds the wanted value we leave it
+    alone rather than typing over it.
+    """
+    if question.get('candidate_key') not in PARSER_OWNED_KEYS:
+        return None
+    end = time.monotonic() + PERSIST_GRACE_S
+    observed = _refresh_question(browser, question)
+    if observed is not None and _answers_equal(question, _current_answer(observed), expected, country=country) and _ready_answer(observed):
+        return observed
+    while time.monotonic() < end:
+        time.sleep(0.25)
+        fresh = _refresh_question(browser, question)
+        if fresh is None:
+            continue
+        if _answers_equal(question, _current_answer(fresh), expected, country=country) and _ready_answer(fresh):
+            return fresh
+    # Still wrong/empty: write once more, then let the caller re-verify.
+    fresh = _refresh_question(browser, question)
+    if fresh is not None:
+        try:
+            fill_native(browser.driver, fresh, expected)
+        except Exception:
+            pass
+    return _refresh_question(browser, question)
+
+
 def _ready_answer(question):
     value = _current_answer(question)
     if value in (None, '', [], False) or any(f.get('valid') is False for f in question['fields']):
@@ -937,11 +974,17 @@ def fill_fields(browser, state, resolver, provider, attempted):
                     source, reason = 'manual', 'Existing answer conflicts with explicit configuration; review before changing'
                 else:
                     source, reason = 'existing_browser', ''
+            elif answer.resolved and _answers_equal(question, _current_answer(fresh), answer.value,
+                                                    country=resolver.typed.candidate.get('country','')) and _current_answer(fresh) not in (False, ''):
+                # Autofill already produced the value we would type; typing over
+                # it risks the parser's later rewrite landing on top of ours.
+                source, reason = 'existing_browser', 'Autofilled value already matches configuration'
             elif answer.resolved:
                 try:
                     fill_native(browser.driver, fresh, answer.value)
                     browser.actions.append({'action': 'fill', 'field': question['label'], 'source': source, 'at': stamp()})
-                    verified = _refresh_question(browser, question)
+                    verified = _settle_or_restore(browser, question, answer.value,
+                                                  country=resolver.typed.candidate.get('country',''))
                     if verified is not None and (not _answers_equal(question,_current_answer(verified),answer.value,country=resolver.typed.candidate.get('country','')) or
                             not _ready_answer(verified) and answer.value not in (False, '', [])):
                         source, reason = 'manual', 'Answer did not persist after filling/blur'
