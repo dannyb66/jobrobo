@@ -248,6 +248,7 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
         raise ValueError('Manual review requires a retained-tab handoff')
     review = review_factory(report, unknown) if needs_review else None
     claimed = False; activated = False; started = None; document_id = None; waited_after_submit=False
+    solved_after_submit = False
     expected_urls = [report['resolved_url'], browser.read()['url']]
     aliases = list(dict.fromkeys([report['url'], *expected_urls]))
     top_identity, form_identity = identify_ats(expected_urls[0]), identify_ats(expected_urls[1])
