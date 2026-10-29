@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.6.0] - 2026-10-28
+
+### Fixed
+
+- Use the candidate name as the optimized PDF title and prefer complete bullet rewrites that fill the original line without shrinking fonts or changing margins.
+- Keep safe fitting candidates when a bounded expansion retry fails; preserve Academic Distinctions and report rendered line fullness.
+- Cache verified per-job resumes against the source, exact job description, configuration, prompt and optimizer dependencies, avoiding duplicate optimization calls on retries.
+
+### Added
+
+- Shared all-bullets optimization, company context, configurable Skills packing, progress reports and standalone review tooling for the existing LinkedIn upload path.
+- Configurable source-bullet fallback and independent layout, coverage and job/config binding verification before attachment.
+
 ## [0.1.5.0] - 2026-10-18
 
 ### Fixed

@@ -71,7 +71,8 @@ class ResumeOptimizerHelpersTest(unittest.TestCase):
         )
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0], "React")
-        self.assertIn("Kubernetes", result)
+        self.assertNotIn("Kubernetes", result)
+        self.assertEqual(set(result), {"Python", "Legacy Tool", "React"})
 
     def test_skill_acronym_aliases_are_deduplicated_with_full_jd_display(self):
         optimizer = ResumeOptimizer.__new__(ResumeOptimizer)
@@ -256,7 +257,7 @@ class ResumeFormatVerifierTest(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertIn("verifier_error", report["checks"])
 
-    def test_wrapping_is_recorded_as_evidence_without_false_rejection(self):
+    def test_changed_rendered_line_usage_is_rejected_even_without_overflow(self):
         doc = Document()
         paragraph = doc.add_paragraph("Built Python services", style="List Paragraph")
         paragraph.runs[0].font.size = Pt(10)
@@ -265,7 +266,8 @@ class ResumeFormatVerifierTest(unittest.TestCase):
         write_test_pdf(self.source_pdf, ["Built Python services"])
         write_test_pdf(self.output_pdf, ["Built Python", "services"])
         report = self.verify()
-        self.assertTrue(report["passed"], report)
+        self.assertFalse(report["passed"], report)
+        self.assertFalse(report["checks"]["rendered_density_preserved"])
         self.assertEqual(report["details"]["optimized_layout"]["max_bullet_lines"], 2)
         self.assertTrue(report["warnings"])
 
@@ -416,8 +418,8 @@ class ResumeApiBoundaryTest(unittest.TestCase):
         self.assertTrue(self.optimizer.last_bullet_rewrite_error)
 
     def test_valid_rewrite_preserves_entry_identity_and_formatting_contract(self):
-        result = self.optimizer._parse_openai_response(self.response('```json\n{"rewritten_experience": [{"company": "Example", "job_title": "Engineer", "bullets": ["Built Python APIs"]}]}\n```'), self.entries)
-        self.assertEqual(result[0]["bullets"], ["Built Python APIs"])
+        result = self.optimizer._parse_openai_response(self.response('```json\n{"rewritten_experience": [{"company": "Example", "job_title": "Engineer", "bullets": ["Built robust Python APIs"]}]}\n```'), self.entries)
+        self.assertEqual(result[0]["bullets"], ["Built robust Python APIs"])
         self.assertEqual(result[0]["company"], "Example")
 
     def test_rewrite_api_exception_preserves_source(self):

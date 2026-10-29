@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "research_date": "2026-10-18",
+  "integration_status": "supported_by_shared_all_bullets_optimizer_when_company_context_enabled",
+  "purpose": "Company and project domain context for each resume experience group. Public company facts describe the business, not the applicant's personal accomplishments.",
+  "matching": "Normalize the original group heading before its location tab; match an explicit alias. Never match using a rewritten job title or the target employer.",
+  "historical_scope": "Research describes the cited public sources as read on research_date. It does not establish that current products or technologies existed during the applicant's employment dates.",
+  "profiles": [
+    {
+      "id": "trek-health",
+      "aliases": ["TREK HEALTH"],
+      "kind": "employer",
+      "evidence_status": "public_company_context",
+      "context": "Healthcare software for provider organizations, with payer-rate transparency, reimbursement benchmarking, payer-contract analysis and negotiation intelligence.",
+      "public_topics": ["provider-payer contracts", "healthcare pricing data", "reimbursement intelligence", "contract metadata and analysis"],
+      "suggested_rewrite_themes": ["data ingestion and normalization for payer intelligence", "document analysis and retrieval for provider contracts", "reliable enterprise workflows"],
+      "sources": [
+        {"url": "https://www.trekhealth.io/company/about-us", "type": "company_first_party", "supports": "Provider-focused payer intelligence and company product timeline"},
+        {"url": "https://www.trekhealth.io/resources/trek-health-launches-contract-intelligence-to-strengthen-provider-payer-negotiations", "type": "company_first_party", "published_date": "2025-09-23", "supports": "Contract analysis, metadata extraction and contract question answering"}
+      ],
+      "local_context_sources": ["config/bullets/Trek_Health_Bullet_Bank.md"],
+      "notes": "Use the dated 2025 contract-intelligence source for that product; do not move 2026 launches into earlier work. Suggested rewrite themes are editorial inferences, not evidence of applicant ownership."
+    },
+    {
+      "id": "sybill",
+      "aliases": ["SYBILL", "SYBILL.AI"],
+      "kind": "employer",
+      "evidence_status": "public_company_context",
+      "context": "AI software for sales teams that turns customer conversations into summaries, follow-up assistance, CRM updates and deal insights.",
+      "public_topics": ["sales conversation intelligence", "sales workflow automation", "CRM integrations", "customer and deal context"],
+      "suggested_rewrite_themes": ["conversation processing and structured extraction", "AI-assisted sales workflows", "reliable CRM and application integrations"],
+      "sources": [
+        {"url": "https://www.sybill.ai/about-us", "type": "company_first_party", "supports": "Sales copilot positioning and 2022 product direction"},
+        {"url": "https://www.sybill.ai/", "type": "company_first_party", "supports": "Current summaries, follow-ups, CRM and sales-context workflows"}
+      ],
+      "notes": "Current MCP, agent and integration claims must not be assumed to have existed during January 2024-June 2025."
+    },
+    {
+      "id": "quantgro-wealth-management",
+      "aliases": ["QUANTGRO WEALTH MANAGEMENT", "QUANTGRO WEALTH MANAGEMENT LLP", "QUANTGRO"],
+      "kind": "employer",
+      "evidence_status": "public_business_domain_historical_details_unconfirmed",
+      "context": "Quantitative investment and wealth-management business emphasizing systematic strategies, financial data, analytics, execution discipline and risk management.",
+      "public_topics": ["quantitative investment research", "financial data analytics", "systematic investment strategies", "risk management"],
+      "suggested_rewrite_themes": ["financial data pipelines", "analytics and research platforms", "reliability and testing of investment workflows"],
+      "sources": [
+        {"url": "https://quantgro.com/about-us", "type": "company_first_party", "supports": "Quantitative, data-driven investment and risk-management positioning"},
+        {"url": "https://in.linkedin.com/company/quantgro", "type": "company_profile", "supports": "Business identity and Bangalore location; page lists founding in 2024"}
+      ],
+      "notes": "Exact resume name is Quantgro, not Quantro. Public founding-date information differs from the resume's May 2023 start; no dates or employment claims have been changed. Use broad domain context until historical details are clarified."
+    },
+    {
+      "id": "chill-panda-tech",
+      "aliases": ["CHILL PANDA TECH", "CHILL PANDA TECH PRIVATE LIMITED"],
+      "kind": "employer",
+      "evidence_status": "public_company_posts_and_directory_context",
+      "context": "Customer-engagement SaaS for retail and service establishments, including interactive digital experiences, personalized recommendations, games and customer-retention workflows.",
+      "public_topics": ["customer engagement", "retail and service experiences", "personalized recommendations", "repeat sales and retention"],
+      "suggested_rewrite_themes": ["multi-tenant customer engagement workflows", "interactive web applications", "analytics and personalization"],
+      "sources": [
+        {"url": "https://www.linkedin.com/in/dannybasavaraju", "type": "company_posts_reshared_by_candidate", "supports": "Chill Panda posts describing retail, salon and patient-engagement web applications"},
+        {"url": "https://www.invstt.com/public/company/chill-panda-tech", "type": "startup_profile", "supports": "Digital engagement SaaS and customizable retail plugins"},
+        {"url": "https://www.ynos.in/startup/chill-panda-tech-private-limited-463315", "type": "secondary_company_directory", "supports": "Customer-engagement SaaS business description"}
+      ],
+      "notes": "Official site chillpanda.app was identified in company posts but its current contents could not be verified. Do not merge this identity with the similarly named Chill Panda mental-health app or Chilli Panda restaurant ordering app."
+    },
+    {
+      "id": "byjus",
+      "aliases": ["BYJUS", "BYJU'S", "BYJU’S"],
+      "kind": "employer",
+      "evidence_status": "public_company_context_with_period_relevant_source",
+      "context": "Education technology for school learning and test preparation, using digital lessons, practice, assessments and personalized learning experiences.",
+      "public_topics": ["K-12 learning", "learning applications", "interactive educational content", "practice and assessments"],
+      "suggested_rewrite_themes": ["education-product platforms", "learning-data and analytics workflows", "personalized learning and reliable digital delivery"],
+      "sources": [
+        {"url": "https://byjus.com/online-learning/", "type": "company_first_party", "supports": "Video lessons, practice, tests and adaptive learning"},
+        {"url": "https://byjus.com/press/byjus-education-for-all-initiative-has-impacted-3-point-4-million-children-in-one-year-of-its-launch-aims-to-educate-10-million-children-by-2025/", "type": "company_first_party", "supports": "2021 description of school-learning products and international expansion"}
+      ],
+      "notes": "Employer-wide education products do not prove the candidate personally built learning systems. The resume's Amazon-commerce remit remains separate candidate-supplied context; a rewrite should not replace that remit with unrelated company work. Do not introduce post-2022 generative-AI technology into the 2020-2022 role."
+    },
+    {
+      "id": "rivigo",
+      "aliases": ["RIVIGO"],
+      "kind": "employer",
+      "evidence_status": "public_legacy_company_context",
+      "context": "Technology-enabled road logistics using relay trucking, a line-haul network, truck booking, shipment monitoring and proof-of-delivery workflows.",
+      "public_topics": ["relay trucking", "transport operations", "shipment tracking", "pickup and delivery workflows"],
+      "suggested_rewrite_themes": ["logistics operations platforms", "event-driven shipment and pickup workflows", "transport data and operational reliability"],
+      "sources": [
+        {"url": "https://sheild.rivigo.com/", "type": "legacy_company_first_party_search_snapshot", "supports": "Relay model, live tracking, app booking and delivery documentation"},
+        {"url": "https://mahindralogistics.com/jvs-subsidiaries/", "type": "current_brand_owner_first_party", "supports": "Current brand ownership distinction, not evidence of the 2016-2018 employer structure"}
+      ],
+      "notes": "Keep the 2016-2018 role in its historical logistics setting. Current Mahindra ownership must not be attributed to the earlier role."
+    },
+    {
+      "id": "codex-self-hosted",
+      "aliases": ["CODEX SELF-HOSTED"],
+      "kind": "personal_project",
+      "evidence_status": "first_party_project_repository",
+      "context": "Self-hosted LLM inference for a coding client, using GPU model serving, an API compatibility proxy and infrastructure automation with scale-to-zero operations.",
+      "public_topics": ["vLLM model serving", "AWS GPU infrastructure", "Terraform", "API compatibility", "inference operations"],
+      "suggested_rewrite_themes": ["model-serving platform engineering", "GPU performance and cost tradeoffs", "secure developer tooling and reliable inference"],
+      "sources": [
+        {"url": "https://github.com/dannyb66/codex-selfhosted", "type": "candidate_first_party_project", "supports": "Client/server/Terraform architecture, vLLM, GPU serving and operations"}
+      ],
+      "local_context_sources": ["config/bullets/Codex_SelfHosted_Bullet_Bank.md"],
+      "notes": "Keep benchmark numbers attached to their specific model, hardware and methodology; do not import numbers from a different run."
+    },
+    {
+      "id": "sohamhamso",
+      "aliases": ["SOHAMHAMSO"],
+      "kind": "personal_project",
+      "evidence_status": "first_party_project_repository",
+      "context": "AI-assisted multilingual Sanskrit reader and corpus platform combining source texts, transliteration, glosses, translations and provenance with narration and template-based media workflows.",
+      "public_topics": ["multilingual corpus", "LLM translation", "translation provenance", "reader and search", "TTS and media composition"],
+      "suggested_rewrite_themes": ["language and corpus data engineering", "translation evaluation and provenance", "web delivery and media workflow reliability"],
+      "sources": [
+        {"url": "https://github.com/dannyb66/sohamhamso", "type": "candidate_first_party_project", "supports": "Reader, corpus ingestion, translation, search and media architecture"},
+        {"url": "https://sohamhamso.org/", "type": "candidate_first_party_project", "supports": "Published multilingual reader surface"}
+      ],
+      "local_context_sources": ["config/bullets/Sohamhamso_Bullet_Bank.md"],
+      "notes": "Reader/search is not established as an agent runtime or retrieval-to-generation system. Media composition uses TTS and templates; do not describe it as a text-to-video model."
+    },
+    {
+      "id": "sponsorskip",
+      "aliases": ["SPONSORSKIP"],
+      "kind": "hackathon_project",
+      "evidence_status": "candidate_supplied_project_context_with_partial_public_corroboration",
+      "context": "Hackathon prototype for identifying sponsored segments in YouTube transcripts and automatically skipping those segments using an AI-assisted workflow.",
+      "public_topics": [],
+      "suggested_rewrite_themes": ["transcript processing", "sponsor-segment classification", "rapid prototyping and application integration"],
+      "sources": [
+        {"url": "https://www.linkedin.com/feed/update/urn:li:activity:7245914702935908352/", "type": "candidate_linked_public_post", "supports": "Hackathon win and rapid prototype context; does not independently establish the product name, stack or team count"}
+      ],
+      "local_context_sources": ["config/bullets/SponsorSkip_Bullet_Bank.md"],
+      "notes": "Product details come from the resume and local project bank. Do not merge with sponsorskip.app, edde746/sponsorskip or other same-name projects; their ownership was not linked to this candidate project."
+    },
+    {
+      "id": "multiple-early-stage-startups",
+      "aliases": ["MULTIPLE EARLY-STAGE STARTUPS"],
+      "kind": "advisory_portfolio",
+      "evidence_status": "candidate_supplied_context_only",
+      "context": "Part-time advisory and consulting work spanning early-stage product strategy, fundraising, go-to-market planning and technology-oriented startup development.",
+      "public_topics": [],
+      "suggested_rewrite_themes": ["technical and product scoping", "founder and stakeholder communication", "early-stage delivery tradeoffs"],
+      "sources": [],
+      "notes": "No named individual companies were supplied for this group, so no employer identities or products have been inferred. Advisory work should remain advisory rather than being presented as full-time engineering ownership."
+    },
+    {
+      "id": "ariceum",
+      "aliases": ["ARICEUM (COURSERA FOR HIGH-SCHOOLERS)", "ARICEUM"],
+      "kind": "startup_project",
+      "evidence_status": "candidate_supplied_context_only",
+      "context": "Early-stage education platform described in the resume as Coursera for high-schoolers, with an AWS, React and Django MVP and a product-and-technology leadership remit.",
+      "public_topics": [],
+      "suggested_rewrite_themes": ["education platform architecture", "MVP delivery", "product and engineering collaboration"],
+      "sources": [],
+      "notes": "No independent public source for this specific education venture was identified. Ariceum Therapeutics and similarly named pharmaceutical companies are unrelated and excluded."
+    }
+  ]
+}
