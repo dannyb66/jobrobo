@@ -8,21 +8,24 @@ from selenium.webdriver.common.keys import Keys
 TEXT_CONTROLS = './/input[not(@type) or @type="text" or @type="number" or @type="email" or @type="tel" or @type="url" or @type="date"] | .//textarea | .//select | .//*[@role="combobox"]'
 
 
-def radio_options(group):
+def _choice_options(group, kind):
     """Read option captions within this group, including empty native labels.
 
     The input's aria-label can repeat the question for every option, so it
     cannot identify Yes versus No. Use the associated label, an ARIA option,
-    or the nearest bounded row that owns exactly one radio input.
+    or the nearest bounded row that owns exactly one native input.
     """
-    options = group.find_elements(By.XPATH, ".//input[@type='radio']")
+    selector = f".//input[@type='{kind}']"
+    if kind == 'checkbox':
+        selector += ' | .//*[@role="checkbox"][not(.//input[@type="checkbox"])]'
+    options = group.find_elements(By.XPATH, selector)
     descendants = {node.id for node in group.find_elements(By.XPATH, './/*')}
     result = []
     for option in options:
         identity = option.get_attribute('id')
         labels = [label for label in group.find_elements(By.XPATH, './/label[@for]')
                   if identity and label.get_attribute('for') == identity]
-        roles = [node for node in option.find_elements(By.XPATH, './ancestor::*[@role="radio"][1]')
+        roles = [node for node in option.find_elements(By.XPATH, f'./ancestor-or-self::*[@role="{kind}"][1]')
                  if node.id in descendants]
         label = next((node for node in labels if node.is_displayed()), None)
         role = roles[0] if roles else None
@@ -34,10 +37,12 @@ def radio_options(group):
                             for node in group.find_elements(By.XPATH, './/*[@id]')
                             if node.get_attribute('id') == reference and node.text.strip())
         if not text:
-            rows = option.find_elements(By.XPATH, "./ancestor::*[not(self::fieldset) and not(@role='radiogroup') and count(.//input[@type='radio'])=1 and normalize-space(.)!=''][1]")
+            rows = option.find_elements(By.XPATH, f"./ancestor::*[not(self::fieldset) and not(@role='radiogroup') and count(.//input[@type='{kind}'])=1 and normalize-space(.)!=''][1]")
             row = next((node for node in rows if node.id in descendants and node.is_displayed()), None)
             if row is not None:
                 text = row.text.strip()
+        if not text and kind == 'checkbox':
+            text = option.get_attribute('aria-label') or ''
         control = role if role is not None and role.is_displayed() else label if label is not None else option
         checked = role.get_attribute('aria-checked') if role is not None else None
         selected = checked == 'true' if checked in {'true', 'false'} else option.is_selected()
@@ -45,6 +50,10 @@ def radio_options(group):
                        'enabled': option.is_enabled() and (role is None or role.get_attribute('aria-disabled') != 'true'),
                        'selected': selected})
     return result
+
+
+def radio_options(group):
+    return _choice_options(group, 'radio')
 
 
 def availability_answer(question, settings, input_type='text', today=None):
@@ -165,21 +174,10 @@ def fill_binary_checkbox_groups(modal, answer_for, click, questions, settings=No
     from modules.linkedin_easy_apply import MissingApplicationAnswer
     handled, count = set(), 0
     for group in modal.find_elements(By.XPATH, './/fieldset[.//input[@type="checkbox"] or .//*[@role="checkbox"]]'):
-        controls = group.find_elements(By.XPATH,
-            './/input[@type="checkbox"] | .//*[@role="checkbox"][not(.//input[@type="checkbox"])]')
-        if len(controls) != 2:
+        parsed = _choice_options(group, 'checkbox')
+        if len(parsed) != 2:
             continue
-        options, wrappers = [], []
-        for control in controls:
-            roles = control.find_elements(By.XPATH, './ancestor::*[@role="checkbox"][1]')
-            wrapper = roles[0] if roles else control
-            ident = control.get_attribute('id')
-            labels = group.find_elements(By.XPATH, './/label[@for="' + ident + '"]') if ident else []
-            text = (labels[0].text if labels else '') or wrapper.text or control.get_attribute('aria-label') or ''
-            options.append({'text': ' '.join(text.split()), 'enabled': control.is_enabled()
-                            and wrapper.get_attribute('aria-disabled') != 'true'})
-            wrappers.append(wrapper if roles or control.get_attribute('role') == 'checkbox'
-                            else labels[0] if labels and labels[0].is_displayed() else control)
+        options = [{'text': ' '.join(item['text'].split()), 'enabled': item['enabled']} for item in parsed]
         if {option['text'].casefold() for option in options} != {'yes', 'no'}:
             continue
         headings = group.find_elements(By.XPATH, './legend | ./preceding-sibling::p[1]')
@@ -193,8 +191,13 @@ def fill_binary_checkbox_groups(modal, answer_for, click, questions, settings=No
         selected, defaulted = choose_index(options, disclosure_answer if disclosure else answer_for(prompt.casefold(), None))
         if defaulted and re.search(r'visa|sponsor', prompt, re.I):
             raise MissingApplicationAnswer('Sponsorship question requires a configured Yes/No answer: ' + prompt)
+        def fresh():
+            current = _choice_options(group, 'checkbox')
+            if [item['text'].casefold() for item in current] != [item['text'].casefold() for item in options]:
+                raise MissingApplicationAnswer('Checkbox group options changed while answering: ' + prompt)
+            return current
         def checked(index):
-            return controls[index].is_selected() or wrappers[index].get_attribute('aria-checked') == 'true'
+            return fresh()[index]['selected']
         previous = next((option['text'] for i, option in enumerate(options) if checked(i)), None)
         if (options[selected]['text'].casefold() == 'yes' and not checked(selected)
                 and re.search(r'\b(?:agree|consent|certif\w*|attest\w*|terms|signature|sign electronically)\b', prompt, re.I)):
@@ -204,11 +207,11 @@ def fill_binary_checkbox_groups(modal, answer_for, click, questions, settings=No
             if checked(i) != (i == selected):
                 if not options[i]['enabled']:
                     raise MissingApplicationAnswer('Checkbox group option is disabled: ' + prompt)
-                click(wrappers[i])
+                click(fresh()[i]['control'])
         if not checked(selected) or any(checked(i) for i in range(2) if i != selected):
             raise MissingApplicationAnswer('Checkbox group selection did not persist: ' + prompt)
         questions.add((prompt, options[selected]['text'], 'checkbox_group', previous))
-        handled.update(node.id for node in controls + wrappers)
+        handled.update(node.id for item in fresh() for node in (item['input'], item['control']))
         count += 1
     return handled, count
 

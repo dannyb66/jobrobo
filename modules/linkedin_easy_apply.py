@@ -104,7 +104,9 @@ def _visible(nodes):
 
 def _kind(button):
     kinds = set()
-    for label in (button.get_attribute('aria-label'), button.text):
+    # Overflow-clipped footer text can be empty in WebElement.text. The scoped
+    # navigation probe already rejects CSS-hidden controls before using this.
+    for label in (button.get_attribute('aria-label'), button.text or button.get_attribute('textContent')):
         label = ' '.join((label or '').lower().split())
         if label in {'next', 'continue', 'continue to next step'}:
             kinds.add('next')
@@ -122,6 +124,39 @@ def _enabled(button):
             and button.get_attribute('disabled') is None)
 
 
+def _navigation_buttons(driver, root):
+    """Read only exact navigation actions in one pass, even below a long list.
+
+    Resume history can contain hundreds of buttons. Reading every button over
+    WebDriver exhausts the readiness timeout before a second stable poll.
+    Overflow clipping is recoverable by scrolling; CSS-hidden controls are not.
+    """
+    execute = getattr(driver, 'execute_script', None)
+    if callable(execute):
+        try:
+            result = execute('''/* jobrobo-navigation-buttons */
+              const root=arguments[0], labels=new Set(['next','continue','continue to next step',
+                'review','review your application','review application',
+                'submit','submit application','submit your application']);
+              const normalize=s=>(s||'').replace(/\\s+/g,' ').trim().toLowerCase();
+              return [...root.querySelectorAll('button,[role="button"]')].filter(e=>{
+                if (![e.textContent,e.getAttribute('aria-label')].some(s=>labels.has(normalize(s)))) return false;
+                if (!e.getClientRects().length) return false;
+                for(let p=e;p;p=p.parentElement) {
+                  const s=getComputedStyle(p);
+                  if(p.hidden || s.display==='none' || s.visibility==='hidden' || s.visibility==='collapse') return false;
+                  if(p===root) break;
+                }
+                return true;
+              });
+            ''', root)
+        except TypeError:
+            result = None  # Read-only adapters can expose containment scripts only.
+        if isinstance(result, (list, tuple)):
+            return list(result)
+    return [b for b in _visible(root.find_elements(By.CSS_SELECTOR, BUTTONS)) if _kind(b)]
+
+
 def _modal(driver):
     candidates = []
     for node in dialog_elements(driver):
@@ -130,7 +165,7 @@ def _modal(driver):
             n.text for n in node.find_elements(By.CSS_SELECTOR, 'h1, h2, h3, [role="heading"]'))
         if re.search(r'\bdiscard\b|\bleave application\b|\bsave.*application\b', heading, re.I):
             continue
-        actions = any(_kind(b) for b in _visible(node.find_elements(By.CSS_SELECTOR, BUTTONS)))
+        actions = bool(_navigation_buttons(driver, node))
         # Discard/leave dialogs must never be mistaken for application forms.
         application = bool(re.search(r'\bapply\b|\bapplication\b',
                                     (node.get_attribute('aria-label') or '') + ' ' + node.text, re.I))
@@ -375,13 +410,18 @@ def _state(driver):
     modal = _modal(driver)
     if not modal:
         return False
-    buttons = [(b, _kind(b)) for b in _visible(modal.find_elements(By.CSS_SELECTOR, BUTTONS))]
+    buttons = [(b, _kind(b)) for b in _navigation_buttons(driver, modal)]
     # Next takes precedence: never jump to Review while there are more form pages.
     for kind in ('next', 'review', 'submit'):
         found = [b for b, action in buttons if action == kind]
         if len(found) > 1:
             raise EasyApplyError(f'{kind}: ambiguous visible navigation controls')
         if found:
+            if not found[0].is_displayed():
+                # Reacquired, scoped action only: never click to recover visibility.
+                driver.execute_script('arguments[0].scrollIntoView({block: "center"});', found[0])
+                if not found[0].is_displayed():
+                    return False
             return modal, kind, found[0]
     return False
 
@@ -395,12 +435,27 @@ def _signature(modal, kind):
             result = execute(r'''
               const root = arguments[0];
               const text = e => (e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
-              const fields = Array.from(root.querySelectorAll('input,textarea,select')).slice(0, 100)
-                .map(e => [e.getAttribute('id'), e.getAttribute('name'), e.getAttribute('type')]);
+              const pdf = e => e.matches('input[type="radio"]') && /\.(pdf|docx?)$/i.test(e.getAttribute('aria-label')||'');
+              const ignored = e => {
+                if(e.closest('[role="status"],[role="alert"]') || pdf(e)) return true;
+                // Exclude one resume option's filename/date, never the form or
+                // its page counter, headings, questions or navigation footer.
+                for(let p=e.parentElement;p && p!==root;p=p.parentElement) {
+                  const inputs=[...p.querySelectorAll('input,textarea,select')];
+                  if(inputs.length===1 && pdf(inputs[0]) && !p.querySelector('h1,h2,h3,footer,button')) return true;
+                }
+                return false;
+              };
+              const stable = s => /_r_[\w-]+_|^[\da-f]{8}-[\da-f-]{27,}$/i.test(s||'') ? null : s;
+              const fields = Array.from(root.querySelectorAll('input,textarea,select')).filter(e=>!ignored(e)).slice(0, 100)
+                .map(e => [stable(e.getAttribute('id')), stable(e.getAttribute('name')), e.getAttribute('type')]);
               const sections = Array.from(root.querySelectorAll('h1,h2,h3,legend,label,[role="heading"],[role="progressbar"]'))
-                .slice(0, 100).map(text);
+                .filter(e=>!ignored(e)).slice(0, 100).map(e=>text(e)+(e.getAttribute('aria-valuenow')||''));
               const content = Array.from(root.querySelectorAll('[data-testid="dialog-content"] p'))
-                .filter(e => !e.closest('[role="status"],[role="alert"]')).slice(0, 100).map(text);
+                .filter(e => !ignored(e)).slice(0, 100).map(text);
+              const progress=[...root.querySelectorAll('p,[role="progressbar"]')]
+                .filter(e=>!ignored(e)).map(text).find(t=>/^\d+\s*\/\s*\d+\s+pages$/i.test(t));
+              if(progress && !content.includes(progress)) content.push(progress);
               return [sections, fields, content];
             ''', modal)
             if isinstance(result, (list, tuple)) and len(result) == 3:
@@ -410,15 +465,29 @@ def _signature(modal, kind):
             # Retain compatibility with lightweight DOM adapters and older
             # drivers that cannot serialize the bounded structural snapshot.
             pass
-    fields = tuple((n.get_attribute('id'), n.get_attribute('name'), n.get_attribute('type'))
-                   for n in modal.find_elements(By.CSS_SELECTOR, 'input, textarea, select'))
-    sections = tuple(n.text for n in modal.find_elements(
-        By.CSS_SELECTOR, 'h1, h2, h3, legend, label, [role="heading"], [role="progressbar"]'))
+    def ignored(node):
+        if node.find_elements(By.XPATH, './ancestor::*[@role="status" or @role="alert"]'):
+            return True
+        if node.get_attribute('type') == 'radio' and re.search(r'\.(?:pdf|docx?)$', node.get_attribute('aria-label') or '', re.I):
+            return True
+        return bool(node.find_elements(By.XPATH, './ancestor::*[count(.//input | .//textarea | .//select)=1 '
+            'and .//input[@type="radio" and (contains(@aria-label,".pdf") or contains(@aria-label,".doc"))] '
+            'and not(.//h1 | .//h2 | .//h3 | .//footer | .//button)]'))
+    def stable(value):
+        return None if re.search(r'_r_[\w-]+_|^[\da-f]{8}-[\da-f-]{27,}$', value or '', re.I) else value
+    fields = tuple((stable(n.get_attribute('id')), stable(n.get_attribute('name')), n.get_attribute('type'))
+                   for n in modal.find_elements(By.CSS_SELECTOR, 'input, textarea, select') if not ignored(n))
+    sections = tuple(n.text + (n.get_attribute('aria-valuenow') or '') for n in modal.find_elements(
+        By.CSS_SELECTOR, 'h1, h2, h3, legend, label, [role="heading"], [role="progressbar"]') if not ignored(n))
     # SDUI education/work-history steps can contain only paragraph cards:
     # identical Next controls and no editable fields or semantic headings.
-    content = tuple(n.text for n in modal.find_elements(
-        By.XPATH, ".//*[@data-testid='dialog-content']//p[not(ancestor::*[@role='status' or @role='alert'])]"))
-    return kind, sections, fields, content
+    content = [n.text for n in modal.find_elements(
+        By.XPATH, ".//*[@data-testid='dialog-content']//p") if not ignored(n)]
+    progress = next((n.text for n in modal.find_elements(By.CSS_SELECTOR, 'p, [role="progressbar"]')
+                     if re.fullmatch(r'\d+\s*/\s*\d+\s+pages', n.text.strip(), re.I) and not ignored(n)), None)
+    if progress and progress not in content:
+        content.append(progress)
+    return kind, sections, fields, tuple(content)
 
 
 def _application_owner(modal):
@@ -473,7 +542,12 @@ def _read_navigation_snapshot(modal, action):
           const prompts=[...root.querySelectorAll('legend,label[for],input[aria-label],textarea[aria-label],select[aria-label]')]
             .slice(0,20).map(e=>(e.getAttribute('aria-label')||e.textContent||'').replace(/\s+/g,' ').trim().slice(0,240)).filter(Boolean);
           const progress=(root.textContent||'').match(/\b\d+\s*\/\s*\d+\s+pages\b/i);
-          return {action, page:progress ? progress[0] : null, questions:prompts};
+          const navigation=[...root.querySelectorAll('footer button,footer [role="button"],.jobs-easy-apply-footer button')]
+            .slice(0,8).map(e=>{ const r=e.getBoundingClientRect();
+              return {label:(e.getAttribute('aria-label')||e.textContent||'').trim().slice(0,80),
+                disabled:e.disabled||e.getAttribute('aria-disabled')==='true',
+                rect:{x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height)}}; });
+          return {action, page:progress ? progress[0] : null, questions:prompts, navigation};
         ''', modal, action)
         if isinstance(result, dict) and isinstance(result.get('questions'), list):
             return result
@@ -515,7 +589,9 @@ def advance_to_review(driver, fill_step, *, timeout=10, max_steps=15, on_blocked
         try:
             modal, current_kind, button = _settled_state(driver, timeout, job_id, owner)
         except TimeoutException as error:
-            raise EasyApplyError(f'step {step}: form controls disappeared after filling') from error
+            failure = EasyApplyError(f'step {step}: form controls disappeared after filling')
+            failure.navigation_evidence = [{'before': before_fill, 'after': _navigation_snapshot(modal, kind)}]
+            raise failure from error
         if current_kind != kind:
             recoveries += 1
             after_fill = _navigation_snapshot(modal, current_kind)
@@ -595,7 +671,9 @@ def advance_to_review(driver, fill_step, *, timeout=10, max_steps=15, on_blocked
             log(reason)
             if on_blocked and on_blocked(reason):
                 continue
-            raise EasyApplyError(reason)
+            failure = EasyApplyError(reason)
+            failure.navigation_evidence = [{'before': before_fill, 'after': _navigation_snapshot(modal, kind)}]
+            raise failure
     raise EasyApplyError(f'navigation: exceeded {max_steps} form steps without reaching review')
 
 

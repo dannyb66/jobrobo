@@ -53,6 +53,41 @@ class NativeChoiceTests(unittest.TestCase):
         options = radio_options(browser.find_element(By.ID, 'group'))
         self.assertEqual(options[0]['text'], '')
 
+    def test_plain_native_checkbox_captions_choose_configured_no_exclusively(self):
+        from test_search_runner import ReceiptRecoveryTests
+        browser, ns = ReceiptRecoveryTests().checkbox_form('''<p>Would you require visa sponsorship?*</p><fieldset>
+          <div><div><input id="yes" type="checkbox" checked><label for="yes"></label></div><p>Yes</p></div>
+          <div><div><input id="no" type="checkbox"><label for="no"></label></div><p>No</p></div>
+          </fieldset>''', require_visa='No')
+        questions = ns['answer_questions'](browser.find_element(By.CSS_SELECTOR, 'dialog'), set(), 'Bay Area')
+        self.assertFalse(browser.find_element(By.ID, 'yes').is_selected())
+        self.assertTrue(browser.find_element(By.ID, 'no').is_selected())
+        self.assertEqual(browser.clicks, ['yes', 'no'])
+        ns['answer_questions'](browser.find_element(By.CSS_SELECTOR, 'dialog'), questions, 'Bay Area')
+        self.assertEqual(browser.clicks, ['yes', 'no'])
+
+    def test_plain_native_binary_agreement_still_requires_confirmation(self):
+        from test_search_runner import ReceiptRecoveryTests
+        browser, ns = ReceiptRecoveryTests().checkbox_form('''<p>Do you agree to sign electronically?*</p><fieldset>
+          <div><input id="yes" type="checkbox"><label for="yes"></label><p>Yes</p></div>
+          <div><input id="no" type="checkbox"><label for="no"></label><p>No</p></div></fieldset>''')
+        with self.assertRaisesRegex(MissingApplicationAnswer, 'needs confirmation'):
+            ns['answer_questions'](browser.find_element(By.CSS_SELECTOR, 'dialog'), set(), 'Bay Area')
+        self.assertEqual(browser.clicks, [])
+
+    def test_nonbinary_tool_checkboxes_are_not_treated_as_exclusive_choices(self):
+        from modules.linkedin_form_fields import fill_binary_checkbox_groups
+        browser = DOMBrowser('''<dialog open><fieldset><legend>Which tools have you used?</legend>
+          <div><input type="checkbox" checked><label></label><p>Python</p></div>
+          <div><input type="checkbox" checked><label></label><p>TypeScript</p></div>
+          </fieldset></dialog>''')
+        answer, click = Mock(), Mock()
+        self.assertEqual(fill_binary_checkbox_groups(browser.find_element(By.CSS_SELECTOR, 'dialog'),
+                         answer, click, set()), (set(), 0))
+        answer.assert_not_called()
+        click.assert_not_called()
+        self.assertTrue(all(node.is_selected() for node in browser.find_elements(By.CSS_SELECTOR, 'input')))
+
     def test_independent_fields_do_not_accept_an_unapproved_agreement(self):
         from test_search_runner import ReceiptRecoveryTests
         browser, ns = ReceiptRecoveryTests().checkbox_form('''

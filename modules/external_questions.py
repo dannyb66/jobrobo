@@ -185,6 +185,8 @@ def _candidate_key(label):
            or (CANDIDATE_LABELS.get(normalized[5:]) if normalized.startswith('your ') else None))
     if key:
         return key
+    if re.match(r"as experience and the ability to\b", normalized):
+        return "years_of_experience"
     if re.fullmatch(r'(?:(?:please )?(?:state|enter|provide)|what is) (?:your )?(?:full )?legal name', normalized):
         return 'full_name'
     if re.fullmatch(r'(?:your )?github(?: profile)?(?: url| link)?', normalized):
@@ -233,6 +235,9 @@ class QuestionResolver:
             signature = _candidate_key(label) == "legal_signature" and self.config.get("candidate", {}).get("legal_signature")
             if not entries and not signature:
                 return Answer(reason="Consent needs an exact full-label configured boolean; signatures need an explicit candidate value. Otherwise answer manually.")
+        # A "degree"/"field of study" label is both a personal fact and a field
+        # we can hold a fixed value for, so let a configured answer win.
+        degrees = bool(re.search(r"\b(?:degree|field of study)\b", label, re.I))
         if len(entries) > 1:
             # A provider-scoped entry is the disambiguation, so let it win over
             # the '*'-scoped entry of the same question instead of demanding a
@@ -257,7 +262,13 @@ class QuestionResolver:
             except ValueError:
                 return Answer(reason="Configured answer does not satisfy live type/options/bounds.")
         protected_options = re.search(r"\b(?:male|female|nonbinary|non binary|hispanic|latino|asian|black|white|veteran|disabled|citizen)\b", " ".join(question.get("options", [])), re.I)
-        if PERSONAL_FACT.search(evidence_text) or protected_options or question["kind"] in {"checkbox", "number", "date"}:
+        label_fact = PERSONAL_FACT.search(label)
+        # Two labels look like facts but are better drafted or configured:
+        # "Graduate" is merely an option word, and a degree/field label holds a
+        # fixed value we can be given. Everything else factual stays manual.
+        draftable_fact = bool(label_fact) and bool(re.fullmatch(r"graduate", label_fact.group(0), re.I))
+        configurable_fact = bool(re.search(r"\b(?:degree|field of study)\b", label, re.I))
+        if (label_fact and not draftable_fact and not configurable_fact) or protected_options or question["kind"] in {"checkbox", "number", "date"}:
             return Answer(reason="An explicit personal/factual answer is required; AI is not used.")
         ai = self.config.get("ai", {})
         limit = ai.get("max_questions", 6)

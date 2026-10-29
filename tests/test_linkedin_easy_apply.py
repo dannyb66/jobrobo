@@ -82,7 +82,9 @@ def form(heading='Contact info', action='Next', classic=False, extra='', attribu
 
 class NavigationTests(unittest.TestCase):
     def navigate(self, browser, fill=None, **kwargs):
-        return advance_to_review(browser, fill or (lambda modal: None), timeout=.01, **kwargs)
+        # These DOM adapters do multiple parsed queries per poll; 10ms is below
+        # normal scheduling jitter when the full suite runs alongside Chrome.
+        return advance_to_review(browser, fill or (lambda modal: None), timeout=.2, **kwargs)
 
     def safety_reminder(self, buttons=None):
         return ('<dialog open data-testid="dialog"><h2>Job search safety reminder</h2>'
@@ -176,6 +178,41 @@ class NavigationTests(unittest.TestCase):
                          ('next', ('Work history',), (('from-month', None, None),), ('Software Engineer',)))
         modal.parent.execute_script.assert_called_once()
         modal.find_elements.assert_not_called()
+
+    def test_generated_field_ids_and_resume_history_are_not_page_progress(self):
+        from test_linkedin_modern_search import DOMBrowser
+        def page(suffix, filename):
+            return DOMBrowser('<dialog open><h2>Apply to Example</h2><div data-testid="dialog-content">'
+                '<p>2/4 pages</p><p>Resume*</p><div><input type="radio" id="_r_' + suffix + '_" '
+                'name="radio-group-_r_' + suffix + '_" aria-label="' + filename + '"><label></label>'
+                '<p>' + filename + '</p><p>10/29/2026</p></div>'
+                '<div role="status"><p>Resume uploaded successfully</p></div></div><button>Next</button></dialog>')
+        first, second = page('one', 'old.pdf'), page('two', 'new.pdf')
+        self.assertEqual(_signature(first.find_element(By.CSS_SELECTOR, 'dialog'), 'next'),
+                         _signature(second.find_element(By.CSS_SELECTOR, 'dialog'), 'next'))
+
+    def test_clipped_footer_action_uses_dom_caption_before_scrolling(self):
+        from modules.linkedin_easy_apply import _kind
+        button = Mock()
+        button.text = ''
+        button.get_attribute.side_effect = lambda key: {'textContent': 'Next'}.get(key)
+        self.assertEqual(_kind(button), 'next')
+
+    def test_navigation_probe_does_not_read_every_resume_history_button(self):
+        from modules.linkedin_easy_apply import _navigation_buttons
+        root, driver, next_button = Mock(), Mock(), Mock()
+        root.find_elements.side_effect = AssertionError('do not enumerate history over WebDriver')
+        driver.execute_script.return_value = [next_button]
+        self.assertEqual(_navigation_buttons(driver, root), [next_button])
+        driver.execute_script.assert_called_once()
+        root.find_elements.assert_not_called()
+
+    def test_page_counter_distinguishes_same_action_without_field_ids(self):
+        from test_linkedin_modern_search import DOMBrowser
+        markup = '<dialog open><h2>Apply to Example</h2><p>1/4 pages</p><button>Next</button></dialog>'
+        first, second = DOMBrowser(markup), DOMBrowser(markup.replace('1/4', '2/4'))
+        self.assertNotEqual(_signature(first.find_element(By.CSS_SELECTOR, 'dialog'), 'next'),
+                            _signature(second.find_element(By.CSS_SELECTOR, 'dialog'), 'next'))
 
     def test_safety_reminder_cleanup_detection_never_continues(self):
         browser=Browser([self.safety_reminder()])
@@ -851,5 +888,5 @@ class NavigationTests(unittest.TestCase):
             replacement = DOMBrowser(pages[browser.page])
             browser.root = replacement.root
         browser.click = click
-        advance_to_review(browser, lambda modal: None, timeout=.01)
+        advance_to_review(browser, lambda modal: None, timeout=.2)
         self.assertEqual(browser.clicks, ['Next', 'Next', 'Review'])

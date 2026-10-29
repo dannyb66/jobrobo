@@ -364,3 +364,28 @@ class CandidateKeyHintTests(unittest.TestCase):
     def test_portfolio_wording_maps_to_the_website(self):
         from modules.external_questions import _candidate_key
         self.assertEqual(_candidate_key('Portfolio/Link to your work'), 'website')
+
+class FactVsDraftTests(unittest.TestCase):
+    """Which factual-looking labels may still be drafted or configured."""
+
+    def resolver(self, config=None):
+        from modules.external_questions import QuestionResolver
+        base = {"ai": {"enabled": True, "max_questions": 6}, "answers": config or []}
+        return QuestionResolver(base, {"years_of_experience": "8"},
+                                {"candidate_information": "I have 8 years planning campaigns."},
+                                lambda p: {"manual_review": False, "answer": "I have 8 years planning campaigns.",
+                                           "source_ids": ["candidate_information"]})
+
+    def test_graduate_as_an_option_word_still_drafts(self):
+        q = {"label": "What type of role are you looking for? (Intern / Graduate / Full-time)",
+             "kind": "textarea", "name": "n", "fields": [], "options": [], "required": True}
+        self.assertTrue(self.resolver().resolve(q, "ashby").source.startswith("ai"))
+
+    def test_graduation_date_is_still_a_fact(self):
+        q = {"label": "Graduation date", "kind": "textarea", "name": "n", "fields": [], "options": []}
+        self.assertEqual(self.resolver().resolve(q, "greenhouse").source, "manual")
+
+    def test_a_configured_degree_answer_beats_the_fact_gate(self):
+        q = {"label": "Degree", "kind": "text", "name": "n", "fields": [], "options": []}
+        r = self.resolver([{"question": "Degree", "type": "text", "answer": "Bachelor's"}])
+        self.assertEqual(r.resolve(q, "ashby").source, "question_config")
