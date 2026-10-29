@@ -320,6 +320,16 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                            retryable=False, attempt_id=attempt_id)
                 return {'status': 'applied', 'submitted_at': outcome.submitted_at, 'confirmation_verified': True,
                         'final_review_verified': True, 'blockers': []}
+            if (claimed and scoped and state.get('challenge') and not solved_after_submit
+                    and getattr(browser.driver, 'browser_backend', None) != 'kernel'):
+                # An invisible widget only appears after Submit; solve it here and
+                # let the loop re-judge, rather than timing out on the prompt.
+                from . import captcha_solver
+                if captcha_solver.enabled():
+                    run.update(job, status='submitting', stage='captcha_after_submit')
+                    if captcha_solver.cleared(captcha_solver.solve(browser.driver)):
+                        solved_after_submit = True
+                        continue
             if scoped and email_verification_required(state):
                 if complete_email_verification(browser):
                     # The code was entered; give the page a beat, then let the
@@ -402,6 +412,7 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     raise ValueError(reason)
                 browser.driver.execute_script('return window.__jobroboPrepare.armSubmit(arguments[0])', button['element'])
                 activated=True; started=time.monotonic()
+                _accept_cookie_banner(browser)
                 run.update(job, status='submitting', stage='waiting_for_confirmation')
                 browser.actions.append({'action':'submit','source':'explicit_submit_or_review','at':now()})
                 _activate(driver=browser.driver, element=button['element'])
