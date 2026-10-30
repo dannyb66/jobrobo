@@ -8,7 +8,7 @@ default_resume_path = "all resumes/default/resume.pdf"      # (In Development)
 default_resume_docx_path = "all resumes/default/resume.docx"      # (In Development)
 # Opt in only for final Easy Apply forms that request basic contact information
 # and offer no resume upload/selection. Failed or offered uploads still block.
-allow_contact_only_easy_apply = False
+allow_contact_only_easy_apply = True
 # default_resume_path = "all resumes/default/pm_resume.pdf"      # (In Development)
 # default_resume_docx_path = "all resumes/default/pm_resume.docx"      # (In Development)
 
