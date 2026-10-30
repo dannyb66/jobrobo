@@ -52,7 +52,11 @@ def _cdp_flags(options):
     import os
     if os.getenv("JOBROBO_DISABLE_CDP"):
         return []
-    if any(arg.startswith("--remote-debugging-port") for arg in options.arguments):
+    # `arguments` can be a non-list (a mock, or a future options object), so use
+    # the iterable form only when the attribute really is one.
+    existing = getattr(options, "arguments", None)
+    if isinstance(existing, (list, tuple)) and any(
+            str(arg).startswith("--remote-debugging-port") for arg in existing):
         return []
     return [f"--remote-debugging-port={_free_port()}", "--remote-debugging-address=127.0.0.1"]
 
