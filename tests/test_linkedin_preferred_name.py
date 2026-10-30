@@ -31,7 +31,10 @@ class PreferredNameTests(unittest.TestCase):
             'Keys':SimpleNamespace(COMMAND='\ue03d',CONTROL='\ue009',BACKSPACE='\ue003',TAB='\ue004'),'WebDriverWait':lambda *a:Wait(),
             'overwrite_previous_answers':False,'preferred_first_name':preferred,'first_name':'Danny','last_name':'Basavaraju','middle_name':'','full_name':'Danny Basavaraju'}
         names=['answer_questions']
-        if any(isinstance(n,ast.FunctionDef) and n.name=='replace_text_verified' for n in ast.parse(RUNNER.read_text()).body):names.append('replace_text_verified')
+        body=ast.parse(RUNNER.read_text()).body
+        for extra in ('replace_text_verified','_fill_resume_work_history_dates',
+                      '_resume_work_history_dates','answer_common_questions','_bounded_application_answer'):
+            if any(isinstance(n,ast.FunctionDef) and n.name==extra for n in body):names.append(extra)
         extract_functions(ns,*names)
         return field,lambda:ns['answer_questions'](modal,set(),'San Francisco Bay Area')
     def test_prefilled_ordinary_first_name_is_replaced_exactly(self):

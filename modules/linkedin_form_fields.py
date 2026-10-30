@@ -8,6 +8,16 @@ from selenium.webdriver.common.keys import Keys
 TEXT_CONTROLS = './/input[not(@type) or @type="text" or @type="number" or @type="email" or @type="tel" or @type="url" or @type="date"] | .//textarea | .//select | .//*[@role="combobox"]'
 
 
+def _found(container, by, selector):
+    """``find_elements`` that is safe against a mocked or empty control.
+
+    ``if not elements`` does not protect a test double: a bare ``Mock`` is
+    truthy but not iterable, so the following loop raises instead.
+    """
+    found = container.find_elements(by, selector)
+    return found if isinstance(found, (list, tuple)) else []
+
+
 def _choice_options(group, kind):
     """Read option captions within this group, including empty native labels.
 
@@ -18,12 +28,12 @@ def _choice_options(group, kind):
     selector = f".//input[@type='{kind}']"
     if kind == 'checkbox':
         selector += ' | .//*[@role="checkbox"][not(.//input[@type="checkbox"])]'
-    options = group.find_elements(By.XPATH, selector)
-    descendants = {node.id for node in group.find_elements(By.XPATH, './/*')}
+    options = _found(group, By.XPATH, selector)
+    descendants = {node.id for node in _found(group, By.XPATH, './/*')}
     result = []
     for option in options:
         identity = option.get_attribute('id')
-        labels = [label for label in group.find_elements(By.XPATH, './/label[@for]')
+        labels = [label for label in _found(group, By.XPATH, './/label[@for]')
                   if identity and label.get_attribute('for') == identity]
         roles = [node for node in option.find_elements(By.XPATH, f'./ancestor-or-self::*[@role="{kind}"][1]')
                  if node.id in descendants]
@@ -129,7 +139,7 @@ def application_location_answer(question, choices, posting_location, configured_
 
 def is_calendar_date_select(control, inferred_label=''):
     """A duration option mentioning 'year' does not make a calendar selector."""
-    options = control.find_elements(By.TAG_NAME, 'option')
+    options = _found(control, By.TAG_NAME, 'option')
     if not options:
         return True  # Non-native date widgets are identified by their caller.
     labels = [inferred_label, control.get_attribute('aria-label'),
@@ -372,7 +382,7 @@ def checkbox_prompt(driver, control):
     except Exception:
         pass
     text = ''
-    for parent in list(reversed(control.find_elements(By.XPATH, './ancestor::*')))[:8]:
+    for parent in list(reversed(_found(control, By.XPATH, './ancestor::*')))[:8]:
         if parent.get_attribute('role') == 'dialog' or getattr(parent, 'tag_name', '') in {'dialog', 'form'}:
             break
         if len(parent.find_elements(By.CSS_SELECTOR, 'input:not([type="hidden"]),textarea,select')) > 1:
@@ -411,7 +421,7 @@ def field_limit(driver, control, fallback):
     except Exception:
         pass
     if not texts:
-        for parent in list(reversed(control.find_elements(By.XPATH, './ancestor::*')))[:8]:
+        for parent in list(reversed(_found(control, By.XPATH, './ancestor::*')))[:8]:
             if parent.get_attribute('role') == 'dialog' or getattr(parent, 'tag_name', '') == 'dialog':
                 break
             if len(parent.find_elements(By.XPATH, TEXT_CONTROLS)) > 1:
