@@ -28,6 +28,12 @@ class GenericPreparationTests(unittest.TestCase):
         self.assertEqual(result['company'], 'Test')
         self.assertEqual(result['description'], 'Build systems\nUse Python')
 
+    def test_structured_title_entities_match_the_visible_application_heading(self):
+        result = extract_job({'job': {'title':'Engineer in Residence, AI Intelligence &amp; Operations',
+            'hiringOrganization':{'name':'Research &amp; Engineering'}, 'description':'Build systems'}})
+        self.assertEqual(result['title'], 'Engineer in Residence, AI Intelligence & Operations')
+        self.assertEqual(result['company'], 'Research & Engineering')
+
     def test_config_precedes_ai_and_missing_fact_never_calls_ai(self):
         drafts = Mock()
         resolver = PreparationResolver({'email': 'test@example.test'}, {}, drafts)

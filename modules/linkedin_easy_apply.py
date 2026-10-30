@@ -291,6 +291,7 @@ def open_easy_apply(driver, expected_job_id, *, timeout=10, log=lambda _: None, 
 
     False means a confirmed external Apply control. Missing, disabled or failed
     entry controls are errors, not evidence that a job requires external apply.
+    inspect_only classifies the selected CTA without opening an Easy Apply form.
     Reacquire controls only before a successful click; never click entry twice
     while waiting for a form or the existing Continue applying interstitial.
     """

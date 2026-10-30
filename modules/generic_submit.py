@@ -249,6 +249,7 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
     review = review_factory(report, unknown) if needs_review else None
     claimed = False; activated = False; started = None; document_id = None; waited_after_submit=False
     solved_after_submit = False
+    solver_attempted_after_submit = False
     solve_attempts = 0
     expected_urls = [report['resolved_url'], browser.read()['url']]
     aliases = list(dict.fromkeys([report['url'], *expected_urls]))
@@ -324,12 +325,15 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                            retryable=False, attempt_id=attempt_id)
                 return {'status': 'applied', 'submitted_at': outcome.submitted_at, 'confirmation_verified': True,
                         'final_review_verified': True, 'blockers': []}
-            if (claimed and scoped and state.get('challenge') and not solved_after_submit
+            if (claimed and scoped and state.get('challenge') and not solver_attempted_after_submit
                     and getattr(browser.driver, 'browser_backend', None) != 'kernel'):
                 # An invisible widget only appears after Submit; solve it here and
                 # let the loop re-judge, rather than timing out on the prompt.
                 from . import captcha_solver
                 if captcha_solver.enabled():
+                    # One bounded solve cycle per Submit, including its single
+                    # rejected-board retry. Never restart it on every poll.
+                    solver_attempted_after_submit = True
                     run.update(job, status='submitting', stage='captcha_after_submit')
                     solved_from = time.monotonic()
                     # Two independent attempts: a vendor rejection is often a bad
@@ -389,8 +393,12 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     browser.actions.append({'action':'submit','source':'review_or_explicit_submit_mode','at':now()})
                     run.update(job, status='submitting', stage='waiting_for_confirmation')
                 if time.monotonic()-started >= confirmation_timeout:
-                    run.update(job, status='submission_uncertain', stage='confirmation_timeout', retryable=False)
-                    return {'status':'submission_uncertain','blockers':['Submit may have occurred; inspect needs-review.json before retrying']}
+                    rejected_challenge = bool(report.get('challenge')) and not solved_after_submit
+                    stage = 'captcha_unresolved_after_submit' if rejected_challenge else 'confirmation_timeout'
+                    reason = ('CAPTCHA solver could not clear the challenge after possible Submit; inspect employer outcome'
+                              if rejected_challenge else 'Submit may have occurred; inspect needs-review.json before retrying')
+                    run.update(job, status='submission_uncertain', stage=stage, retryable=False, reason=reason)
+                    return {'status':'submission_uncertain','blockers':[reason]}
                 time.sleep(poll_interval)
                 continue
             from .kernel_challenges import wait_for_challenge

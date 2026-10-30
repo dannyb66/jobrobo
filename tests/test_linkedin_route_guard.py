@@ -1,7 +1,7 @@
 """Routing policy checks; synthetic driver only, never a live application."""
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from modules.external_apply import ExternalApplicationResult
 from test_search_runner import extract_functions
@@ -9,10 +9,17 @@ from test_search_runner import extract_functions
 
 class LinkedInRouteGuardTests(unittest.TestCase):
     def namespace(self, easy_only, hosted=False):
+        handoff = patch('modules.linkedin_external_submit.open_employer_tab',
+                        return_value=('external', 'https://jobs.lever.co/example/synthetic/apply'))
+        self.handoff = handoff.start()
+        self.addCleanup(handoff.stop)
+        capture = patch('modules.linkedin_failure_recovery.capture_failure', return_value={})
+        capture.start()
+        self.addCleanup(capture.stop)
         driver = Mock()
         driver.find_element.return_value.text = "No warning"
         driver.current_url = "https://jobs.lever.co/example/synthetic/apply"
-        driver.current_window_handle = "external"
+        driver.current_window_handle = "linkedin"
         driver.window_handles = ["linkedin", "external"]
         namespace = {
             "driver": driver, "wait": Mock(),
@@ -23,6 +30,7 @@ class LinkedInRouteGuardTests(unittest.TestCase):
             "linkedIn_tab": "linkedin", "close_tabs": True,
             "wait_span_click": Mock(), "print_lg": Mock(),
             "failed_job": Mock(), "failed_count": 0,
+            "search_profile": SimpleNamespace(search_state_dir='logs/search_runs'),
             "prepare_external_application": Mock(return_value=ExternalApplicationResult(
                 "awaiting_review", driver.current_url, reason="Synthetic review only")),
         }
@@ -58,7 +66,7 @@ class LinkedInRouteGuardTests(unittest.TestCase):
         namespace = self.namespace(False)
         result = self.run_route(namespace)
         self.assertEqual(result, (False, namespace["driver"].current_url, 2))
-        namespace["wait"].until.return_value.click.assert_called_once()
+        self.handoff.assert_called_once_with(namespace['driver'], '123')
         namespace["prepare_external_application"].assert_not_called()
         namespace["driver"].switch_to.window.assert_called_with("linkedin")
 
@@ -70,25 +78,13 @@ class LinkedInRouteGuardTests(unittest.TestCase):
             namespace["driver"].current_url, "123", "Synthetic Engineer", "", "Example")
         namespace["driver"].switch_to.window.assert_called_with("linkedin")
 
-    def test_modern_company_anchor_is_selected_within_expected_job(self):
-        from lxml import html
+    def test_handoff_is_bound_to_selected_job_and_retains_unresolved_tab(self):
         namespace = self.namespace(False, hosted=True)
-        markup = html.fromstring("""<main><a aria-label="Apply on company website" id="wrong">Apply</a>
-          <div data-view-name="job-detail-page"><span aria-label="Company, Example."></span>
-          <section id="JobDetails_AboutTheJob_123"></section>
-          <a aria-label="Apply on company website" id="correct">Apply</a>
-          <button>Submit application</button></div></main>""")
-        button = Mock()
-        def locate(locator):
-            matches = markup.xpath(locator[1])
-            if not matches:
-                raise LookupError('No company Apply control')
-            self.assertEqual([node.get('id') for node in matches], ['correct'])
-            return button
-        namespace['wait'].until.side_effect = locate
         result = self.run_route(namespace)
         self.assertEqual(getattr(result, 'status', None), 'awaiting_review')
-        button.click.assert_called_once()
+        self.handoff.assert_called_once_with(namespace['driver'], '123')
+        self.assertIn('external', namespace['retained_external_tabs'])
+        namespace['driver'].close.assert_not_called()
         namespace['failed_job'].assert_not_called()
 
 

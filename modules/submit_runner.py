@@ -267,6 +267,8 @@ def _parallel_submit_job(job, saved, *, attempt, index, total, run, options, ser
             print(f'[{index}/{total} | {time.monotonic()-started:.0f}s] {name}',flush=True)
         def ready(browser, report, root):
             nonlocal monitor
+            run.update(job, preparation_report=str(Path(root)/'report.json'),
+                jd_sha256=report.get('jd_sha256'), resume_sha256=(report.get('resume') or {}).get('pdf_sha256'))
             needs_review=options['pause']=='always' or options['pause']=='unknown' and (unknown_answers(report) or report.get('blockers'))
             if review_factory is None and needs_review:
                 if monitor is None:
@@ -575,7 +577,7 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     preparer=prepare_url, set_name=None, export_path=None, db_path=None,
                     browser_backend=None,browser_config=None,retry_failed=False,captcha_solver=False,
                     application_tab=None):
-    """Each normal invocation is independent; explicit resume retains its own state."""
+    """CLI runs are independent; application_tab borrows a caller-owned tab/shared ledger."""
     if pause is not None and pause not in {'always', 'unknown', 'never'}:
         raise ValueError('Invalid pause mode')
     if application_tab is not None:
@@ -608,11 +610,12 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     'ledger_path': str(ledger_path) if ledger_path else None,
                     'set_name': set_name, 'export_path': str(export_path) if export_path else None,
                     'db_path': str(db_path) if db_path else None,
-                    'execution_scope': None if resume_dir else 'independent',
+                    'execution_scope': None if resume_dir else 'linkedin_handoff' if application_tab is not None else 'independent',
                     'browser_backend':browser_backend,'browser_config':str(browser_config) if browser_config else None}
         run = SubmitRun(directory, jobs=None if resume_dir else jobs, options=supplied, run_id=run_id)
-        if application_tab is not None:
-            run.on_update = application_tab.on_update
+        if application_tab is not None and application_tab.on_update:
+            run.on_update = lambda job, state: application_tab.on_update(job, {
+                **state, 'direct_run_id':run.manifest['id'], 'direct_run_dir':str(run.directory)})
         driver = None; manual_tabs = None; driver_factory_is_default=False; keep_browser=False
         try:
             options = {k: (v if v is not None else run.options.get(k)) for k, v in supplied.items()}
@@ -634,8 +637,8 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
             if not resume_dir and options.get('export_path') and Path(options['export_path']).exists():
                 path = Path(options['export_path'])
                 options['export_path'] = str(path.with_name(path.stem+'-'+run.manifest['id']+path.suffix))
-            # New runs never read the shared history. Legacy explicit resumes
-            # migrate only owned attempts without changing the shared ledger.
+            # Standalone runs remain independent. LinkedIn handoffs share durable
+            # posting holds across searches; legacy resumes migrate owned attempts.
             options['ledger_path'] = str(Path(ledger_path).expanduser().resolve()) if application_tab is not None else local_ledger(run)
             options['execution_scope'] = 'linkedin_handoff' if application_tab is not None else 'independent'
             options['preparation_dir'] = str(directory/'preparations')
@@ -756,6 +759,12 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                         driver.challenge_observer=lambda event:run.update(job,stage='captcha_solver',captcha_event=event)
                     if application_tab is not None:
                         driver.switch_to.window(application_tab.handle)
+                        capabilities = getattr(driver, 'capabilities', {})
+                        if isinstance(capabilities, dict):
+                            address = capabilities.get('goog:chromeOptions', {}).get('debuggerAddress')
+                            if address:
+                                options['debugger_address'] = address
+                                run.set_options(options)
                     else:
                         driver.switch_to.new_window('tab')
                     keep_browser=review_factory is None and options['pause']!='never'
@@ -769,6 +778,8 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                         print(f'[{index}/{total} | {time.monotonic()-started:.0f}s] {name}', flush=True)
                     def ready(browser, report, root):
                         nonlocal manual_tabs
+                        run.update(job, preparation_report=str(Path(root)/'report.json'),
+                            jd_sha256=report.get('jd_sha256'), resume_sha256=(report.get('resume') or {}).get('pdf_sha256'))
                         needs_review=options['pause']=='always' or options['pause']=='unknown' and (unknown_answers(report) or report.get('blockers'))
                         if review_factory is None and needs_review:
                             if manual_tabs is None:

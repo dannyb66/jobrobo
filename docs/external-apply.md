@@ -5,7 +5,18 @@ For arbitrary job URLs with submission disabled, see
 reuses configured profiles, AI drafting and per-job résumé generation, and
 records preparation evidence without entering the submission workflow.
 
-Company-page support is disabled by default. Enable `external_apply_enabled = True` in `config/settings.py` and set `easy_apply_only = False` in `config/search.py` when you want employer links included. Existing date, geography, work arrangement and role eligibility gates remain active. Pipeline application mode still accepts only selected LinkedIn records and retains their verified-role provenance.
+The configured LinkedIn runner now uses the shared `direct_apply.py submit`
+engine for employer links. Set `application_mode` to `external_only` (current),
+`easy_apply_only`, or `both` in `config/search.py`; it overrides the legacy
+`easy_apply_only` setting. `external_apply_enabled = True`,
+`external_apply_captcha_solver = True`, and
+`external_apply_pause_before_submit = "never"` currently enable automatic employer
+submission in `config/settings.py`. See [Configured LinkedIn run](linkedin-configured-run.md)
+and [Direct URL preparation and submission](generic-url-preparation.md).
+
+The remainder of this page documents the older hosted-form adapter and its
+mandatory review contract. Its review and local-answer settings do not describe
+the shared direct-submit handoff used by the configured LinkedIn command.
 
 The supported preparation contracts are native input, textarea, select, radio, checkbox and multiple-selection controls on hosted Greenhouse, Lever and Ashby applications. Known identity fields use configured values. Additional questions use the typed local JSON described below. A PDF must independently pass the resume verifier and its new attachment must be confirmed. Custom JavaScript comboboxes, embedded flows and ambiguous question/option labels stay manual.
 

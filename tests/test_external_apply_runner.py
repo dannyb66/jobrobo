@@ -109,6 +109,19 @@ class HostedRunnerTests(unittest.TestCase):
         records = DeferredJobs(self.runner.directory/'deferred_applications'/'retry_jobs.json').records
         self.assertTrue(any(r['job_id'] == '1' and r['status'] == 'failed' for r in records))
 
+    def test_uncertain_employer_attempt_reserves_one_slot_and_continues(self):
+        search=harness.spec('first',3)
+        manifest=self.runner.manifest([search],{'first':[['1','2']]})
+        self.namespace['external_apply']=lambda *a,**kw:ExternalApplicationResult(
+            'submitting' if a[1]=='1' else 'applied','https://example.test/jobs/'+a[1],
+            submitted_at=datetime.now(timezone.utc).isoformat() if a[1]=='2' else None)
+        budget=ApplicationBudget(3)
+        self.runner.execute(manifest,budget)
+        self.assertEqual(self.runner.visited,['1','2'])
+        self.assertEqual(budget.count,1)
+        self.assertEqual(budget.reserved_ids,{'1'})
+        self.assertEqual(manifest.query('first')['jobs']['1']['status'],'submitting')
+
 
 if __name__ == "__main__":
     unittest.main()

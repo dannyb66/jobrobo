@@ -250,6 +250,17 @@ def apply_filters(spec) -> list[str]:
     except NoSuchElementException:
         warnings.append("All filters unavailable; attempting visible search filters")
 
+    if spec.filters_snapshot['intent'].get('application_mode') in {'external_only', 'both'}:
+        # The classic All filters panel can retain a previous Easy Apply switch.
+        for control in driver.find_elements(By.XPATH,
+                '//fieldset[.//h3[normalize-space()="Easy Apply"]]//input[@role="switch" or @type="checkbox"]'):
+            if not control.is_selected():
+                continue
+            labels = control.find_elements(By.XPATH, 'ancestor::fieldset//label')
+            target = labels[0] if len(labels) == 1 else control
+            scroll_to_view(driver, target)
+            target.click()
+
     def xpath_literal(value):
         if '"' not in value:
             return '"' + value + '"'
@@ -1676,8 +1687,13 @@ def external_apply(pagination_element, job_id, job_link, resume, date_listed, ap
     """Hand the selected employer tab to the shared direct-submit runner."""
     from modules.search_planner import application_mode
     from modules.linkedin_external_submit import open_employer_tab
-    global tabs_count
+    global tabs_count, dailyEasyApplyLimitReached
     if application_mode(globals()) == 'easy_apply_only':
+        try:
+            if 'exceeded the daily application limit' in driver.find_element(By.CLASS_NAME, 'artdeco-inline-feedback__message').text:
+                dailyEasyApplyLimitReached = True
+        except Exception:
+            pass
         print_lg(f'Skipping company-site application [{job_id}]: Easy Apply-only is configured')
         return True, application_link, tabs_count
     origin = driver.current_window_handle
@@ -1698,11 +1714,24 @@ def external_apply(pagination_element, job_id, job_link, resume, date_listed, ap
                 from pathlib import Path
                 outcome.diagnostics = capture_failure(driver, job_id, 'external_submit', RuntimeError(outcome.reason),
                     Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
+            if outcome.status != 'applied':
+                retained.update(set(driver.window_handles) - before)
             print_lg(f'External application [{job_id}]: {outcome.status}; {outcome.reason}')
             return outcome
+        if globals().get('close_tabs', False):
+            from modules.manual_tabs import close_browser_tab
+            if close_browser_tab(driver, handle):
+                retained.discard(handle)
         return False, application_link, tabs_count
-    except BaseException:
+    except BaseException as error:
         retained.update(set(driver.window_handles) - before)
+        from modules.linkedin_failure_recovery import capture_failure
+        from pathlib import Path
+        evidence = capture_failure(driver, job_id, 'external_handoff', error,
+            Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
+        if active_manifest and active_search:
+            active_manifest.query(active_search.query_id).setdefault('application_failures', []).append(evidence)
+            active_manifest.save()
         raise  # The search loop captures diagnostics and retains this job for retry.
     finally:
         if origin in driver.window_handles:
@@ -1741,10 +1770,15 @@ def prepare_external_application(application_link, job_id, job_title, job_descri
             preparation_report=str(Path(report['output_dir'])/'report.json') if report.get('output_dir') else None)
     from modules.linkedin_external_submit import submit_employer_tab
     provenance = search_metadata(active_manifest, active_search)
+    def checkpoint(status, reason, **metadata):
+        checkpoint_job(job_id, status, reason)
+        if active_manifest and active_search and metadata:
+            active_manifest.query(active_search.query_id)['jobs'][str(job_id)].update(metadata)
+            active_manifest.save()
     return submit_employer_tab(driver, driver.current_window_handle, application_link,
         job_id=job_id, title=job_title, description=job_description, company=company,
         state_dir=search_profile.search_state_dir, provenance=provenance,
-        checkpoint=lambda status, reason: checkpoint_job(job_id, status, reason),
+        checkpoint=checkpoint,
         pause=globals().get('external_apply_pause_before_submit', 'always'),
         captcha_solver=globals().get('external_apply_captcha_solver', False))
 
@@ -2212,12 +2246,14 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
         print_lg(f'Application [{job_id}] {stage}: {type(error).__name__}; evidence: {evidence.get("report_path", "capture unavailable")}')
         return evidence.get('screenshot_path', 'Not Available')
 
-    def retain_job(job_id, title, company, description, spec, status, reason='', submit_enabled=None, requires_submission_check=None):
+    def retain_job(job_id, title, company, description, spec, status, reason='', submit_enabled=None, requires_submission_check=None,
+                   external_application=None):
         retry_jobs.record(dict(job_id=job_id, title=title, company=company, description=description,
                                status=status, reason=reason, submission_disabled=bool(prepare_only),
                                submit_enabled=submit_enabled, run_id=manifest.data['run_id'],
                                query_id=spec.query_id, query=spec.query_text, profile=spec.profile_name,
                                source_report=str(Path(search_profile.search_state_dir) / (manifest.data['run_id'] + '.json')),
+                               external_application=external_application,
                                requires_submission_check=not prepare_only if requires_submission_check is None else requires_submission_check))
         retry_jobs.export_markdown(retry_path.with_suffix('.md'))
 
@@ -2276,11 +2312,18 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
     resume_checks = 0
     for pending_spec in manifest.queries():
         for pending_id, pending_job in list(manifest.query(pending_spec.query_id)['jobs'].items()):
-            if pending_job['status'] != 'submitting' or resume_checks >= 3:
+            if pending_job['status'] != 'submitting':
+                continue
+            if pending_job.get('external_application') or (pending_job.get('reason') or '').startswith('Employer submission'):
+                from modules.linkedin_external_submit import reconcile_confirmed_attempt
+                if reconcile_confirmed_attempt(manifest, pending_spec, pending_id):
+                    from modules.linkedin_retry_reconciliation import sync_retry_checkpoint
+                    sync_retry_checkpoint(manifest, pending_spec, pending_id)
+                    print_lg(f'Previously uncertain employer application [{pending_id}] reconciled as applied')
+                continue  # Employer submissions cannot be reconciled from LinkedIn's receipt UI.
+            if resume_checks >= 3:
                 continue
             resume_checks += 1
-            if pending_job.get('external_application') or (pending_job.get('reason') or '').startswith('Employer submission'):
-                continue  # Employer submissions cannot be reconciled from LinkedIn's receipt UI.
             if reconcile_submission(driver, pending_id, timeout=3, log=print_lg):
                 manifest.record_job(pending_spec, pending_id, 'applied',
                                     'Confirmed on the exact LinkedIn job page during resume reconciliation')
@@ -2669,7 +2712,11 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                                 skip = external_result.status in {"failed", "discarded", "duplicate"}
                                 if external_result.status in {'failed', 'manual_handoff'}:
                                     retain_job(job_id, title, company, description, spec, 'failed', external_result.reason,
-                                               requires_submission_check=False)
+                                               requires_submission_check=False, external_application=external_result.to_dict())
+                                    failed_job(job_id, job_link, external_result.resume_name or resume, date_listed,
+                                               'External application '+external_result.status, external_result.reason,
+                                               external_result.application_link,
+                                               (external_result.diagnostics or {}).get('screenshot_path', 'Not Available'))
                                     deferred_card_ids.add(job_id)
                                     failed_count += 1
                                     continue
@@ -2681,7 +2728,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                                 elif external_result.status == "submitting":
                                     retain_job(job_id, title, company, description, spec, 'submission_uncertain',
                                                external_result.reason or 'External submission receipt not confirmed',
-                                               requires_submission_check=True)
+                                               requires_submission_check=True, external_application=external_result.to_dict())
                                     deferred_card_ids.add(job_id)
                                     print_lg(f'Application [{job_id}]: uncertain submission retained in retries; '
                                              'checking remaining capacity before continuing other jobs')
@@ -3092,7 +3139,7 @@ def main() -> None:
         print_lg("Jobs Easy Applied:              {}".format(easy_applied_count))
         print_lg(f"Confirmed this invocation:      {application_budget.count} (cap: {application_budget.limit})")
         if application_budget.reserved_ids:
-            print_lg(f"Uncertain attempts reserved:   {len(application_budget.reserved_ids)} (excluded from retries)")
+            print_lg(f"Uncertain attempts reserved:   {len(application_budget.reserved_ids)} (kept in retry records; outcome check required)")
         print_lg("External job links collected:   {}".format(external_jobs_count))
         print_lg("Company-page applications:      {}".format(globals().get("external_applied_count", 0)))
         print_lg("                              ----------")

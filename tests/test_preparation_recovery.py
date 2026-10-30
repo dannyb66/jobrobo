@@ -154,7 +154,8 @@ class AdaptiveRewriteTests(TestCase):
             row = payload['requested_bullets'][0]
             self.assertLessEqual(row['soft_character_estimate'], 75)
             self.assertLess(row['target_max_characters'], 75)
-            self.assertIn('target_max_characters', payload['acceptance_criteria']['fit'])
+            self.assertIn('target_characters', payload['acceptance_criteria']['fit'])
+            self.assertIn('candidate_word_budgets', payload['acceptance_criteria']['fit'])
 
     def test_progress_tracks_active_request_age(self):
         clock = Mock(return_value=10); messages = []

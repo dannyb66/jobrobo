@@ -135,11 +135,18 @@ are excluded, and repeated backfills deduplicate source events.
 
 ## Application scope and resume
 
-`easy_apply_only=True` blocks company navigation regardless of pagination.
-With False, the ordinary configured runner can collect company Apply URLs,
-including modern company anchors scoped to the current job. A closed destination
-is a closed target, not a completed application. Hosted form preparation is a
-separate capability and is not introduced by this command.
+`application_mode` in `config/search.py` selects `external_only` (current),
+`easy_apply_only`, or `both`, overriding the legacy `easy_apply_only` flag.
+Without that setting, the legacy flag retains its previous behavior. External-only
+mode clears the Easy Apply-only filter and skips Easy Apply results.
+
+Employer links use the same preparation and submission engine as `direct_apply.py
+submit`, including the shared résumé cache and `direct_submit_profile_path`.
+`external_apply_enabled`, `external_apply_captcha_solver`, and
+`external_apply_pause_before_submit` in `config/settings.py` control the handoff.
+Only confirmed applications close their employer tabs; unresolved tabs remain
+open while the search continues. See the [README employer-flow options](../README.md)
+for configuration and the local browser regression command.
 
 The configured source paths are `default_resume_path` (PDF) and
 `default_resume_docx_path` (DOCX). Review the exact pair and attachment on each
@@ -198,9 +205,9 @@ remain pending/retryable and other work continues only after verified cleanup.
 Confirmation is saved before optional dialog cleanup. If cleanup still blocks,
 the run can stop with `post_submit_ui_blocked` while the job remains `applied`.
 Close the old Exiting popup before starting a resumed command; changing code
-cannot restart an application loop that has already exited. A platform daily
-limit, uncertain submission or command cap also stops processing rather than
-repeating Submit. Preserve the manifest and diagnostics when investigating.
+cannot restart an application loop that has already exited. An Easy Apply platform daily limit or command cap can stop processing. Employer
+uncertainty reserves capacity and remains protected from Submit replay while
+other employer jobs continue; post-submit CAPTCHA solving is bounded to two calls. Preserve the manifest and diagnostics when investigating.
 
 ## Submission confirmation
 

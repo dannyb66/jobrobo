@@ -247,6 +247,9 @@ def build_retry_batch(path, profile, config, limit, applied_ids=(), job_id=None)
         if status == 'submission_uncertain' or record.get("requires_submission_check") is True:
             blocked.append(job_id)
             continue
+        external = record.get('external_application') or {}
+        if external.get('direct_status') and external.get('retryable') is False:
+            continue  # Keep manual/permanent employer blockers visible without automatically replaying them.
         if status not in runnable_statuses:
             continue
         title, company = record.get("title"), record.get("company")

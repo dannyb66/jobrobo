@@ -292,7 +292,7 @@ def extract_job(state):
     # answers to later optimization inputs when resuming a filled form.
     description = re.split(r'\n(?:Apply for this (?:Job|Position)|Submit your application|Autofill application)\s*\n', description, maxsplit=1, flags=re.I)[0]
     location = job.get('jobLocation') or ''
-    return {'title': title.strip(), 'company': company.strip(), 'description': description.strip(), 'location': location}
+    return {'title': unescape(title).strip(), 'company': unescape(company).strip(), 'description': description.strip(), 'location': location}
 
 
 def _public_state(state):
