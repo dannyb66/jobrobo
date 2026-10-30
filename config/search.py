@@ -50,7 +50,8 @@ sort_by = "Most recent"             # "Most recent", "Most relevant" or ("" to n
 date_posted = "Past month"         # "Any time", "Past month", "Past week", "Past 24 hours" or ("" to not select)
 salary = ""                        # "$40,000+", "$60,000+", "$80,000+", "$100,000+", "$120,000+", "$140,000+", "$160,000+", "$180,000+", "$200,000+"
 
-easy_apply_only = True             # True or False, Note: True or False are case-sensitive
+application_mode = "external_only" # external_only | easy_apply_only | both; overrides the legacy flag below.
+easy_apply_only = True             # Legacy fallback when application_mode is absent.
 
 experience_level = []              # (multiple select) "Internship", "Entry level", "Associate", "Mid-Senior level", "Director", "Executive"
 job_type = ["Full-time"]           # (multiple select) "Full-time", "Part-time", "Contract", "Temporary", "Volunteer", "Internship", "Other"

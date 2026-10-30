@@ -1671,59 +1671,50 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
 
 
 
-def external_apply(pagination_element: WebElement, job_id: str, job_link: str, resume: str, date_listed, application_link: str, screenshot_name: str,
-                   *, job_title="", job_description="", company="", prepare_only=False) -> tuple[bool, str, int]:
-    '''
-    Function to open new tab and save external job application links
-    '''
-    global tabs_count, dailyEasyApplyLimitReached
-    if easy_apply_only:
-        try:
-            if "exceeded the daily application limit" in driver.find_element(By.CLASS_NAME, "artdeco-inline-feedback__message").text: dailyEasyApplyLimitReached = True
-        except: pass
+def external_apply(pagination_element, job_id, job_link, resume, date_listed, application_link, screenshot_name,
+                   *, job_title="", job_description="", company="", prepare_only=False):
+    """Hand the selected employer tab to the shared direct-submit runner."""
+    from modules.search_planner import application_mode
+    from modules.linkedin_external_submit import open_employer_tab
+    global tabs_count
+    if application_mode(globals()) == 'easy_apply_only':
         print_lg(f'Skipping company-site application [{job_id}]: Easy Apply-only is configured')
-        # Modern result pages may have no pagination. The Easy Apply policy
-        # must block employer navigation regardless of the results layout.
         return True, application_link, tabs_count
+    origin = driver.current_window_handle
+    before = set(driver.window_handles)
+    retained = globals().setdefault('retained_external_tabs', set())
     try:
-        wait.until(EC.element_to_be_clickable((By.XPATH, ".//button[contains(@class,'jobs-apply-button') and contains(@class, 'artdeco-button--3')] | //*[@data-view-name='job-detail-page'][.//*[@id='JobDetails_AboutTheJob_" + job_id + "']]//a[@aria-label='Apply on company website'] | //*[@id='JobDetails_AboutTheJob_" + job_id + "']/ancestor::*[.//*[starts-with(@aria-label,'Company,')]][1]//a[@aria-label='Apply on company website']"))).click() # './/button[contains(span, "Apply") and not(span[contains(@class, "disabled")])]'
-        wait_span_click(driver, "Continue", 1, True, False)
-        windows = driver.window_handles
-        tabs_count = len(windows)
-        driver.switch_to.window(windows[-1])
-        application_link = driver.current_url
-        print_lg('Got the external application link "{}"'.format(application_link))
-        if globals().get("external_apply_enabled", False):
-            # A same-window employer redirect must not replace the LinkedIn session.
-            if driver.current_window_handle == linkedIn_tab:
-                driver.switch_to.new_window("tab")
-                external_tab = driver.current_window_handle
-                driver.get(application_link)
-                driver.switch_to.window(linkedIn_tab)
-                driver.get(job_link)
-                driver.switch_to.window(external_tab)
+        handle, application_link = open_employer_tab(driver, job_id)
+        retained.add(handle)  # Keep evidence even if preparation raises/interruption occurs.
+        tabs_count = len(driver.window_handles)
+        print_lg(f'External application [{job_id}]: {application_link}')
+        if globals().get('external_apply_enabled', False):
             outcome = (prepare_external_application(application_link, job_id, job_title, job_description, company, prepare_only=True)
                        if prepare_only else prepare_external_application(application_link, job_id, job_title, job_description, company))
-            driver.switch_to.window(linkedIn_tab)
+            if outcome.status == 'applied':
+                retained.discard(handle)
+            elif outcome.status not in {'duplicate', 'submitting', 'prepared'}:
+                from modules.linkedin_failure_recovery import capture_failure
+                from pathlib import Path
+                outcome.diagnostics = capture_failure(driver, job_id, 'external_submit', RuntimeError(outcome.reason),
+                    Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics')
+            print_lg(f'External application [{job_id}]: {outcome.status}; {outcome.reason}')
             return outcome
-        if close_tabs and driver.current_window_handle != linkedIn_tab: driver.close()
-        driver.switch_to.window(linkedIn_tab)
         return False, application_link, tabs_count
-    except Exception as e:
-        # print_lg(e)
-        print_lg("Failed to apply!")
-        failed_job(job_id, job_link, resume, date_listed, "Probably didn't find Apply button or unable to switch tabs.", e, application_link, screenshot_name)
-        global failed_count
-        failed_count += 1
-        return True, application_link, tabs_count
-
-
+    except BaseException:
+        retained.update(set(driver.window_handles) - before)
+        raise  # The search loop captures diagnostics and retains this job for retry.
+    finally:
+        if origin in driver.window_handles:
+            driver.switch_to.window(origin)
 
 
 
 def checkpoint_external_application(job_id, outcome):
     """Persist hosted outcome details without treating drafts as confirmed submissions."""
     status = outcome.status if outcome.status in {"applied", "submitting", "failed"} else "skipped" if outcome.status in {"discarded", "duplicate"} else "collected"
+    if outcome.direct_status and outcome.status == 'manual_handoff':
+        status = 'failed'  # A retained employer page is not a collected-link quota success.
     checkpoint_job(job_id, status, outcome.reason)
     if active_manifest and active_search:
         active_manifest.query(active_search.query_id)["jobs"][str(job_id)]["external_application"] = outcome.to_dict()
@@ -1748,87 +1739,15 @@ def prepare_external_application(application_link, job_id, job_title, job_descri
             resume_sha256=resume.get('pdf_sha256'), question_metadata=report['questions'],
             manual_questions=report['blockers'], submission_disabled=True, submit_enabled=report.get('submit_enabled'),
             preparation_report=str(Path(report['output_dir'])/'report.json') if report.get('output_dir') else None)
-    from pathlib import Path
-    from modules.external_apply import ExternalApplicationLedger, ExternalApplicationResult, apply_hosted_application
-    from modules.ai.resume_optimizer import ResumeOptimizer
-    from modules.config_loader import load_runtime_config
-    from modules.external_questions import QuestionConfigError, grounding_context, load_question_config, make_local_ai_answerer, review_answer_preview
+    from modules.linkedin_external_submit import submit_employer_tab
+    provenance = search_metadata(active_manifest, active_search)
+    return submit_employer_tab(driver, driver.current_window_handle, application_link,
+        job_id=job_id, title=job_title, description=job_description, company=company,
+        state_dir=search_profile.search_state_dir, provenance=provenance,
+        checkpoint=lambda status, reason: checkpoint_job(job_id, status, reason),
+        pause=globals().get('external_apply_pause_before_submit', 'always'),
+        captcha_solver=globals().get('external_apply_captcha_solver', False))
 
-    ledger = ExternalApplicationLedger(Path(search_profile.search_state_dir) / "external" / "applications.json")
-    if ledger.protected(application_link):
-        return ExternalApplicationResult("duplicate", application_link, reason="Employer posting already applied or awaiting submission verification.")
-    source_docx = Path(default_resume_docx_path)
-    source_pdf = Path(default_resume_path)
-    resume_config = load_runtime_config()
-    expected_pages = int(resume_config.get("expected_page_count", 2))
-    verifier = ResumeOptimizer.__new__(ResumeOptimizer)
-
-    strict_rewrite = resume_config.get("rewrite_all_bullets",False) and use_AI_for_resume
-
-    def verify_pdf(candidate):
-        if strict_rewrite and candidate.resolve()!=source_pdf.resolve():
-            from modules.resume_all_bullets import verify_strict_attachment
-            return verify_strict_attachment(candidate,expected_jd=job_description,expected_job_id=job_id,expected_source_docx=source_docx,
-                expected_source_checks_enabled=resume_config.get('source_checks_enabled',True),expected_config=resume_config)
-        candidate_docx = candidate.with_suffix(".docx")
-        if not candidate_docx.is_file() and candidate.resolve() == source_pdf.resolve() and source_docx.is_file():
-            candidate_docx = source_docx
-        report = verifier.verify_format(
-            str(source_docx) if source_docx.is_file() else "",
-            str(candidate_docx) if candidate_docx.is_file() else "",
-            str(source_pdf), str(candidate), expected_pages,
-        )
-        return report["passed"]
-
-    candidate = source_pdf
-    if use_AI_for_resume:
-        try:
-            optimized = run_resume_optimization(job_description, str(source_docx), job_id, job_title, first_name, last_name,
-                runtime_config_override=resume_config)
-            if optimized and Path(optimized).is_file() and verify_pdf(Path(optimized)):
-                candidate = Path(optimized)
-        except Exception as error:
-            print_lg(f"External optimizer failed; checking verified source PDF: {error}")
-    if strict_rewrite and candidate.resolve()==source_pdf.resolve():
-        return ExternalApplicationResult("manual_handoff", application_link,
-            reason="Strict all-bullets rewrite incomplete; original/partial fallback is disabled.")
-    profile = {"first_name": first_name, "last_name": last_name, "full_name": full_name,
-               "email": globals().get("username", "") if "@" in globals().get("username", "") else "",
-               "phone": globals().get("phone_number", ""), "linkedin": globals().get("linkedIn", ""),
-               "website": globals().get("website", "")}
-    # Copy only explicit candidate answers; never derive legal answers from citizenship/visa.
-    for target, source in {"city": "current_city", "street": "street", "state": "state", "zipcode": "zipcode", "country": "country",
-                           "require_visa": "require_visa", "citizenship": "us_citizenship", "years_of_experience": "years_of_experience",
-                           "desired_salary": "desired_salary", "notice_period": "notice_period", "current_employer": "recent_employer",
-                           "gender": "gender", "ethnicity": "ethnicity", "disability_status": "disability_status", "veteran_status": "veteran_status"}.items():
-        value = globals().get(source)
-        if value not in (None, "", "Not Applicable"):
-            profile[target] = value
-    question_config, question_error = {}, ""
-    try:
-        question_config = load_question_config(globals().get("external_questions_config_path", "~/.jobrobo/external-questions.json"))
-    except QuestionConfigError:
-        question_error = "External-question JSON is invalid; correct it or answer questions manually."
-    ai_answerer = make_local_ai_answerer(question_config.get("ai", {}), original_local_env=globals().get("_external_local_ai_env", {}))
-    context = grounding_context(source_docx, globals().get("user_information_all", ""), globals().get("linkedin_summary", ""), job_description) if ai_answerer else {}
-    role_urls = [role.get("career_url") for role in (active_search.pipeline_context.get("career_roles", []) if active_search else []) if role.get("career_url")]
-
-    def checkpoint(outcome):
-        # Persist ATS identity first; a disk failure here prevents the Submit click.
-        ledger.record(outcome, job_id)
-        checkpoint_external_application(job_id, outcome)
-
-    def review(details):
-        return review_answer_preview(details)
-
-    outcome = apply_hosted_application(driver, application_link, profile, candidate, verify_pdf=verify_pdf,
-                                       company=company, title=job_title, official_role_urls=role_urls,
-                                       review=review, on_status=checkpoint, question_config=question_config,
-                                       question_config_error=question_error, question_context=context, ai_answerer=ai_answerer)
-    if outcome.status not in {"applied", "submitting", "duplicate"}:
-        checkpoint(outcome)
-    print_lg(f"Company-page application: {outcome.status}: {outcome.reason}")
-    return outcome
 
 def follow_company(modal: WebDriver = None) -> None:
     '''
@@ -2360,6 +2279,8 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
             if pending_job['status'] != 'submitting' or resume_checks >= 3:
                 continue
             resume_checks += 1
+            if pending_job.get('external_application') or (pending_job.get('reason') or '').startswith('Employer submission'):
+                continue  # Employer submissions cannot be reconciled from LinkedIn's receipt UI.
             if reconcile_submission(driver, pending_id, timeout=3, log=print_lg):
                 manifest.record_job(pending_spec, pending_id, 'applied',
                                     'Confirmed on the exact LinkedIn job page during resume reconciliation')
@@ -2614,8 +2535,14 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                             skills = ai_extract_skills(aiClient, description)
 
                         uploaded = False
+                        from modules.search_planner import application_mode
+                        mode = application_mode(spec.filters_snapshot['intent'] if spec.filters_snapshot['intent'].get('application_mode') else globals())
+                        if mode == 'external_only' and open_easy_apply(driver, job_id, inspect_only=True,
+                                log=print_lg, diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics'):
+                            checkpoint_job(job_id, 'skipped', 'External-only mode: LinkedIn Easy Apply result')
+                            continue
                         # Case 1: Easy Apply Button
-                        if open_easy_apply(driver, job_id, log=print_lg,
+                        if mode != 'external_only' and open_easy_apply(driver, job_id, log=print_lg,
                                 diagnostics_dir=Path(search_profile.search_state_dir).parent / 'application_ui_diagnostics'):
                             if preparation_report is not None:
                                 preparation_report.record(dict(job_id=job_id, status='started', title=title, company=company,
@@ -2740,6 +2667,12 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                                     retain_job(job_id, title, company, description, spec, external_result.status, external_result.reason,
                                                submit_enabled=getattr(external_result, 'submit_enabled', None), requires_submission_check=False)
                                 skip = external_result.status in {"failed", "discarded", "duplicate"}
+                                if external_result.status in {'failed', 'manual_handoff'}:
+                                    retain_job(job_id, title, company, description, spec, 'failed', external_result.reason,
+                                               requires_submission_check=False)
+                                    deferred_card_ids.add(job_id)
+                                    failed_count += 1
+                                    continue
                                 application_link = external_result.application_link
                                 if external_result.resume_name:
                                     resume = external_result.resume_name
@@ -3206,7 +3139,8 @@ def run_bot():
         # Prepare-only retains the review window as before.
         if not globals().get('prepare_only_run', False) and driver is not None:
             try:
-                driver.quit()
+                from modules.linkedin_external_submit import finish_browser
+                finish_browser(driver, globals().get('retained_external_tabs', set()))
             except Exception:
                 pass
             finally:
@@ -3417,7 +3351,8 @@ def run_deferred_retries(retry_path, limit, job_id=None, *, auto_submit=False):
             aiClient = None
         if driver is not None:
             try:
-                driver.quit()
+                from modules.linkedin_external_submit import finish_browser
+                finish_browser(driver, globals().get('retained_external_tabs', set()))
             except Exception:
                 pass
             finally:

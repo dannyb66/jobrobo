@@ -821,6 +821,12 @@ class ModernFilterReplayTests(unittest.TestCase):
         self.assertNotIn("easy_apply_only", result.verified_filters)
         self.assertNotIn("f_AL", parse_qs(urlsplit(self.browser.current_url).query))
 
+    def test_external_mode_is_not_a_filter_and_does_not_enable_easy_apply(self):
+        result = self.prepare(make_spec(easy_apply_only=False, application_mode='external_only'))
+        self.assertNotIn('application_mode', result.filter_report)
+        self.assertFalse(any('application_mode' in warning for warning in result.warnings))
+        self.assertNotIn('easy_apply_only', result.verified_filters)
+
     def test_native_preselected_remote_only_is_cleared_for_remote_or_hybrid_intent(self):
         original_type = self.browser.type_into
 

@@ -9,6 +9,7 @@ import unicodedata
 
 
 INTENT_FIELDS = (
+    "application_mode",
     "search_location", "sort_by", "date_posted", "salary", "easy_apply_only",
     "experience_level", "job_type", "on_site", "companies", "location",
     "industry", "job_function", "job_titles", "benefits", "commitments",
@@ -43,10 +44,24 @@ def _get(config, name, default=None):
 
 
 def filters_snapshot(config):
-    return {
+    snapshot = {
         "intent": {key: deepcopy(_get(config, key)) for key in INTENT_FIELDS},
         "gates": {key: deepcopy(_get(config, key)) for key in GATE_FIELDS},
     }
+    mode = application_mode(config)
+    snapshot['intent']['application_mode'] = mode
+    snapshot['intent']['easy_apply_only'] = mode == 'easy_apply_only'
+    return snapshot
+
+
+def application_mode(config):
+    """Explicit selection wins; older configurations keep their existing policy."""
+    mode = _get(config, 'application_mode')
+    if mode is None:
+        return 'easy_apply_only' if _get(config, 'easy_apply_only', False) else 'both'
+    if mode not in {'external_only', 'easy_apply_only', 'both'}:
+        raise ValueError('application_mode must be external_only, easy_apply_only, or both')
+    return mode
 
 
 def _text(value, name, max_length=4000):

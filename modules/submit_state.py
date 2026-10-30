@@ -126,6 +126,9 @@ class SubmitRun:
                 self.db.execute('UPDATE jobs SET state=? WHERE key=?', (json.dumps(state), job['key']))
                 self.db.execute('INSERT INTO events(at,job_key,payload) VALUES (?,?,?)', (state['updated_at'], job['key'], json.dumps(event)))
             self.export()
+            observer = getattr(self, 'on_update', None)
+            if observer:
+                observer(job, dict(state))
             return state
 
     def replace_unsubmitted(self, old_key, replacement, *, evidence):

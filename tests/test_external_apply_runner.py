@@ -84,6 +84,31 @@ class HostedRunnerTests(unittest.TestCase):
         self.assertTrue(all(job["status"] == "skipped" for row in manifest.data["queries"] for job in row["jobs"].values()))
         self.assertFalse((self.runner.directory / "applied.csv").exists())
 
+    def test_external_only_inspects_and_skips_easy_apply_without_opening_form(self):
+        self.namespace['application_mode'] = 'external_only'
+        calls = []
+        self.namespace['open_easy_apply'] = lambda *args, **kw: calls.append(kw) or True
+        manifest, search, budget = self.execute('applied')
+        self.assertEqual(budget.count, 0)
+        self.assertEqual(self.calls, [])
+        self.assertTrue(all(kw.get('inspect_only') for kw in calls))
+
+    def test_external_failure_continues_to_next_job_and_keeps_retry(self):
+        first = harness.spec('first', 2)
+        manifest = self.runner.manifest([first], {'first': [['1', '2']]})
+        self.namespace['external_apply'] = lambda *a, **kw: ExternalApplicationResult(
+            'failed' if a[1] == '1' else 'applied', 'https://example.test/jobs/'+a[1],
+            direct_status='failed_before_submit' if a[1] == '1' else 'applied',
+            submitted_at=datetime.now(timezone.utc).isoformat() if a[1] == '2' else None)
+        budget = ApplicationBudget(2)
+        self.runner.execute(manifest, budget)
+        self.assertEqual(self.runner.visited, ['1', '2'])
+        self.assertEqual(budget.count, 1)
+        self.assertEqual(manifest.query('first')['jobs']['1']['status'], 'failed')
+        from modules.linkedin_deferred import DeferredJobs
+        records = DeferredJobs(self.runner.directory/'deferred_applications'/'retry_jobs.json').records
+        self.assertTrue(any(r['job_id'] == '1' and r['status'] == 'failed' for r in records))
+
 
 if __name__ == "__main__":
     unittest.main()

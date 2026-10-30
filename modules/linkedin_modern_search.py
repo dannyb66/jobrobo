@@ -648,6 +648,17 @@ def _set_location(driver, desired, *, timeout=30, wait=None):
 
 def _apply_filters(driver, intent, *, verify_only=False, expected=None, timeout=30, wait=None, owners=None):
     report, verified, warnings = {}, [], []
+    if intent.get('application_mode') in {'external_only', 'both'}:
+        easy = _facet(driver, 'easy_apply_only')
+        if easy is not None and _selected(easy) is True:
+            if verify_only:
+                raise SearchUIError('Easy Apply-only filter excludes external applications', stage='filter_validation')
+            before = parse_qs(urlparse(_url(driver)).query)
+            _click_target(easy).click()
+            _wait(driver, lambda *_: _selected(_facet(driver, 'easy_apply_only')) is not True, timeout, wait)
+            query = (before.get('keywords') or [_prompt_text(driver)])[0]
+            _settle(driver, query, timeout=timeout, wait=wait, after_filters=True)
+            _record_parameter_change(driver, 'easy_apply_only', before, owners)
     arrangements = _values(intent.get("on_site"))
     if arrangements and set(arrangements) != {"Remote"}:
         remote = _facet(driver, "on_site", ["Remote"])
@@ -661,7 +672,7 @@ def _apply_filters(driver, intent, *, verify_only=False, expected=None, timeout=
     wanted_keys = list(expected) if expected is not None else list(intent)
     for key in wanted_keys:
         value = intent.get(key)
-        if not _values(value) or key == "search_location":
+        if not _values(value) or key in {"search_location", "application_mode"}:
             continue
         desired = _values(value)
         if key not in FILTER_LABELS:

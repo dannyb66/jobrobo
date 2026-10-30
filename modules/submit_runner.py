@@ -1,5 +1,6 @@
 """Shared URL/verified-role application runner. Real submit is explicit."""
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import re
@@ -18,6 +19,14 @@ from .manual_tabs import ManualTabs
 from .manual_tabs import close_browser_tab
 from .search_history import file_lock
 from .submit_state import SubmitRun, build_run_summary, now
+
+
+@dataclass
+class ApplicationTab:
+    """An employer tab borrowed from another runner; its browser is never owned here."""
+    driver: object
+    handle: str
+    on_update: object = None
 
 
 def explicit_portal_rejection(state):
@@ -43,7 +52,7 @@ def requeue_failed(run, ledger):
 
 
 def submit_profile(services, path):
-    """Apply private profile overrides to URL submissions only, never LinkedIn."""
+    """Apply private overrides to employer submissions from either entry point."""
     if not path or not Path(path).expanduser().is_file():return services
     import re
     private=json.loads(Path(path).expanduser().read_text())
@@ -564,10 +573,17 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     review_factory=None, allow_local=False, confirmation_timeout=30,
                     tab_monitor_factory=ManualTabs,
                     preparer=prepare_url, set_name=None, export_path=None, db_path=None,
-                    browser_backend=None,browser_config=None,retry_failed=False,captcha_solver=False):
+                    browser_backend=None,browser_config=None,retry_failed=False,captcha_solver=False,
+                    application_tab=None):
     """Each normal invocation is independent; explicit resume retains its own state."""
     if pause is not None and pause not in {'always', 'unknown', 'never'}:
         raise ValueError('Invalid pause mode')
+    if application_tab is not None:
+        if resume_dir or not jobs or len(jobs) != 1 or workers not in (None, 1) or not ledger_path:
+            raise ValueError('A borrowed application tab needs one job, one worker, and a shared ledger')
+        if application_tab.handle not in application_tab.driver.window_handles:
+            raise ValueError('Employer application tab is no longer available')
+        browser_backend = 'local'
     if captcha_solver:
         from modules import captcha_solver as solver
         solver.enable()
@@ -595,6 +611,8 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     'execution_scope': None if resume_dir else 'independent',
                     'browser_backend':browser_backend,'browser_config':str(browser_config) if browser_config else None}
         run = SubmitRun(directory, jobs=None if resume_dir else jobs, options=supplied, run_id=run_id)
+        if application_tab is not None:
+            run.on_update = application_tab.on_update
         driver = None; manual_tabs = None; driver_factory_is_default=False; keep_browser=False
         try:
             options = {k: (v if v is not None else run.options.get(k)) for k, v in supplied.items()}
@@ -618,8 +636,8 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                 options['export_path'] = str(path.with_name(path.stem+'-'+run.manifest['id']+path.suffix))
             # New runs never read the shared history. Legacy explicit resumes
             # migrate only owned attempts without changing the shared ledger.
-            options['ledger_path'] = local_ledger(run)
-            options['execution_scope'] = 'independent'
+            options['ledger_path'] = str(Path(ledger_path).expanduser().resolve()) if application_tab is not None else local_ledger(run)
+            options['execution_scope'] = 'linkedin_handoff' if application_tab is not None else 'independent'
             options['preparation_dir'] = str(directory/'preparations')
             set_name, export_path, db_path = (options[k] for k in ('set_name','export_path','db_path'))
             configured = literal_config(Path(options['config_dir'])/'search.py').get('max_applications_per_run', 1)
@@ -643,7 +661,7 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
             run.set_options(options)
             print('Run ID: '+run.manifest['id'], flush=True)
             print('Submission run: '+str(directory), flush=True)
-            if ledger_path:
+            if ledger_path and application_tab is None:
                 print('Submit uses its run-owned ledger; the supplied --ledger is not used for cross-run blocking.', flush=True)
             print('Optional resume: python3 direct_apply.py submit --resume '+shlex.quote(str(directory)), flush=True)
             print('Pause before submit: '+options['pause'], flush=True)
@@ -658,6 +676,8 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                 svc=submit_profile(svc,private)
             ledger = ExternalApplicationLedger(options['ledger_path'])
             driver_factory_is_default = driver_factory is None
+            if application_tab is not None:
+                driver_factory = lambda: application_tab.driver
             if driver_factory is None:
                 if backend=='kernel':
                     driver_factory=lambda:KernelBrowser(settings=kernel_settings,run_id=run.manifest['id'],session_id=options.get('kernel_session_id') if resume_dir else None,
@@ -734,7 +754,10 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                         run.update(job,kernel_session_id=driver.session_id)
                         driver.session_observer=lambda event:run.browser_event(driver.session_id,event)
                         driver.challenge_observer=lambda event:run.update(job,stage='captcha_solver',captcha_event=event)
-                    driver.switch_to.new_window('tab')
+                    if application_tab is not None:
+                        driver.switch_to.window(application_tab.handle)
+                    else:
+                        driver.switch_to.new_window('tab')
                     keep_browser=review_factory is None and options['pause']!='never'
                     run.update(job,tab_handle=str(driver.current_window_handle))
                     candidate = deepcopy(svc['candidate']); question_config = deepcopy(svc['question_config'])
@@ -819,7 +842,7 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     if not isinstance(error, Exception):
                         raise
                     print('Job stopped: '+type(error).__name__, flush=True)
-                    if driver and not manual_tabs and not keep_browser:
+                    if driver and not manual_tabs and not keep_browser and application_tab is None:
                         try:
                             if getattr(driver,'browser_backend',None)=='kernel':driver.finish(retain=True)
                             else:driver.quit()
@@ -831,7 +854,7 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                 # Late employer responses may arrive while later jobs fill.
                 # Inspect retained attempts once more; never replay Submit.
                 recover_verification_tabs(driver,run,ledger)
-            if manual_tabs and options['pause']!='never':
+            if manual_tabs and options['pause']!='never' and application_tab is None:
                 def checkpoint():
                     application_export(run,set_name=set_name,output=export_path,db_path=db_path)
                 try:manual_tabs.wait(checkpoint)
@@ -850,7 +873,9 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     if manual_tabs:
                         manual_tabs.close()
                     retain_browser=any(s['status'] not in {'applied','duplicate','discarded','pending'} for _,s in run.rows())
-                    if driver and getattr(driver,'browser_backend',None)=='kernel':
+                    if application_tab is not None:
+                        pass  # The search runner owns browser lifetime and retained employer tabs.
+                    elif driver and getattr(driver,'browser_backend',None)=='kernel':
                         driver.finish(retain=retain_browser)
                     elif manual_tabs or keep_browser or retain_browser:
                         # Leave unresolved employer pages open for manual review.

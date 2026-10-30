@@ -3,12 +3,14 @@
 # >>>>>>>>>>> LinkedIn Settings <<<<<<<<<<<
 
 # Keep the External Application tabs open?
-# Prepare supported hosted company-page applications with a verified resume and explicit review.
-# Requires easy_apply_only = False in config/search.py. Unsupported sites/controls stay manual.
+# Use the shared direct_apply.py submit engine for employer application pages.
+# application_mode in search.py controls which LinkedIn results are processed.
 external_apply_enabled = True
+external_apply_captcha_solver = True
+external_apply_pause_before_submit = "never" # always | unknown | never, as in direct_apply.py submit.
 # Private local JSON with typed custom answers and optional dedicated-key AI drafts.
 external_questions_config_path = "~/.jobrobo/external-questions.json"
-# Private overrides used only by direct_apply submit, including its contact email.
+# Private overrides for employer submissions from either entry point, including contact email.
 direct_submit_profile_path = "~/.jobrobo/direct-submit-profile.json"
 
 close_tabs = False                  # True or False, Note: True or False are case-sensitive

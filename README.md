@@ -196,15 +196,44 @@ Without `--fresh`, the explicit configured command honors
 
 Filters and the overall submission cap come from `config/search.py`:
 `search_location`, `date_posted`, `job_type`, `experience_level`, `on_site`,
-`easy_apply_only`, and `max_applications_per_run` (currently `50`).
+`application_mode`, `easy_apply_only`, and `max_applications_per_run` (currently `50`).
 `switch_number = 10` is the per-query quota; explicit search quotas take precedence.
 These are different limits: an individual manual lane can still have `quota = 1`.
 Use the exact `San Francisco Bay Area` location when selecting that native
 suggestion. Remote/Hybrid intent and unavailable filter controls must be checked
 in the actual results; a requested filter is not proof it was applied.
-With `easy_apply_only = True`, company navigation is blocked even on result
-layouts without pagination. Otherwise company Apply links can be collected;
-an external link is not an application success.
+`application_mode` selects `external_only` (current configuration),
+`easy_apply_only`, or `both`. It overrides the legacy `easy_apply_only` flag;
+without the new setting the legacy flag keeps its previous behavior.
+External-only mode removes the Easy Apply-only search filter and skips Easy Apply
+results without opening their forms. The other search filters still apply.
+
+Employer Apply links use the same submission engine as:
+
+```bash
+python3 direct_apply.py submit --urls-file jobs-captcha-pending.txt \
+  --captcha-solver --pause-before-submit never --limit 95
+```
+
+LinkedIn supplies the URLs from search results. In `config/settings.py`,
+`external_apply_enabled = True`, `external_apply_captcha_solver = True`, and
+`external_apply_pause_before_submit = "never"` enable the corresponding flow.
+Use `"always"` or `"unknown"` to retain employer pages for review instead.
+The employer flow uses `direct_submit_profile_path` overrides, configured answers,
+the shared résumé optimizer and cache, and the configured CAPTCHA solver.
+Easy Apply forms continue to use `config/questions.py:pause_before_submit`.
+The reference command's `--limit 95` limits input selection; LinkedIn retains its
+own overall cap of 50 and per-query quota of 10.
+
+Only employer-confirmed submissions count as success. Their tabs close and the
+run returns to LinkedIn. Failed/review/verification pages remain open while the
+run processes other results, and survive browser-service shutdown. Close those
+retained windows before starting another run with the same dedicated Chrome
+profile. Each attempt records its direct run/report paths in the search manifest;
+eligible failures also enter `logs/deferred_applications/retry_jobs.json`.
+Uncertain submissions remain protected for reconciliation rather than automatic
+Submit replay. `--fresh` preserves these protections and previous employer
+submission holds, including those recorded by the direct-submit command.
 
 Test the form and optimized attachment without submitting:
 
@@ -549,6 +578,9 @@ See the [job pipeline guide](docs/job-pipeline.md) for input contracts, official
 | `config/search.py:search_location` | Location entered into LinkedIn search. | `'California, United States'` |
 | `config/search.py:switch_number` | Per-query application/external-link quota, unless a SearchSpec has its own quota. | Currently `10`; use `1` for a smoke test |
 | `config/search.py:max_applications_per_run` | Confirmed submissions across all queries/cycles in the command. | Currently `50`; use `1` for a smoke test; `None` disables the cap |
+| `config/search.py:application_mode` | Select Easy Apply, employer applications, or both; overrides the legacy flag. | Currently `"external_only"` |
+| `config/settings.py:external_apply_captcha_solver` | Enable the direct-submit CAPTCHA solver for employer tabs; requires the solver setup and credentials. | Currently `True` |
+| `config/settings.py:external_apply_pause_before_submit` | Employer submission policy, independent of the Easy Apply pause. | Currently `"never"`; `"always"` or `"unknown"` retains review tabs |
 | `config/settings.py:run_in_background` | Whether Chrome is visible. | `False` while debugging |
 | `config/settings.py:safe_mode` | Opens a clean Guest-style browser profile when normal Chrome startup fails. | `True` for startup troubleshooting |
 | `config/settings.py:chrome_profile_path` | Dedicated Chrome user-data directory used by JobRobo. | Defaults to `~/.jobrobo/chrome-profile`; an empty value uses the same default |

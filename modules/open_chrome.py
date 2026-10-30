@@ -104,6 +104,9 @@ def create_browser(*, background=None):
             check_profile_available(profile)
             options.add_argument(f"--user-data-dir={profile}")
     options.arguments.extend(_cdp_flags(options))
+    if getattr(settings, 'external_apply_enabled', False) and not settings.stealth_mode:
+        # Failed employer pages survive service.stop(); explicit quit still closes Chrome.
+        options.add_experimental_option('detach', True)
     browser = uc.Chrome(options=options) if settings.stealth_mode else webdriver.Chrome(options=options)
     try:
         browser.maximize_window()

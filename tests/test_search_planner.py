@@ -58,7 +58,9 @@ class RenderingTests(unittest.TestCase):
     def test_keyword_prompt_keeps_constraints_in_snapshot_not_search_text(self):
         config = search_config()
         snapshot = filters_snapshot(config)
-        self.assertEqual(snapshot["intent"], {key: config[key] for key in INTENT_FIELDS})
+        expected = {key: config.get(key) for key in INTENT_FIELDS}
+        expected['application_mode'] = 'easy_apply_only' if config.get('easy_apply_only') else 'both'
+        self.assertEqual(snapshot["intent"], expected)
         self.assertEqual(snapshot["gates"], {key: config[key] for key in GATE_FIELDS})
         text = render_query("Staff AI Platform Engineer", profile(), config)
         for value in (

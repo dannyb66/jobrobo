@@ -284,6 +284,28 @@ class SubmitBrowserTests(TestCase):
         result=self.run_jobs(self.jobs('/job/a','/native/b','/frame/c'),pause='never')
         self.assertEqual(result['counts'],{'applied':3});self.assertEqual(len(Handler.receipts),3)
         self.assertEqual(len(json.loads((self.root/'run/applications.json').read_text())['records']),3)
+
+    def test_borrowed_browser_confirms_keeps_uncertain_and_continues(self):
+        from modules.submit_runner import ApplicationTab
+        driver = self.factory()
+        self.addCleanup(driver.quit)
+        origin = driver.current_window_handle
+        outcomes, handles = [], []
+        for path in ('/job/borrowed-a', '/no-confirm/borrowed-b', '/native/borrowed-c'):
+            driver.switch_to.new_window('tab')
+            handle = driver.current_window_handle
+            handles.append(handle)
+            result = run_submissions(self.jobs(path), run_dir=self.root/'borrowed', config_dir=self.config,
+                output_dir=self.root/'reports', services=self.services, allow_local=True, pause='never',
+                ledger_path=self.ledger, application_tab=ApplicationTab(driver, handle), confirmation_timeout=.7)
+            outcomes.append(result['jobs'][0]['status'])
+            driver.switch_to.window(origin)
+        self.assertEqual(outcomes, ['applied', 'submission_uncertain', 'applied'])
+        self.assertEqual(len(Handler.receipts), 3)
+        self.assertIn(origin, driver.window_handles)
+        self.assertNotIn(handles[0], driver.window_handles)
+        self.assertIn(handles[1], driver.window_handles)
+        self.assertNotIn(handles[2], driver.window_handles)
     def test_repeated_fresh_runs_allow_same_posting_and_preserve_old_run(self):
         jobs=self.jobs('/job/a');jobs[0]['prior_status']='applied'
         old=ExternalApplicationLedger(self.ledger)

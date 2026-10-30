@@ -65,6 +65,11 @@ class ExternalApplicationResult:
     challenge_solved: bool = False
     challenge: dict | None = None
     preparation_report: str | None = None
+    direct_run_id: str | None = None
+    direct_run_dir: str | None = None
+    direct_status: str | None = None
+    retryable: bool | None = None
+    diagnostics: dict | None = None
     attempt_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_dict(self):

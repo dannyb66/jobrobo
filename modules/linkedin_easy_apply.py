@@ -286,7 +286,7 @@ def check_easy_apply_limit(driver):
             raise EasyApplyLimitReached()
 
 
-def open_easy_apply(driver, expected_job_id, *, timeout=10, log=lambda _: None, diagnostics_dir=None):
+def open_easy_apply(driver, expected_job_id, *, timeout=10, log=lambda _: None, diagnostics_dir=None, inspect_only=False):
     """Click one job-bound button/link and await the form; never click Submit.
 
     False means a confirmed external Apply control. Missing, disabled or failed
@@ -328,6 +328,8 @@ def open_easy_apply(driver, expected_job_id, *, timeout=10, log=lambda _: None, 
                                 {'apply', 'apply to this job', 'apply on company website'} for label in labels):
                             return 'external'
                 return False
+            if inspect_only:
+                return 'easy'
             href = button.get_attribute('href')
             if href and _url_job_id(href) != expected_job_id:
                 raise EasyApplyError('entry: Easy Apply link does not match selected job')
@@ -353,6 +355,8 @@ def open_easy_apply(driver, expected_job_id, *, timeout=10, log=lambda _: None, 
         if result == 'external':
             log('Easy Apply entry: confirmed external Apply control')
             return False
+        if result == 'easy':
+            return True
         log('Easy Apply entry clicked; waiting for application form')
         wait_for_application_modal(driver, timeout=timeout, log=log)
         return True
