@@ -30,6 +30,11 @@ ENTERPRISE_PATCHES = {
 
 LEVELS = ("detected", "model_response", "token_present", "challenge_cleared")
 
+# The vendor appends to `token_usage` only when a response carries a `usage`
+# block, which its grid replies do not, so counting that reported zero billed
+# calls for a solve that really made five. Count the requests themselves.
+RESPONSE_COUNT = {"n": 0}
+
 TOKEN_SELECTORS = (
     '[name="g-recaptcha-response"]',
     '[name="h-captcha-response"]',
@@ -336,8 +341,18 @@ def main(argv=None) -> int:
                     overall_solve_timeout_ms=args.overall_timeout_ms,
                     max_solve_loops=args.max_responses,
                 )
+                from captchakraken import planner as _planner
+                _http = _planner.ActionPlanner.__dict__.get("_http")
+                orig_post = getattr(_http, "post", None)
+                if orig_post is not None:
+                    def counting_post(*a, **kw):
+                        RESPONSE_COUNT["n"] += 1
+                        return orig_post(*a, **kw)
+                    _http.post = counting_post
                 outcome = grid_solver_class()(config).solve(page)
-                responses = len(getattr(outcome, "token_usage", []) or [])
+                if orig_post is not None:
+                    _http.post = orig_post
+                responses = max(len(getattr(outcome, "token_usage", []) or []), RESPONSE_COUNT["n"])
                 after = probe(page)
                 token_now = token_length(page)
                 cleared = not after.get("active") or token_now > 0

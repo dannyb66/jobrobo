@@ -404,6 +404,23 @@ confirmed and possibly submitted attempts protected.
 
 ### Task 1 tracking, profile answers and resume settings
 
+To copy the saved optimized PDF for a job to `~/Downloads` with its recorded
+employer-facing upload filename, run from the repository root:
+
+```bash
+python3 direct_apply.py copy-resume --url "https://jobs.lever.co/company/posting-id/apply"
+```
+
+The command selects the latest matching direct-submit run by its start time,
+checks the PDF's SHA-256 against saved metadata, and prints the source run,
+destination and application status as JSON. Posting and `/apply` URL variants
+match using the existing reporting URL rules. Use `--run-dir PATH` to select a
+specific run or `--destination PATH` to choose another directory. A missing or
+invalid PDF in the selected run causes an error; older runs are not substituted.
+An identical destination file is reused; conflicting files are preserved and the
+copy receives a numbered suffix. This command only exports an existing PDF and
+does not generate a resume, open a browser or submit an application.
+
 Every submit checkpoint updates the cross-run report at
 `logs/direct_submit_tracking/runs.html`. Task 1's role review links each run and
 its submitted, uncertain, manual and other statuses. Reload it and use

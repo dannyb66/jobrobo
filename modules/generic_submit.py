@@ -249,6 +249,7 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
     review = review_factory(report, unknown) if needs_review else None
     claimed = False; activated = False; started = None; document_id = None; waited_after_submit=False
     solved_after_submit = False
+    solve_attempts = 0
     expected_urls = [report['resolved_url'], browser.read()['url']]
     aliases = list(dict.fromkeys([report['url'], *expected_urls]))
     top_identity, form_identity = identify_ats(expected_urls[0]), identify_ats(expected_urls[1])
@@ -331,7 +332,18 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                 if captcha_solver.enabled():
                     run.update(job, status='submitting', stage='captcha_after_submit')
                     solved_from = time.monotonic()
+                    # Two independent attempts: a vendor rejection is often a bad
+                    # board, and a second fresh solve re-deals it far more cheaply
+                    # than five rounds inside one exhausted window.
                     outcome_record = captcha_solver.solve(browser.driver)
+                    while (not captcha_solver.cleared(outcome_record) and solve_attempts < 1
+                           and outcome_record.get('status') == 'rejected'):
+                        solve_attempts += 1
+                        wait_between = min(2.0, max(0.0, 2.0 - (time.monotonic() - solved_from)))
+                        time.sleep(wait_between)
+                        retry = captcha_solver.solve(browser.driver)
+                        retry['responses'] = retry.get('responses', 0) + outcome_record.get('responses', 0)
+                        outcome_record = retry
                     # The confirmation budget must not expire while we solve,
                     # or a clear lands with no time left to observe it.
                     if started is not None:

@@ -67,6 +67,11 @@ def parser():
     review_resume = commands.add_parser("record-resume-review", help="Optionally record a completed visual PDF inspection; preparation does not require it")
     review_resume.add_argument("--report", required=True, help="Preparation report containing the generated resume")
     review_resume.add_argument("--pdf-sha256", required=True, help="SHA256 of the PDF you visually inspected")
+    copy_resume = commands.add_parser('copy-resume', help='Copy a saved optimized PDF to Downloads using its recorded upload filename')
+    copy_resume.add_argument('--url', required=True, help='Job posting or application URL')
+    copy_resume.add_argument('--run-dir', help='Select a specific direct-submit run instead of the latest matching run')
+    copy_resume.add_argument('--destination', default=str(Path.home() / 'Downloads'), help='Destination directory (default ~/Downloads)')
+    copy_resume.add_argument('--config-dir', default=str(Path(__file__).resolve().parent / 'config'))
     plan = commands.add_parser("plan", help="Snapshot validated resumes and all verified roles; no browser or AI")
     plan.add_argument("--input", required=True, help="Versioned verified_roles JSON, optionally ranked")
     plan.add_argument("--queue", required=True)
@@ -144,7 +149,12 @@ def main(argv=None):
     from modules.direct_careers_apply import (export_applications, literal_config, load_queue, local_candidate,
                                                plan_queue, run_queue, summarize)
     try:
-        if args.command == "record-resume-review":
+        if args.command == 'copy-resume':
+            from modules.resume_export import copy_resume
+            print(json.dumps(copy_resume(args.url, run_dir=args.run_dir,
+                destination=args.destination, config_dir=args.config_dir), indent=2))
+            return 0
+        elif args.command == "record-resume-review":
             from modules.generic_prepare import record_resume_review
             record_resume_review(args.report, args.pdf_sha256)
             print('Recorded visual resume inspection; no browser or upload started.')
