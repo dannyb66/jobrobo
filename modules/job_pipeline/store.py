@@ -52,7 +52,7 @@ def _combine(existing, incoming, incoming_is_newer=True):
                     combined.append(deepcopy(item))
                     markers.add(_json(item))
             result[key] = combined
-        elif key in {"exclusion_reasons", "unverified_preferences"} and isinstance(value, list):
+        elif key in {"exclusion_reasons", "unverified_preferences", "application_exclusion_reasons", "verification_exclusion_reasons", "review_notes"} and isinstance(value, list):
             if incoming_is_newer or key not in result:
                 result[key] = deepcopy(value)
         elif value is not None and value != "" and value != [] and value != {}:
@@ -350,6 +350,14 @@ class PipelineStore:
         record["id"] = entity_id
         natural_key = self._natural_key(stage, record)
         old = self.connection.execute("SELECT * FROM entities WHERE stage=? AND (entity_id=? OR natural_key=?) ORDER BY entity_id=? DESC LIMIT 1", (stage, entity_id, natural_key, entity_id)).fetchone()
+        if stage == "verified_roles" and record.get("status") == "closed":
+            # Old exports may contain closure evidence without the newer decision fields.
+            record["eligible"] = False
+            record["exclusion_reasons"] = list(dict.fromkeys(record.get("exclusion_reasons", []) + ["role_closed"]))
+            for prefix in ("verification", "application"):
+                record[prefix + "_eligible"] = False
+                record[prefix + "_exclusion_reasons"] = list(dict.fromkeys(record.get(prefix + "_exclusion_reasons", []) + ["role_closed"]))
+            record["review_notes"] = list(dict.fromkeys(record.get("review_notes", []) + ["role_closed"]))
         effective_at = record.get("verified_at") or record.get("updated_at") or observed_at
         if old:
             if entity_id != old["entity_id"]:
@@ -370,9 +378,17 @@ class PipelineStore:
                 merged["status"] = "submitting"
             if (previous.get("status") == "closed" and record.get("status") == "open"
                     and _moment(effective_at) <= _moment(old["observed_at"])):
-                for key in ("status", "eligible", "verified_at", "exclusion_reasons"):
+                for key in ("status", "eligible", "verified_at", "exclusion_reasons", "verification_eligible", "verification_exclusion_reasons",
+                            "application_eligible", "application_exclusion_reasons", "review_notes", "evaluation_scope", "verification_policy_version"):
                     if key in previous:
                         merged[key] = previous[key]
+                # Legacy closures predate the separate inventory/application decisions.
+                if stage == "verified_roles":
+                    for prefix in ("verification", "application"):
+                        merged[prefix + "_eligible"] = False
+                        merged[prefix + "_exclusion_reasons"] = list(dict.fromkeys(
+                            previous.get(prefix + "_exclusion_reasons", previous.get("exclusion_reasons", [])) + ["role_closed"]))
+                    merged["review_notes"] = list(dict.fromkeys(previous.get("review_notes", []) + ["role_closed"]))
             # Unknown evidence does not prove a previously open/closed role changed.
             if merged.get("status") == "unknown" and previous.get("status") in {"open", "closed"}:
                 merged["status"] = previous["status"]

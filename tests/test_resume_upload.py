@@ -134,7 +134,7 @@ class VerifiedResumeUploadTest(unittest.TestCase):
         self.assertEqual(resume, "verified.pdf")
         call=namespace['upload_optimized_resume'].call_args
         self.assertEqual(call.args,(modal,str(self.source),'JD','123','Staff Engineer','Test','Candidate'))
-        self.assertNotIn('on_attached', call.kwargs)
+        self.assertTrue(callable(call.kwargs['on_attached']))
 
     def test_later_job_reattaches_configured_pdf_before_ai_prose(self):
         namespace = self.bot_preparation(True)

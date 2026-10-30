@@ -95,8 +95,30 @@ class SharedBackendTests(unittest.TestCase):
 
     def test_old_eligible_flag_with_new_current_exclusion_does_not_start_browser(self):
         with patch.object(canonical_search, "bad_words", ["production platform"]):
-            result = self.bot.run_pipeline(self.request())
+            result = self.bot.run_pipeline(self.request("apply"))
         self.browser.assert_not_called()
+        self.assertFalse(self.apply.called)
+        self.assertIn("current_config_exclusion", {row["code"] for row in result.errors})
+
+    def test_search_targets_keep_candidate_exclusions_as_notes_without_application_work(self):
+        with patch.object(canonical_search, "bad_words", ["production platform"]):
+            self.bot.run_pipeline(self.request())
+        current = self.collect.call_args.args[0][0].pipeline_context["career_roles"][0]
+        self.assertTrue(current["verification_eligible"])
+        self.assertFalse(current["application_eligible"])
+        self.assertIn("description_exclusion:production platform", current["review_notes"])
+        self.apply.assert_not_called()
+
+    def test_combined_run_rechecks_collected_inventory_parent_before_application(self):
+        def collect(specs, **kwargs):
+            candidate = job()
+            kwargs["result_sink"](candidate)
+            return [candidate], []
+        self.collect.side_effect = collect
+        with patch.object(canonical_search, "bad_words", ["production platform"]):
+            result = self.bot.run_pipeline(self.request("search-and-apply"))
+        self.collect.assert_called_once()
+        self.apply.assert_not_called()
         self.assertIn("current_config_exclusion", {row["code"] for row in result.errors})
 
     def test_imported_application_success_or_uncertainty_is_skipped_across_sets(self):
@@ -164,6 +186,23 @@ class SharedBackendTests(unittest.TestCase):
         second = namespace["apply_to_jobs"]([], prepared_specs=deepcopy(specs), selected_jobs=deepcopy(selected))
         self.assertEqual(first.data["run_id"], second.data["run_id"])
         self.assertEqual(first.data["configuration_id"], second.data["configuration_id"])
+
+    def test_explicit_fresh_manifest_does_not_reuse_completed_selected_job_run(self):
+        from test_search_runner import extract_functions
+        namespace = {
+            "active_manifest": None, "active_search": None, "search_profile": self.bot.search_profile,
+            "plan_fingerprint": self.bot.plan_fingerprint, "SearchManifest": SearchManifest,
+            "file_lock": self.bot.file_lock, "os": self.bot.os, "print_lg": lambda *args: None,
+            "randomize_search_order": False, "execute_search_plan": Mock(),
+        }
+        extract_functions(namespace, "apply_to_jobs")
+        from modules.job_pipeline.linkedin import selected_specs
+        specs, selected, errors = selected_specs([job()], profile(), config())
+        self.assertEqual(errors, [])
+
+        first = namespace["apply_to_jobs"]([], prepared_specs=specs, selected_jobs=selected, fresh_manifest=True)
+        second = namespace["apply_to_jobs"]([], prepared_specs=deepcopy(specs), selected_jobs=deepcopy(selected), fresh_manifest=True)
+        self.assertNotEqual(first.data["run_id"], second.data["run_id"])
 
     def live_reader(self, url="https://www.linkedin.com/jobs/view/123", location="California, United States", employment="Full-time", posted="1 day ago"):
         from modules.job_pipeline.linkedin import prepare_specs

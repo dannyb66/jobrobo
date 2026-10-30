@@ -3,6 +3,7 @@
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from modules.job_pipeline.models import LinkedInRunRequest, StageResult, write_artifact
 
@@ -30,21 +31,41 @@ def _nonnegative(value):
 def build_parser():
     from config import job_pipeline as config
 
-    parser = argparse.ArgumentParser(description="Discover companies, verify careers, then search or apply on LinkedIn.")
+    parser = argparse.ArgumentParser(description="Discover companies, verify and rank careers, then apply directly or search/apply on LinkedIn.")
     verbs = parser.add_subparsers(dest="verb")
-    for verb, noun in (("discover", "companies"), ("verify", "careers"),
-                       ("search", "linkedin"), ("apply", "linkedin"), ("run", "linkedin")):
-        parent = verbs.add_parser(verb)
-        commands = parent.add_subparsers(dest="target", required=True)
+    groups = {}
+    for verb, noun in (("discover", "companies"), ("verify", "careers"), ("rank", "careers"),
+                       ("search", "linkedin"), ("apply", "linkedin"), ("run", "linkedin"), ("apply", "careers")):
+        if verb not in groups:
+            parent = verbs.add_parser(verb)
+            groups[verb] = parent.add_subparsers(dest="target", required=True)
+        commands = groups[verb]
         command = commands.add_parser(noun)
-        command.add_argument("--input", action="append", default=[], metavar="JSON_OR_SET", help="Versioned stage JSON or saved input set; repeat to merge")
-        command.add_argument("--set", dest="set_name", default=config.default_set, help="Cumulative output set name")
+        command.add_argument("--input", action="append", default=[], metavar="JSON_OR_SET", help="Versioned stage JSON or saved input set; for apply linkedin, a deferred retry ledger is also accepted")
+        command.add_argument("--set", dest="set_name", default=None if (verb,noun)==('apply','careers') else config.default_set, help="Cumulative output set name")
         command.add_argument("--output", dest="output_path", help="Export a portable versioned StageResult JSON")
         limit_field = {"discover": "discovery_limit_per_source", "verify": "verification_limit_companies"}.get(verb)
         stage_limit = getattr(config, limit_field, config.default_limit) if limit_field else config.default_limit
-        command.add_argument("--limit", type=_positive, default=None if limit_field else stage_limit,
-                             help=f"Maximum records/companies/jobs processed this invocation (configured default: {stage_limit})")
-        command.add_argument("--db", dest="db_path", default=config.db_path, help="SQLite pipeline store")
+        if verb != "rank":
+            direct_careers = (verb,noun)==('apply','careers')
+            command.add_argument("--limit", type=_positive, default=None if limit_field or direct_careers else stage_limit,
+                                 help="Maximum selected direct jobs (default: all selected)" if direct_careers else f"Maximum records/companies/jobs processed this invocation (configured default: {stage_limit})")
+        if (verb, noun) == ("apply", "linkedin"):
+            command.add_argument("--job-id", help="Apply only this exact job ID from a deferred retry ledger")
+            command.add_argument("--auto-submit", action="store_true",
+                                 help="Submit deferred retries without the final pause; requires a deferred retry ledger as --input")
+        command.add_argument("--db", dest="db_path", default=None if (verb,noun)==('apply','careers') else config.db_path, help="SQLite pipeline store")
+        if verb == 'apply' and noun == 'careers':
+            command.add_argument('--run-dir')
+            command.add_argument('--resume', dest='resume_dir')
+            command.add_argument('--pause-before-submit', choices=('always','unknown','never'))
+            command.add_argument('--role', action='append', default=[])
+            command.add_argument('--max-applications', type=_positive)
+            command.add_argument('--workers', type=_positive, help='Parallel isolated browser workers (1-4; >1 requires --browser kernel; default 1)')
+            command.add_argument('--config-dir')
+            command.add_argument('--chrome-profile')
+            command.add_argument('--browser',dest='browser_backend',choices=('local','kernel'))
+            command.add_argument('--browser-config')
         if verb in {"discover", "verify"}:
             stage = "discovery" if verb == "discover" else "verification"
             command.add_argument("--refresh", action=argparse.BooleanOptionalAction,
@@ -62,6 +83,10 @@ def build_parser():
         elif verb == "verify":
             command.add_argument("--prioritize-established", action=argparse.BooleanOptionalAction, default=None,
                                  help="Verify established companies first (default follows verification_prioritize_established)")
+        if verb in {"verify", "rank"}:
+            command.add_argument("--resume", dest="resume_path", help="Local original DOCX/PDF/text resume for optional lexical review affinity; never an ATS score")
+        if verb == "rank":
+            command.add_argument("--as-of", help="ISO timestamp with timezone for reproducible posting-age buckets; default now")
     return parser
 
 
@@ -71,9 +96,22 @@ def main(argv=None):
     if args.verb is None:
         parser.print_help()
         return 0
-    if not args.set_name.strip():
+    if args.set_name is not None and not args.set_name.strip():
         parser.error("--set must be nonempty")
     try:
+        if args.verb == "apply" and args.target == "linkedin" and args.input:
+            from modules.linkedin_deferred import is_deferred_document
+            retry_inputs = [value for value in args.input if is_deferred_document(value)]
+            if retry_inputs:
+                if len(args.input) != 1:
+                    raise ValueError("A deferred retry ledger cannot be merged with pipeline artifacts")
+                from runAiBot import run_deferred_retries
+                options = {"auto_submit": True} if args.auto_submit else {}
+                result = run_deferred_retries(retry_inputs[0], args.limit, args.job_id, **options)
+                print(json.dumps(result, indent=2, ensure_ascii=False))
+                return 1 if result.get("status") in {"failed", "interrupted"} else 0
+        if getattr(args, "auto_submit", False):
+            raise ValueError("--auto-submit requires a deferred retry ledger as --input")
         if args.verb == "discover":
             from modules.job_pipeline.service import discover_companies
             sources = None if args.source is None else [value for value in args.source if value != "import"]
@@ -93,7 +131,27 @@ def main(argv=None):
                 options["render_enabled"] = args.render_enabled
             if args.prioritize_established is not None:
                 options["prioritize_established"] = args.prioritize_established
+            if args.resume_path is not None:
+                options["resume_path"] = args.resume_path
             result = verify_careers(args.input, args.set_name, args.limit, args.db_path, **options)
+        elif args.verb == "rank":
+            from modules.job_pipeline.service import rank_careers
+            result = rank_careers(args.input, args.set_name, args.db_path, args.resume_path, args.as_of)
+        elif args.verb == 'apply' and args.target == 'careers':
+            from modules.generic_inputs import load_jobs
+            from modules.submit_runner import run_submissions
+            from config import job_pipeline as pipeline_config
+            if args.resume_dir and (args.input or args.role or args.limit):
+                raise ValueError('Resume uses the saved selection; omit new inputs/roles/limit')
+            database = args.db_path or (None if args.resume_dir else pipeline_config.db_path)
+            jobs = None if args.resume_dir else load_jobs(args.input,db_path=database,selected_roles=args.role,limit=args.limit)
+            progress = run_submissions(jobs,run_dir=args.run_dir,resume_dir=args.resume_dir,
+                pause=args.pause_before_submit,max_applications=args.max_applications,config_dir=args.config_dir,
+                workers=args.workers,
+                chrome_profile=args.chrome_profile,set_name=args.set_name,export_path=args.output_path,db_path=database,
+                browser_backend=args.browser_backend,browser_config=args.browser_config)
+            from modules.job_pipeline.models import read_artifact
+            result = read_artifact(progress['options'].get('export_path') or Path(progress['run_dir'])/'applications.json')
         else:
             from modules.job_pipeline.service import load_inputs
             from modules.job_pipeline.store import PipelineStore
@@ -109,7 +167,7 @@ def main(argv=None):
             from runAiBot import run_pipeline
             result = run_pipeline(request)
         result = StageResult.from_dict(result)
-        if args.output_path:
+        if args.output_path and not (args.verb == 'apply' and args.target == 'careers'):
             write_artifact(result, args.output_path)
         print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
         return 1 if result.errors else 0

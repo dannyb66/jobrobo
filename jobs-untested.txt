@@ -1,0 +1,26 @@
+# Untested application preparation URLs: selected 2026-10-20 UTC.
+# Listed in employer public job-board metadata when selected.
+# These URLs were not in this task's recorded preparation attempts.
+# Form filling, AI resume generation and uploads have NOT been tested for them.
+# Run: python3 direct_apply.py prepare --urls-file jobs-untested.txt --grounded-resume
+
+# Hive - Machine Learning Engineer - San Francisco
+https://jobs.lever.co/hive/fb175ecc-b6ba-4242-a84a-8699f9b0e971
+# Hive - Senior Machine Learning Engineer - San Francisco
+https://jobs.lever.co/hive/2a9e97d1-8642-494f-ac6e-e5c57efbd489
+# Hive - Senior Site Reliability Engineer - San Francisco
+https://jobs.lever.co/hive/df14cc7c-4ff1-4d5e-8574-db1d180b5eb2
+# Ashby - Engineering Manager - Americas / Remote US
+https://jobs.ashbyhq.com/ashby/695b1ce6-c375-4fad-94ef-61b50a3fbd28
+# Ashby - Staff Design Engineer - Americas / Remote US
+https://jobs.ashbyhq.com/ashby/cc846e56-27dd-41b5-bf5b-64d5eeb5ff1a
+# Ashby - Senior Product Engineer - Americas / Remote US
+https://jobs.ashbyhq.com/ashby/751768c6-8d97-4e91-a57d-6b85ce4b5a37
+# Together AI - AI Infrastructure Systems Engineer - San Francisco
+https://job-boards.greenhouse.io/togetherai/jobs/5138540007
+# Together AI - Machine Learning Engineer, Inference - San Francisco
+https://job-boards.greenhouse.io/togetherai/jobs/4385540007
+# Together AI - Platform Engineer, Model Shaping - San Francisco
+https://job-boards.greenhouse.io/togetherai/jobs/4790243007
+# Together AI - Senior Backend Engineer, Inference Platform - San Francisco
+https://job-boards.greenhouse.io/togetherai/jobs/4835763007

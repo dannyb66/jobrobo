@@ -159,7 +159,7 @@ Use `optimization_mode="skills"` to update Skills only, `"bullets"` to update Sk
 
 ## Resume optimization from one file
 
-Use `optimize_resume.py` for an original resume plus complete JD text/file or a supported public JobPosting JSON-LD URL. It reuses the existing engine, supports `--mode full|bullets|skills`, independent `--replace-title` / `--no-replace-title`, opt-in `--rewrite-all-bullets`, and a new `--output` review directory. `--preflight` makes no OpenAI call. See [Task 11 commands, dependencies, mode/title semantics and limitations](docs/TASK11-README.md). Paid runs require an already configured local credential and separate authorization; this workflow never uploads or submits applications.
+Use [`optimize_resume.py`](optimize_resume.py) for an original resume plus complete JD text/file or a supported public JobPosting JSON-LD URL. It reuses the existing engine, supports `--mode full|bullets|skills`, independent `--replace-title` / `--no-replace-title`, opt-in `--rewrite-all-bullets`, and a new `--output` review directory. `--preflight` makes no OpenAI call. See [Task 11 commands, dependencies, mode/title semantics and limitations](docs/TASK11-README.md). Paid runs require an already configured local credential and separate authorization; this workflow never uploads or submits applications.
 
 ## Search and apply on LinkedIn without stage inputs
 
@@ -259,6 +259,13 @@ verified-role set name can be supplied with `--input NAME --db PATH`.
 untested list. Neither filename changes submission behaviour. Shell variable
 names are case-sensitive: use lowercase `"$roles"` consistently.
 
+For the final ten-job cross-provider sample (nine Task 1 remaining roles plus
+the approved generic replacement), use [`jobs-validation.txt`](jobs-validation.txt) or the local
+`jobs-validation.json` metadata file. The metadata JSON is kept private because
+it contains original scraped descriptions and source data. The ten-case sample covers
+Ashby, Lever, Greenhouse and one generic entry. See the
+[manual validation commands, coverage limits and feedback plan](docs/manual-validation-run.md).
+
 ### Prepare without submitting
 
 ```bash
@@ -301,6 +308,22 @@ Ctrl-C saves progress. A fresh command creates a new run ID and directory and
 can attempt previously submitted URLs again. The status-filtered input is an
 optional way to avoid repeats; cross-run reporting does not block fresh runs.
 
+Parallel batches are opt-in and use isolated Kernel browser sessions per worker:
+
+```bash
+python3 direct_apply.py submit --input "$roles" --browser kernel \
+  --workers 3 --pause-before-submit always
+```
+
+`--workers` accepts 1–4 and defaults to 1. Values above 1 require `--browser
+kernel`; local Chrome uses one profile and remains sequential. With the default
+`always` mode, workers prepare jobs concurrently in separate sessions, then
+leave their job tabs open for manual review. Each worker reuses its own session
+for subsequent URLs. `never` explicitly allows concurrent automatic
+submissions. Every job’s worker, tab, and status are checkpointed in the run,
+so `--resume` can reconnect unresolved worker sessions. The configured
+application cap still applies across all workers.
+
 ### Kernel cloud browser and CAPTCHA handling
 
 Install the optional dependencies and configure `KERNEL_API_KEY` in the ignored
@@ -320,6 +343,17 @@ mean an application was submitted. Employer confirmation, including Ashby's
 success banner, establishes `applied`. An unconfirmed possible activation stays
 `submission_uncertain` without an automatic second click.
 
+Some portals complete a solved challenge by clicking a hidden submit control or
+calling the native form method. That single continuation is allowed only for the
+original validated form, with a response token and unchanged application answers.
+A second final activation remains blocked. Solver readiness and employer
+submission confirmation are tracked separately.
+
+A third-party application service may accept a request into its own queue and
+promise to submit later. The run records `external_submission_pending` under
+`submission_uncertain`, protects that attempt on resume, and waits for evidence
+of employer submission before treating it as applied.
+
 `config/browser_runtime.json` controls backend, stealth/headless settings,
 challenge/session timeouts and optional Kernel profile/proxy settings. Use
 `--browser-config PATH` for another file. `--chrome-profile` applies to local
@@ -335,6 +369,9 @@ specific run, copy the actual directory printed by that command:
 RUN_DIR='/absolute/path/printed/by/the/run'
 python3 direct_apply.py status --run "$RUN_DIR"
 python3 direct_apply.py submit --resume "$RUN_DIR"
+
+# Retry only eligible failures proven to have occurred before Submit, in that run.
+python3 direct_apply.py submit --resume "$RUN_DIR" --retry-failed
 
 # Start a fresh run from that run's retry inventory.
 python3 direct_apply.py submit --input "$RUN_DIR/retry.json" --pause-before-submit always
@@ -355,11 +392,34 @@ Each run saves `progress.json`, `events.jsonl`, `applications.json`, its own
 ledger/state database, preparation reports, `retry.json`/`retry.txt`,
 `needs-review.json` and manual-review files. `applied` means confirmed;
 `awaiting_manual_submit` needs your click; `awaiting_correction` needs edits;
+`awaiting_email_verification` retains the original tab for your emailed code;
 `submission_uncertain` needs outcome inspection. Failed pre-submit work is kept
 for retry. `--run-dir` optionally selects a destination; an existing destination
 gets a unique sibling rather than being overwritten.
 
+Email verification is separate from CAPTCHA solving. Automatic mode continues
+other jobs and retains verification tabs without replaying Submit. Explicit
+resume reconnects those tabs. `--retry-failed` requires `--resume` and leaves
+confirmed and possibly submitted attempts protected.
+
 ### Task 1 tracking, profile answers and resume settings
+
+To copy the saved optimized PDF for a job to `~/Downloads` with its recorded
+employer-facing upload filename, run from the repository root:
+
+```bash
+python3 direct_apply.py copy-resume --url "https://jobs.lever.co/company/posting-id/apply"
+```
+
+The command selects the latest matching direct-submit run by its start time,
+checks the PDF's SHA-256 against saved metadata, and prints the source run,
+destination and application status as JSON. Posting and `/apply` URL variants
+match using the existing reporting URL rules. Use `--run-dir PATH` to select a
+specific run or `--destination PATH` to choose another directory. A missing or
+invalid PDF in the selected run causes an error; older runs are not substituted.
+An identical destination file is reused; conflicting files are preserved and the
+copy receives a numbered suffix. This command only exports an existing PDF and
+does not generate a resume, open a browser or submit an application.
 
 Every submit checkpoint updates the cross-run report at
 `logs/direct_submit_tracking/runs.html`. Task 1's role review links each run and
@@ -384,6 +444,29 @@ first-option fallback handles otherwise unanswered choices; DEI questions use
 the last available refusal/None option. AI drafts descriptive answers when
 enabled; missing free-text personal facts remain unresolved. `unknown` mode flags
 first-option and AI answers for manual review.
+
+Job-URL submissions can additionally read a private JSON profile from
+`~/.jobrobo/direct-submit-profile.json`, selected by
+`direct_submit_profile_path` in `config/settings.py`. Supported keys are `email`
+and `signature_date_policy`. An explicit email override replaces older resume
+autofill for this workflow. With `"signature_date_policy": "completion_date"`,
+recognized application signature dates use the machine's local completion date
+(ISO for date controls, MM/DD/YYYY for text controls). Birth, employment and
+unidentified dates still require their own answers. The same date policy can
+be set in the private question JSON for both `prepare` and `submit`; it is
+configured there locally too. These submit-profile overrides apply to
+new preparation within `submit`, including resumed pending jobs; they do not
+change LinkedIn settings, historical submissions or pending verification emails.
+
+After resume upload, the runner waits within a bounded budget for parsing and
+preserves valid populated fields. It rechecks fields before writing and verifies
+committed autocomplete choices after selection. Changed posting identities stop
+before applicant data is entered. Kernel diagnostics store bounded error
+categories and sanitized request paths, excluding request bodies and query strings.
+Location controls use country context when they describe eligible countries;
+phone readback accepts formatting while preserving the supplied digits. Resume
+analysis can take up to the bounded processing budget; a service error is saved
+as a pre-submit failure rather than an accepted attachment or application.
 
 Direct applications share LinkedIn's optimizer JSON at
 `~/Library/Application Support/jobrobo/config/resume_optimizer_defaults.json`,
@@ -473,6 +556,7 @@ See the [job pipeline guide](docs/job-pipeline.md) for input contracts, official
 | `config/questions.py:pause_at_failed_question` | Legacy failed-question setting; current Easy Apply recovery records unresolved required fields for retry without a Help Needed popup. | Inspect retry reasons and configured answers |
 | `config/questions.py:default_resume_path` | PDF uploaded to LinkedIn. | `all resumes/default/resume.pdf` |
 | `config/questions.py:default_resume_docx_path` | DOCX source used when resume optimization is enabled. | `all resumes/default/resume.docx` |
+| `config/questions.py:allow_contact_only_easy_apply` | Allows final forms requesting only basic contact details when no résumé upload or selection is offered. Never bypasses a failed upload. | `False` keeps the tailored-résumé requirement; `True` opts into contact-only applications |
 | `config/resume_optimizer_defaults.json:optimization_mode` | Resume rewrite scope. | `skills`, `bullets`, or `full` |
 
 Keep secrets out of commits. Use environment variables or the repository's existing key-loader flow for OpenAI credentials, and do not paste real passwords into documentation, issues, or screenshots. If a credential has ever been committed, rotate it before continuing.
@@ -986,6 +1070,57 @@ With heartfelt appreciation, <br>
 
 <br>
 
+## 🧩 Access challenges (CAPTCHA)
+
+The `apply` lane can clear a vendor challenge on the employer page instead of
+handing the tab back. It is opt-in and needs a hosted CaptchaKraken key:
+
+```sh
+CAPTCHA_KRAKEN_API_KEY=...   # and CAPTCHA_KRAKEN_BASE_URL (or VLLM_BASE_URL)
+./scripts/setup_captcha_solver.sh   # builds the 3.11 sidecar venv
+
+python3 direct_apply.py submit --urls-file jobs.txt \
+  --captcha-solver --pause-before-submit never --limit 5
+```
+
+`--captcha-solver` is the opt-in; `CAPTCHA_SOLVER=1` in `.env` also turns it on
+ambiently. Without the flag the lane hands challenges back for manual work, and
+it fails fast rather than half-arming if the sidecar or key is missing.
+
+The solver runs in a Python 3.11 sidecar because `captchakraken` needs 3.11
+while the app stays on 3.10. It attaches to the already-open tab over CDP and
+never clicks Submit. It is bounded to five vendor responses and reports rungs
+separately: `detected`, `model_response`, `token_present`, `challenge_cleared`.
+
+Outcomes are reported honestly and separately: `cleared`, `rejected`,
+`unsupported`, `no_challenge`, `timeout`, `blocked`, `error`. A cleared
+challenge is never counted as a confirmed submission; a page that then refuses
+the application is reported as an employer rejection, not a solver failure.
+
+Two ATS-specific behaviours are handled:
+
+- Invisible reCAPTCHA (Ashby) keeps an empty challenge frame until Submit runs
+  the widget, so Submit is clicked first, then the board is solved, then Submit
+  is clicked again.
+- Ashby overlays the filled form and Lever draws its own radio labels, so a DOM
+  click is used when the native one is intercepted or is a silent no-op.
+
+Known limits: Greenhouse renders its required questions as react-select
+comboboxes, which stay manual. Ashby may flag a submission as possible spam
+after a clean solve; that is the employer's call, not the solver's.
+
+Review mode does not clear the challenge for you. `prepare` never clicks
+Submit, and an invisible reCAPTCHA stays idle until Submit runs it, so a
+challenge that only appears on submit is still the reviewer's job. A challenge
+already visible when the form loads is solved normally. Use
+`--pause-before-submit never` when you want the solver to handle it end to end.
+
+See `logs/captcha-eval/` for a dated live run across Ashby, Lever and Greenhouse.
+
+[back to index](#-content)
+
+<br>
+
 ## 📜 Disclaimer
 
 **This program is for educational purposes only. By downloading, using, copying, replicating, or interacting with this program or its code, you acknowledge and agree to abide by all the Terms, Conditions, Policies, and Licenses mentioned, which are subject to modification without prior notice. The responsibility of staying informed of any changes or updates bears upon yourself. Additionally, kindly adhere to and comply with LinkedIn's terms of service and policies pertaining to web scraping. Usage is at your own risk. The creators and contributors of this program emphasize that they bear no responsibility or liability for any misuse, damages, or legal consequences resulting from its usage.**
@@ -1044,7 +1179,7 @@ https://discord.gg/fFp7uUzWCY
 - **X/Twitter**: https://x.com/deepakcool3
 
 
-#### ℹ️ Version: [0.1.5.0](VERSION)
+#### ℹ️ Version: [0.1.6.0](VERSION)
 
 ---
 

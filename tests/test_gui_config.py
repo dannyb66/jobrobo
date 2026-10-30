@@ -178,6 +178,7 @@ class OptimizerDashboardTest(unittest.TestCase):
         self.app.replace_job_title_var = Mock(get=Mock(return_value=False))
         self.app.rewrite_bullets_var = Mock(get=Mock(return_value=True))
         self.app.optimization_mode_var = Mock(get=Mock(return_value="bullets"))
+        self.app.content_policy_var = Mock(get=Mock(return_value="grounded"))
         self.config = {"unknown_setting": {"keep": 1}, "project_bullet_banks": [], "max_skills": 16}
         for name, value in (
             ("load_runtime_config", Mock(side_effect=lambda: dict(self.config))),
@@ -221,12 +222,39 @@ class OptimizerDashboardTest(unittest.TestCase):
         self.assertEqual(self.config["project_bullet_banks"], latest_banks)
         self.dashboard.messagebox.showerror.assert_not_called()
 
+    def test_gui_preserves_independent_false_title_flag_and_explicit_draft_policy(self):
+        self.app.optimization_mode_var.get.return_value = "full"
+        self.app.content_policy_var.get.return_value = "review_draft"
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-only"}):
+            self.app.run_resume_optimizer_from_ui()
+        self.assertIs(self.config["replace_job_title"], False)
+        self.assertEqual(self.config["optimization_mode"], "full")
+        self.assertEqual(self.config["content_policy"], "review_draft")
+
     def test_optimizer_none_result_reports_failure(self):
         self.optimizer.run_resume_optimization.return_value = None
         with patch.dict("os.environ", {"OPENAI_API_KEY": "test-only"}):
             self.app.run_resume_optimizer_from_ui()
         self.dashboard.messagebox.showinfo.assert_not_called()
         self.dashboard.messagebox.showerror.assert_called_once()
+
+    def test_strict_manual_review_outcome_does_not_claim_partial_failure(self):
+        self.app.rewrite_all_bullets_var=Mock(get=Mock(return_value=True))
+        self.app.rewrite_concurrency_var=Mock(get=Mock(return_value=4))
+        self.app.content_policy_var.get.return_value='review_draft'
+        self.app.rewrite_progress=Mock()
+        self.app.root=Mock()
+        self.app.root.after.side_effect=lambda delay,callback:callback()
+        # A complete manual-review draft intentionally returns no upload PDF.
+        self.optimizer.run_resume_optimization.return_value=None
+        with patch.object(self.dashboard.threading,'Thread') as thread:
+            thread.return_value.start.side_effect=lambda:thread.call_args.kwargs['target']()
+            self.app.run_resume_optimizer_from_ui()
+        message=self.app.rewrite_progress.set.call_args.args[0]
+        self.assertIn('inspect Task11 coverage and comparison',message)
+        self.assertIn('No accepted attachment',message)
+        self.assertNotIn('Partial/blocked',message)
+        self.dashboard.messagebox.showerror.assert_not_called()
 
     def test_optimizer_loads_missing_key_only_on_action(self):
         with patch.dict("os.environ", {}, clear=True):

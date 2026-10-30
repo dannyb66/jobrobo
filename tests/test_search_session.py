@@ -97,7 +97,8 @@ class SearchSessionTests(unittest.TestCase):
         self.assertEqual(searches[0]["quota"], 2)
         self.assertEqual(searches[1]["quota"], 1)
         self.assertTrue(all(search["filters_snapshot"]["intent"]["search_location"] == "California" for search in searches))
-        self.assertTrue(all("Remote, Hybrid" in search["query_text"] for search in searches))
+        self.assertTrue(all("Remote, Hybrid" not in search["query_text"] for search in searches))
+        self.assertTrue(all(search["filters_snapshot"]["intent"]["on_site"] == ["Remote", "Hybrid"] for search in searches))
         self.assertEqual(manifest.data["status"], "complete")
         self.assertIsNone(self.namespace["active_manifest"])
         self.assertIsNone(self.namespace["active_search"])
@@ -195,7 +196,8 @@ class SearchSessionTests(unittest.TestCase):
         self.apply_to_jobs([])
         fresh = self.manifests[-1]
         self.assertNotEqual(fresh.data["run_id"], original["run_id"])
-        self.assertTrue(all("Location: Seattle." in row["spec"]["query_text"] for row in fresh.data["queries"]))
+        self.assertTrue(all("Location: Seattle." not in row["spec"]["query_text"] for row in fresh.data["queries"]))
+        self.assertTrue(all(row["spec"]["filters_snapshot"]["intent"]["search_location"] == "Seattle" for row in fresh.data["queries"]))
         self.assertTrue(all(row["spec"]["filters_snapshot"]["intent"]["search_location"] == "Seattle" for row in fresh.data["queries"]))
         self.assertEqual(len(self.persisted()), 2)
 

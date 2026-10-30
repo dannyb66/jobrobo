@@ -2,12 +2,14 @@
 
 import ast
 import csv
+import json
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+from selenium.common.exceptions import ElementClickInterceptedException, StaleElementReferenceException
 
 from modules.linkedin_search import SearchResult, apply_configured_filters
 from modules.search_history import append_history, load_applied_job_ids, search_metadata
@@ -25,6 +27,9 @@ class MissingElement(Exception):
 
 def extract_functions(namespace, *names):
     """Compile only requested functions, skipping all import/bootstrap side effects."""
+    if 'execute_search_plan' in names:
+        names = tuple(dict.fromkeys((*names, 'description_geography_rejections')))
+        namespace.setdefault('re', __import__('re'))
     parsed = ast.parse(RUNNER.read_text())
     functions = [node for node in parsed.body if isinstance(node, ast.FunctionDef) and node.name in names]
     if len(functions) != len(names):
@@ -70,6 +75,9 @@ class Browser:
         self.query_id, self.page = search.query_id, 0
         self.started.append(search.query_id)
 
+    def get(self, url):
+        self.current_url = url
+
     def find_elements(self, by, selector):
         if selector == "//li[@data-occludable-job-id]":
             return [Job(job_id) for job_id in self.pages[self.query_id][self.page]]
@@ -96,6 +104,9 @@ class SearchRunnerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
+        self.reconciliation = patch('modules.linkedin_failure_recovery.reconcile_submission', return_value=False)
+        self.reconcile = self.reconciliation.start()
+        self.addCleanup(self.reconciliation.stop)
         self.directory = Path(self.temporary.name)
         self.events = []
         self.visited = []
@@ -148,6 +159,8 @@ class SearchRunnerTests(unittest.TestCase):
             "check_blacklist": lambda rejected, *args: (rejected, set(), self.modal),
             "get_job_description": lambda: ("A suitable job", 1, False, "", ""),
             "try_xp": lambda *args: True,
+            "open_easy_apply": lambda browser, job_id, **kwargs: self.namespace["try_xp"](browser, job_id),
+            "clear_post_submit_ui": lambda *args, **kwargs: None,
             "wait_span_click": self.click,
             "answer_questions": lambda modal, questions, *args, **kwargs: questions,
             "follow_company": lambda *args: None,
@@ -224,6 +237,158 @@ class SearchRunnerTests(unittest.TestCase):
     def rows(self, name="applied.csv"):
         with (self.directory / name).open(newline="") as handle:
             return list(csv.DictReader(handle))
+
+    def test_details_error_is_deferred_and_next_card_in_same_query_applies(self):
+        from modules.linkedin_job_details import JobDetailsUnavailable
+        search = spec('details-recovery', 2)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        original = self.namespace['get_job_main_details']
+        def details(job, *args):
+            if job.job_id == '1':
+                raise JobDetailsUnavailable('1', {'predicate_error': 'Missing employer header'})
+            return original(job, *args)
+        self.namespace['get_job_main_details'] = details
+        self.execute(manifest)
+        self.assertEqual([r['Job ID'] for r in self.rows()], ['2'])
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'in_progress')
+        self.assertTrue(manifest.query(search.query_id)['application_failures'][0]['report_path'])
+
+    def test_unexpected_job_error_is_captured_and_next_job_applies(self):
+        search = spec('unexpected', 2)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        description = self.namespace['get_job_description']
+        self.namespace['get_job_description'] = Mock(side_effect=[ValueError('Broken job layout'), description()])
+        self.execute(manifest)
+        self.assertEqual([r['Job ID'] for r in self.rows()], ['2'])
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'failed')
+        self.assertTrue(Path(manifest.query(search.query_id)['application_failures'][0]['report_path']).is_file())
+
+    def test_disconnected_readiness_during_error_handling_does_not_abort_later_query(self):
+        first, second = spec('lost-connection'), spec('available')
+        manifest = self.manifest([first, second], {first.query_id: [['1']], second.query_id: [['2']]})
+        original = self.namespace['start_search']
+        def start(browser, search, *args):
+            if search.query_id == first.query_id:
+                raise RuntimeError('Browser connection was interrupted')
+            return original(browser, search, *args)
+        self.namespace['start_search'] = start
+        self.namespace['search_results_ready'] = Mock(side_effect=RuntimeError('Browser disconnected'))
+        self.execute(manifest)
+        self.assertEqual(manifest.query(first.query_id)['status'], 'pending')
+        self.assertEqual([r['Job ID'] for r in self.rows()], ['2'])
+
+    def test_delayed_confirmation_is_reconciled_without_second_submit(self):
+        search = spec('late-receipt')
+        manifest = self.manifest([search], {search.query_id: [['1']]})
+        self.namespace['wait_for_submission_confirmation'] = Mock(side_effect=RuntimeError('Receipt delayed'))
+        self.reconcile.return_value = True
+        self.execute(manifest)
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'applied')
+        self.assertEqual(self.events.count('Submit application'), 1)
+        self.assertEqual(self.namespace['failed_count'], 0)
+
+    def test_resumed_confirmed_hold_does_not_count_as_a_new_submission(self):
+        from modules.application_budget import ApplicationBudget
+        search = spec('resume-reconciliation', 3)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        manifest.record_job(search, '1', 'submitting')
+        self.reconcile.return_value = True
+        budget = ApplicationBudget(2)
+        self.execute(manifest, application_budget=budget)
+        self.assertEqual(self.visited, ['2'])
+        self.assertEqual(manifest.query(search.query_id)['applied_count'], 2)
+        self.assertEqual(budget.count, 1)
+        self.assertEqual(self.events.count('Submit application'), 1)
+
+    def test_engineering_query_skips_interior_manager_before_opening_application(self):
+        search = spec('engineering', 2)
+        search.classic_query = 'Staff Software Engineer'
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.namespace['get_job_main_details'] = Mock(side_effect=[
+            ('1','Interior Manager','Example','California','Remote',False),
+            ('2','Staff Software Engineer','Example','California','Remote',False)])
+        self.execute(manifest)
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'skipped')
+        self.assertEqual([r['Job ID'] for r in self.rows()], ['2'])
+
+    def test_daily_limit_preserves_job_and_query_for_resume_without_failure_or_cleanup(self):
+        from modules.linkedin_easy_apply import EasyApplyLimitReached
+        from modules.linkedin_deferred import DeferredJobs
+        first, second = spec('limited', 3), spec('later')
+        manifest = self.manifest([first, second], {'limited': [['1', '2']], 'later': [['3']]})
+        self.namespace['open_easy_apply'] = Mock(side_effect=EasyApplyLimitReached())
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1'])
+        self.assertTrue(self.namespace['dailyEasyApplyLimitReached'])
+        self.assertEqual(manifest.data['stop_reason'], 'daily_easy_apply_limit')
+        self.assertEqual(manifest.query('limited')['status'], 'pending')
+        self.assertEqual(manifest.query('limited')['jobs']['1']['status'], 'in_progress')
+        self.assertNotIn('1', manifest.processed_ids())
+        self.assertEqual(self.namespace['failed_count'], 0)
+        self.namespace['discard_job'].assert_not_called()
+        self.assertNotIn('Submit application', self.events)
+        records = DeferredJobs(self.directory / 'deferred_applications' / 'retry_jobs.json').records
+        self.assertEqual(records[0]['status'], 'platform_limit')
+        self.assertFalse(records[0]['requires_submission_check'])
+        self.namespace['dailyEasyApplyLimitReached'] = False
+        self.namespace['open_easy_apply'] = Mock(return_value=True)
+        resumed = SearchManifest.find_resume(self.directory / 'state', plan_fingerprint([first, second]))
+        self.execute(resumed)
+        self.assertEqual(self.visited, ['1', '1', '2', '3'])
+        self.assertEqual(self.events.count('Submit application'), 3)
+
+    def test_daily_limit_after_success_keeps_confirmed_history_and_retries_only_unsubmitted(self):
+        from modules.linkedin_easy_apply import EasyApplyLimitReached
+        first, second, third = spec('completed'), spec('limited'), spec('untouched')
+        manifest = self.manifest([first, second, third], {'completed': [['1']], 'limited': [['2']], 'untouched': [['3']]})
+        self.namespace['open_easy_apply'] = Mock(side_effect=[True, EasyApplyLimitReached()])
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1', '2'])
+        self.assertEqual(manifest.query('completed')['status'], 'complete')
+        self.assertEqual(manifest.query('completed')['jobs']['1']['status'], 'applied')
+        self.assertEqual(manifest.query('limited')['jobs']['2']['status'], 'in_progress')
+        self.assertEqual(self.events.count('Submit application'), 1)
+        self.assertEqual([row['Job ID'] for row in self.rows()], ['1'])
+
+    def test_prepare_only_daily_limit_does_not_discard_or_report_form_failure(self):
+        from modules.linkedin_easy_apply import EasyApplyLimitReached
+        search = spec('limited-preparation')
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.namespace['open_easy_apply'] = Mock(side_effect=EasyApplyLimitReached())
+        with patch('modules.linkedin_form_cleanup.discard_application') as cleanup:
+            self.namespace['execute_search_plan'](manifest, prepare_only=True)
+        cleanup.assert_not_called()
+        self.assertEqual(manifest.data['stop_reason'], 'daily_easy_apply_limit')
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'in_progress')
+        self.assertEqual(self.namespace['failed_count'], 0)
+        self.assertNotIn('Submit application', self.events)
+
+    def test_missing_entry_is_retryable_and_not_an_external_skip(self):
+        from modules.linkedin_easy_apply import EasyApplyError
+        search = spec('entry-failure')
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.namespace['open_easy_apply'] = Mock(side_effect=EasyApplyError('entry: control remained unavailable'))
+        external = self.namespace['external_apply'] = Mock()
+        self.execute(manifest)
+        external.assert_not_called()
+        self.assertEqual(self.visited, ['1', '2'])
+        self.assertEqual(self.namespace['failed_count'], 2)
+        self.assertEqual(manifest.query(search.query_id)['stop_reason'], 'job_cards_pending')
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'in_progress')
+        self.assertNotIn('1', manifest.processed_ids())
+        self.namespace['discard_job'].assert_not_called()
+
+    def test_daily_limit_during_form_wait_propagates_without_discard_or_failed_history(self):
+        from modules.linkedin_easy_apply import EasyApplyLimitReached
+        search = spec('limited-form')
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.namespace['prepare_easy_apply'] = Mock(side_effect=EasyApplyLimitReached())
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1'])
+        self.assertEqual(manifest.data['stop_reason'], 'daily_easy_apply_limit')
+        self.assertEqual(self.namespace['failed_count'], 0)
+        self.namespace['discard_job'].assert_not_called()
+        self.assertNotIn('Submit application', self.events)
 
     def test_quota_stops_same_page_and_writes_actual_classic_metadata(self):
         search = spec("manual-a", 1)
@@ -393,7 +558,7 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual(resumed.query("second")["last_page"], 2)
 
     def test_resume_retries_unsubmitted_in_progress_but_skips_uncertain_submission(self):
-        uncertain, retry = spec("uncertain"), spec("retry")
+        uncertain, retry = spec("uncertain", 3), spec("retry")
         manifest = self.manifest([uncertain, retry], {"uncertain": [["10", "12"]], "retry": [["11"]]})
         manifest.begin_query(uncertain)
         manifest.record_job(uncertain, "10", "submitting")
@@ -402,15 +567,15 @@ class SearchRunnerTests(unittest.TestCase):
         manifest.interrupt("KeyboardInterrupt")
         resumed = SearchManifest.find_resume(self.directory / "state", plan_fingerprint([uncertain, retry]))
         self.execute(resumed)
-        self.assertEqual(self.visited, ["11"])
-        self.assertEqual(self.browser.started, ["retry"])
+        self.assertEqual(self.visited, ["12", "11"])
+        self.assertEqual(self.browser.started, ["uncertain", "retry"])
         self.assertEqual(resumed.query("uncertain")["jobs"]["10"]["status"], "submitting")
         self.assertEqual(resumed.query("uncertain")["stop_reason"], "submission_uncertain")
         self.assertEqual(resumed.query("uncertain")["status"], "pending")
         self.assertEqual(resumed.query("retry")["jobs"]["11"]["status"], "applied")
         self.assertEqual(resumed.data["status"], "interrupted")
 
-    def test_ambiguous_submit_preserves_uncertainty_blocks_lane_and_cannot_retry_on_resume_or_new_run(self):
+    def test_ambiguous_submit_holds_job_but_allows_other_jobs_and_never_reapplies(self):
         uncertain, other = spec("uncertain"), spec("other")
         manifest = self.manifest([uncertain, other], {"uncertain": [["1", "2"]], "other": [["1", "3"]]})
 
@@ -439,7 +604,7 @@ class SearchRunnerTests(unittest.TestCase):
         resumed = SearchManifest.find_resume(self.directory / "state", plan_fingerprint([uncertain, other]))
         self.execute(resumed)
         self.assertEqual(self.visited, ["1", "3"])
-        self.assertEqual(self.browser.started, ["uncertain", "other"])
+        self.assertEqual(self.browser.started, ["uncertain", "uncertain", "other"])
         self.assertEqual(resumed.query("uncertain")["jobs"]["1"]["status"], "submitting")
         self.assertEqual(resumed.data["status"], "interrupted")
 
@@ -480,15 +645,89 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertNotIn("confirm", self.events)
         self.assertIn("visible Easy Apply dialog not found", self.rows("failed.csv")[0]["Stack Trace"])
 
-    def test_normal_form_failure_halts_when_discard_cannot_be_verified(self):
+    def test_normal_form_failure_recovers_and_continues_when_discard_fails(self):
         search = spec("normal-cleanup-failure")
         manifest = self.manifest([search], {search.query_id: [["1", "2"]]})
         self.namespace["answer_questions"] = Mock(side_effect=RuntimeError("Missing required answer"))
         self.namespace["discard_job"] = Mock(side_effect=RuntimeError("Discard confirmation remained open"))
         self.execute(manifest)
-        self.assertEqual(self.visited, ["1"])
+        self.assertEqual(self.visited, ["1", "2"])
         self.assertNotIn("Submit application", self.events)
-        self.assertEqual(manifest.data["stop_reason"], "application_cleanup_failed")
+        self.assertEqual(manifest.data["status"], "complete")
+
+    def test_pre_submit_cleanup_failure_restarts_search_and_continues_next_job(self):
+        from modules.linkedin_easy_apply import MissingApplicationAnswer
+        from modules.linkedin_deferred import DeferredJobs
+        search = spec('cleanup-recovered', 2)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.browser.get = Mock()
+        self.namespace['answer_questions'] = Mock(side_effect=[
+            MissingApplicationAnswer('Required personal answer is missing: 3 References (1 Direct Manager)'), set()])
+        self.namespace['discard_job'] = Mock(side_effect=RuntimeError('cleanup: unrelated blocking dialog remains'))
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1', '2'])
+        self.assertEqual(self.events.count('Submit application'), 1)
+        self.browser.get.assert_called_once_with('https://www.linkedin.com/jobs/')
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'failed')
+        self.assertEqual(manifest.query(search.query_id)['jobs']['2']['status'], 'applied')
+        records = DeferredJobs(self.directory / 'deferred_applications' / 'retry_jobs.json').records
+        self.assertEqual(records[0]['job_id'], '1')
+        self.assertFalse(records[0]['requires_submission_check'])
+        self.assertEqual(manifest.query(search.query_id)['ui_recoveries'][0]['status'], 'recovered')
+        self.assertTrue(list((self.directory / 'application_ui_diagnostics').glob('*.json')))
+
+    def test_cleanup_recovery_restarts_page_one_without_reapplying_completed_jobs(self):
+        search = spec('cleanup-page-reset', 3)
+        manifest = self.manifest([search], {search.query_id: [['1', '2'], ['3']]})
+        self.browser.get = Mock()
+        self.namespace['answer_questions'] = Mock(side_effect=[set(), RuntimeError('Missing answer'), set()])
+        self.namespace['discard_job'] = Mock(side_effect=RuntimeError('cleanup failed'))
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1', '2', '3'])
+        self.assertEqual(self.events.count('Submit application'), 2)
+        self.assertEqual([r['Job ID'] for r in self.rows()], ['1', '3'])
+        self.assertEqual(self.browser.started, [search.query_id, search.query_id])
+
+    def test_uncertain_submission_is_held_while_search_restarts_for_other_jobs(self):
+        search = spec('cleanup-uncertain', 2)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.browser.get = Mock()
+        self.namespace['wait_for_submission_confirmation'] = Mock(side_effect=RuntimeError('No confirmation'))
+        self.namespace['discard_job'] = Mock(side_effect=RuntimeError('cleanup failed'))
+        self.execute(manifest)
+        self.assertTrue(all(call.args[0] == 'https://www.linkedin.com/jobs/' for call in self.browser.get.call_args_list))
+        self.assertEqual(self.visited, ['1', '2'])
+        self.assertEqual(self.events.count('Submit application'), 2)
+        self.assertTrue(manifest.has_uncertain_submission(search))
+
+    def test_cleanup_recovery_stops_if_restored_search_is_still_blocked(self):
+        search = spec('cleanup-still-blocked', 2)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.browser.get = Mock()
+        self.namespace['answer_questions'] = Mock(side_effect=RuntimeError('Missing answer'))
+        self.namespace['discard_job'] = Mock(side_effect=RuntimeError('cleanup failed'))
+        self.namespace['clear_post_submit_ui'] = Mock(side_effect=RuntimeError('Unrecognized overlay remains'))
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1'])
+        self.browser.get.assert_called_once()
+        self.assertEqual(self.events.count('Submit application'), 0)
+        self.assertEqual(manifest.query(search.query_id)['stop_reason'], 'job_cards_pending')
+        self.assertEqual(manifest.query(search.query_id)['ui_recoveries'][0]['status'], 'failed')
+
+    def test_prepare_only_cleanup_failure_recovers_and_validates_next_job(self):
+        from modules.linkedin_easy_apply import MissingApplicationAnswer
+        search = spec('prepare-cleanup-recovered', 3)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        self.browser.get = Mock()
+        self.namespace['prepare_easy_apply'] = Mock(side_effect=[
+            MissingApplicationAnswer('Missing references'), (self.modal, set(), True, 'verified.pdf')])
+        with patch('modules.linkedin_form_cleanup.discard_application',
+                   side_effect=[RuntimeError('cleanup failed'), True]):
+            self.namespace['execute_search_plan'](manifest, prepare_only=True, preparation_limit=2)
+        self.assertEqual(self.visited, ['1', '2'])
+        self.assertNotIn('Submit application', self.events)
+        self.assertEqual(manifest.query(search.query_id)['jobs']['2']['status'], 'prepared')
+        self.assertEqual(manifest.query(search.query_id)['ui_recoveries'][0]['status'], 'recovered')
 
     def test_answer_failure_never_enters_review_or_submission(self):
         search = spec("answer-error")
@@ -545,7 +784,10 @@ class SearchRunnerTests(unittest.TestCase):
         self.namespace['actions'].send_keys.return_value.perform.side_effect = RuntimeError('Receipt already disappeared')
         self.execute(manifest)
         self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'applied')
-        self.assertFalse((self.directory / 'deferred_applications' / 'retry_jobs.json').exists())
+        # Successful jobs remain in the audit ledger and are excluded from
+        # retry selection by their applied status.
+        ledger = json.loads((self.directory / 'deferred_applications' / 'retry_jobs.json').read_text())
+        self.assertEqual(ledger['records'][0]['status'], 'applied')
         self.assertEqual(self.namespace['failed_count'], 0)
         self.assertEqual(self.rows()[0]['Job ID'], '1')
 
@@ -635,6 +877,22 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual(manifest.query("working")["status"], "complete")
         self.assertEqual(self.visited, ["1"])
 
+    def test_repeated_filter_failure_stops_after_one_fresh_query_recovery(self):
+        from modules.linkedin_search import SearchUIError
+        searches = [spec("first"), spec("second"), spec("third")]
+        manifest = self.manifest(searches, {})
+        self.namespace['prepare_search'] = Mock(side_effect=lambda *args: (_ for _ in ()).throw(
+            SearchUIError('Date options unavailable', stage='filter',
+                          details={'filter': 'date_posted', 'substep': 'read_options',
+                                   'error_type': 'TimeoutException'})))
+        self.execute(manifest)
+        self.assertEqual(self.namespace['prepare_search'].call_count, 2)
+        self.assertEqual(manifest.data['stop_reason'], 'search_filter_unavailable')
+        self.assertEqual(manifest.data['status'], 'interrupted')
+        self.assertTrue(self.namespace['application_ui_blocked'])
+        self.assertTrue(all(manifest.query(row.query_id)['status'] == 'pending' for row in searches))
+        self.assertEqual(self.visited, [])
+
     def test_pending_external_link_is_collected_once_without_claiming_submission(self):
         first, second = spec("first"), spec("second")
         manifest = self.manifest([first, second], {"first": [["1"]], "second": [["1", "2"]]})
@@ -646,6 +904,71 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual([row["Date Applied"] for row in self.rows()], ["Pending", "Pending"])
         self.assertEqual(manifest.query("first")["applied_count"], 0)
         self.assertEqual(manifest.query("first")["collected_count"], 1)
+
+    def test_uncertain_external_submission_retained_while_remaining_capacity_is_used(self):
+        from modules.application_budget import ApplicationBudget
+        from modules.external_apply import ExternalApplicationResult
+        from modules.linkedin_deferred import DeferredJobs
+        first, second = spec('external-held', 3), spec('next', 3)
+        manifest = self.manifest([first, second], {'external-held': [['1', '2']], 'next': [['1', '3', '4']]})
+        extract_functions(self.namespace, 'checkpoint_external_application')
+        self.namespace['try_xp'] = lambda *args: self.visited[-1] != '1'
+        self.namespace['external_apply'] = Mock(return_value=ExternalApplicationResult(
+            'submitting', 'https://example.test/application', reason='Receipt not confirmed'))
+        budget = ApplicationBudget(3)
+        self.execute(manifest, budget)
+        self.assertEqual(self.visited, ['1', '2', '3'])
+        self.namespace['external_apply'].assert_called_once()
+        self.assertEqual(budget.count, 2)
+        self.assertEqual(budget.reserved_ids, {'1'})
+        self.assertEqual(manifest.query(first.query_id)['jobs']['1']['status'], 'submitting')
+        self.assertEqual(manifest.query(first.query_id)['stop_reason'], 'submission_uncertain')
+        self.assertEqual(load_applied_job_ids(self.directory / 'applied.csv'), {'2', '3'})
+        held = next(r for r in DeferredJobs(self.directory / 'deferred_applications/retry_jobs.json').records if r['job_id'] == '1')
+        self.assertEqual(held['status'], 'submission_uncertain')
+        self.assertTrue(held['requires_submission_check'])
+        self.assertEqual(held['company'], 'Example')
+
+    def test_uncertain_external_submission_reserves_last_capacity_slot(self):
+        from modules.application_budget import ApplicationBudget
+        from modules.external_apply import ExternalApplicationResult
+        search = spec('held-at-cap', 3)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        extract_functions(self.namespace, 'checkpoint_external_application')
+        self.namespace['try_xp'] = lambda *args: False
+        self.namespace['external_apply'] = Mock(return_value=ExternalApplicationResult('submitting', 'https://example.test/application'))
+        budget = ApplicationBudget(1)
+        self.execute(manifest, budget)
+        self.assertEqual(self.visited, ['1'])
+        self.assertEqual(budget.count, 0)
+        self.assertEqual(budget.reserved_ids, {'1'})
+        self.assertEqual(manifest.data['stop_reason'], 'submission_uncertain')
+
+    def test_uncertain_external_cleanup_recovers_search_without_reapplying_held_job(self):
+        from modules.external_apply import ExternalApplicationResult
+        search = spec('external-cleanup', 3)
+        manifest = self.manifest([search], {search.query_id: [['1', '2']]})
+        extract_functions(self.namespace, 'checkpoint_external_application')
+        self.namespace['try_xp'] = lambda *args: self.visited[-1] != '1'
+        self.namespace['external_apply'] = Mock(return_value=ExternalApplicationResult('submitting', 'https://example.test/application'))
+        self.namespace['clear_post_submit_ui'] = Mock(side_effect=[RuntimeError('Overlay remains'), None, None])
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1', '2'])
+        self.namespace['external_apply'].assert_called_once()
+        self.assertEqual(manifest.query(search.query_id)['ui_recoveries'][0]['status'], 'recovered')
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'submitting')
+        self.assertEqual(manifest.query(search.query_id)['jobs']['2']['status'], 'applied')
+
+    def test_easy_apply_only_never_opens_an_employer_site(self):
+        extract_functions(self.namespace, 'external_apply')
+        self.namespace['easy_apply_only'] = True
+        self.namespace['driver'] = Mock()
+        self.namespace['wait'].until = Mock()
+        result = self.namespace['external_apply'](None, '123', 'https://www.linkedin.com/jobs/view/123/',
+                                                  'resume.pdf', datetime.now(), '', '')
+        self.assertTrue(result[0])
+        self.namespace['driver'].get.assert_not_called()
+        self.namespace['wait'].until.assert_not_called()
 
     def test_successful_submission_survives_later_modal_failure(self):
         first, second = spec("first"), spec("second")
@@ -1105,6 +1428,664 @@ class SearchResultsTransitionTests(unittest.TestCase):
             self.namespace["wait_for_search_results"]([])
         self.staleness.assert_not_called()
         self.assertEqual(self.events, ["results_ready"])
+
+
+
+
+class EasyApplyEntryRegressionTests(unittest.TestCase):
+    """Sanitized replay of the captured anchor and native limit dialog."""
+
+    def browser(self, control=None):
+        from test_linkedin_easy_apply import Browser
+        control = control or '<a aria-disabled="false" aria-label="Easy Apply to this job" href="https://www.linkedin.com/jobs/search-results/?currentJobId=123">Easy Apply</a>'
+        browser = Browser(['<main data-view-name="job-detail-page"><section id="JobDetails_AboutTheJob_123">Job</section>' + control + '</main>'])
+        browser.current_url = 'https://www.linkedin.com/jobs/search-results/?currentJobId=123'
+        return browser
+
+    def test_modern_anchor_is_found_without_clicking(self):
+        from modules.linkedin_job_details import modern_easy_apply_button
+        browser = self.browser()
+        control = modern_easy_apply_button(browser, '123')
+        self.assertIsNotNone(control)
+        self.assertEqual(control.get_attribute('aria-label'), 'Easy Apply to this job')
+        self.assertEqual(browser.clicks, [])
+
+    def test_entry_anchor_and_button_open_form_without_submitting(self):
+        from modules.linkedin_easy_apply import open_easy_apply
+        from test_linkedin_easy_apply import form
+        for tag in ('a', 'button'):
+            browser = self.browser(f'<{tag} aria-label="Easy Apply to this job">Easy Apply</{tag}>')
+            browser.pages.append(form(action='Submit application'))
+            self.assertTrue(open_easy_apply(browser, '123', timeout=.01))
+            self.assertEqual(browser.clicks, ['Easy Apply'])
+
+    def test_native_limit_after_anchor_is_not_a_missing_form(self):
+        from modules.linkedin_easy_apply import open_easy_apply, EasyApplyLimitReached
+        browser = self.browser()
+        browser.pages.append('<dialog open data-testid="dialog"><p>You reached today’s Easy Apply limit</p><p>Save this job and continue applying tomorrow.</p><button>Got it</button></dialog>')
+        with self.assertRaises(EasyApplyLimitReached):
+            open_easy_apply(browser, '123', timeout=.01)
+        self.assertEqual(browser.clicks, ['Easy Apply'])
+
+    def test_limit_detected_before_form_and_ignores_hidden_dialog(self):
+        from modules.linkedin_easy_apply import wait_for_application_modal, EasyApplyLimitReached
+        from test_linkedin_easy_apply import Browser, form
+        limit = '<dialog open><p>You reached today’s Easy Apply limit</p></dialog>'
+        with self.assertRaises(EasyApplyLimitReached):
+            wait_for_application_modal(Browser([limit]), timeout=.01)
+        browser = Browser([limit.replace('<dialog open>', '<dialog open hidden>') + form(action='Submit application')])
+        self.assertTrue(wait_for_application_modal(browser, timeout=.01))
+        self.assertEqual(browser.clicks, [])
+
+    def test_wrong_job_or_disabled_control_never_clicked(self):
+        from modules.linkedin_easy_apply import open_easy_apply, EasyApplyError
+        for control in ('<a aria-disabled="true" aria-label="Easy Apply to this job">Easy Apply</a>',
+                        '<a aria-label="Easy Apply to this job" href="https://www.linkedin.com/jobs/view/999/">Easy Apply</a>'):
+            browser = self.browser(control)
+            with self.assertRaises(EasyApplyError):
+                open_easy_apply(browser, '123', timeout=.01)
+            self.assertEqual(browser.clicks, [])
+        browser = self.browser()
+        with self.assertRaises(EasyApplyError):
+            open_easy_apply(browser, '999', timeout=.01)
+        self.assertEqual(browser.clicks, [])
+
+    def test_missing_entry_is_an_error_and_external_is_explicit(self):
+        from modules.linkedin_easy_apply import open_easy_apply, EasyApplyError
+        browser = self.browser('<p>Loading</p>')
+        with self.assertRaisesRegex(EasyApplyError, 'entry:'):
+            open_easy_apply(browser, '123', timeout=.01)
+        browser = self.browser('<a aria-label="Apply to this job" href="https://example.test/careers">Apply</a>')
+        self.assertFalse(open_easy_apply(browser, '123', timeout=.01))
+        self.assertEqual(browser.clicks, [])
+
+
+    def test_classic_button_opens_form_without_submitting(self):
+        from modules.linkedin_easy_apply import open_easy_apply
+        from test_linkedin_easy_apply import Browser, form
+        browser = Browser(['<div class="jobs-unified-top-card"><button class="jobs-apply-button" aria-label="Easy Apply to Example">Easy Apply</button></div>', form(classic=True)])
+        browser.current_url = 'https://www.linkedin.com/jobs/view/123/'
+        self.assertTrue(open_easy_apply(browser, '123', timeout=.01))
+        self.assertEqual(browser.clicks, ['Easy Apply'])
+
+    def test_stale_or_intercepted_entry_is_reacquired_and_clicked_once(self):
+        from modules.linkedin_easy_apply import open_easy_apply
+        from selenium.common.exceptions import StaleElementReferenceException, ElementClickInterceptedException
+        from test_linkedin_easy_apply import Node, form
+        original = Node.click
+        for error in (StaleElementReferenceException, ElementClickInterceptedException):
+            browser = self.browser()
+            browser.pages.append(form())
+            attempts = []
+            def click(node):
+                attempts.append(node.revision)
+                if len(attempts) == 1:
+                    browser.render()
+                    raise error('rerendered entry')
+                original(node)
+            with patch.object(Node, 'click', click):
+                self.assertTrue(open_easy_apply(browser, '123', timeout=.3))
+            self.assertEqual(browser.clicks, ['Easy Apply'])
+            self.assertEqual(len(attempts), 2)
+            self.assertNotEqual(attempts[0], attempts[1])
+
+    def test_entry_waits_for_control_to_appear(self):
+        from modules.linkedin_easy_apply import open_easy_apply
+        from test_linkedin_easy_apply import form
+        browser = self.browser('<p>Loading</p>')
+        original = browser.find_elements
+        polls = []
+        def elements(by, selector):
+            polls.append(selector)
+            if len(polls) == 6:
+                browser.pages[0] = '<main data-view-name="job-detail-page"><section id="JobDetails_AboutTheJob_123">Job</section><button aria-label="Easy Apply to this job">Easy Apply</button></main>'
+                browser.render()
+            return original(by, selector)
+        browser.find_elements = elements
+        browser.pages.append(form())
+        self.assertTrue(open_easy_apply(browser, '123', timeout=.5))
+        self.assertEqual(browser.clicks, ['Easy Apply'])
+
+    def test_click_retries_are_bounded_and_do_not_bypass_overlay(self):
+        from modules.linkedin_easy_apply import open_easy_apply, EasyApplyError
+        from selenium.common.exceptions import ElementClickInterceptedException
+        from test_linkedin_easy_apply import Node
+        browser = self.browser()
+        with patch.object(Node, 'click', side_effect=ElementClickInterceptedException()) as click:
+            with self.assertRaisesRegex(EasyApplyError, '3 attempts'):
+                open_easy_apply(browser, '123', timeout=1)
+        self.assertEqual(click.call_count, 3)
+        self.assertEqual(browser.clicks, [])
+
+    def test_preexisting_limit_never_clicks_entry_or_got_it(self):
+        from modules.linkedin_easy_apply import open_easy_apply, EasyApplyLimitReached
+        browser = self.browser()
+        browser.pages[0] += '<dialog open><p>You reached today’s Easy Apply limit</p><button>Got it</button></dialog>'
+        browser.render()
+        with self.assertRaises(EasyApplyLimitReached):
+            open_easy_apply(browser, '123', timeout=.01)
+        self.assertEqual(browser.clicks, [])
+
+
+
+
+class ReceiptRecoveryTests(unittest.TestCase):
+    def test_standalone_profile_promotion_selects_not_now_without_receipt_wording(self):
+        from modules.linkedin_post_submit import clear_post_submit_ui
+        browser=self.browser(['''<div role="dialog"><h2>Next best action</h2>
+            <p>You can keep track of your application in the "Applied" tab of My Jobs</p>
+            <h3>Turn your resume into a profile that recruiters notice</h3>
+            <button aria-label="Dismiss"></button><button>Not now</button><button>Update profile</button>
+            </div>''','<main>Jobs</main>'])
+        clear_post_submit_ui(browser,'123',timeout=.1,quiet_seconds=0)
+        self.assertEqual(browser.clicks,['Not now'])
+
+    def test_profile_promotion_with_active_fields_is_not_dismissed(self):
+        from modules.linkedin_post_submit import clear_post_submit_ui,PostSubmitUIBlocked
+        browser=self.browser(['''<dialog open><h2>Turn your resume into a profile that recruiters notice</h2>
+            <form><input name="current-employer"></form><button>Not now</button><button>Update profile</button></dialog>'''])
+        with self.assertRaises(PostSubmitUIBlocked):
+            clear_post_submit_ui(browser,'123',timeout=.01,quiet_seconds=0)
+        self.assertEqual(browser.clicks,[])
+
+    def checkbox_form(self,markup,**settings):
+        import re
+        from test_linkedin_modern_search import DOMBrowser
+        from selenium.common.exceptions import NoSuchElementException
+        from selenium.webdriver.common.by import By
+        browser=DOMBrowser('<dialog open>'+markup+'</dialog>')
+        def click(node):
+            if node.tag=='label':node=browser.root.xpath('//*[@id=$ident]',ident=node.get('for'))[0]
+            if node.get('role')=='checkbox':node.set('aria-checked','false' if node.get('aria-checked')=='true' else 'true')
+            elif node.get('checked') is None:node.set('checked','')
+            else:node.attrib.pop('checked')
+            browser.clicks.append(node.get('id'))
+        browser.click=click
+        def locate(root,query,*args):
+            matches=root.find_elements(By.XPATH,query)
+            return matches[0] if matches else False
+        def missing(*args):raise NoSuchElementException()
+        actions=SimpleNamespace(move_to_element=lambda node:SimpleNamespace(click=lambda:SimpleNamespace(perform=node.click)))
+        ns=dict(By=By,re=re,driver=browser,try_xp=locate,find_by_class=missing,NoSuchElementException=NoSuchElementException,
+                actions=actions,print_lg=Mock(),overwrite_previous_answers=False,**settings)
+        extract_functions(ns,'answer_questions','answer_common_questions',
+                          '_resume_work_history_dates','_fill_resume_work_history_dates')
+        return browser,ns
+
+    def test_binary_sponsorship_group_selects_only_configured_yes(self):
+        markup = '''<div componentkey="easyApplyFieldFocus_ea_validation_p2_0_1">
+          <p>Would you require visa sponsorship?*</p><fieldset>
+          <div id="yes" role="checkbox" aria-checked="false"><input id="y" type="checkbox" style="display:none"><label for="y"></label><p>Yes</p></div>
+          <div id="no" role="checkbox" aria-checked="false"><input id="n" type="checkbox" style="display:none"><label for="n"></label><p>No</p></div>
+          </fieldset><p>This field is required</p></div>'''
+        browser, ns = self.checkbox_form(markup, require_visa='Yes')
+        questions = ns['answer_questions'](browser.find_element('css selector', 'dialog'), set(), 'Bay Area')
+        self.assertEqual(browser.clicks, ['yes'])
+        self.assertTrue(any(q[:3] == ('Would you require visa sponsorship?*', 'Yes', 'checkbox_group') for q in questions))
+        ns['answer_questions'](browser.find_element('css selector', 'dialog'), questions, 'Bay Area')
+        self.assertEqual(browser.clicks, ['yes'])  # A second fill must not toggle it off.
+
+    def test_binary_group_clears_conflicting_selection_before_selecting(self):
+        browser, ns = self.checkbox_form('''<p>Would you require visa sponsorship?*</p><fieldset>
+          <div id="yes" role="checkbox" aria-checked="false"><input id="y" type="checkbox"><p>Yes</p></div>
+          <div id="no" role="checkbox" aria-checked="true"><input id="n" type="checkbox"><p>No</p></div>
+          </fieldset>''', require_visa='Yes')
+        ns['answer_questions'](browser.find_element('css selector','dialog'),set(),'Bay Area')
+        self.assertEqual(browser.clicks, ['no', 'yes'])
+
+    def test_binary_group_verifies_click_persisted(self):
+        browser, ns = self.checkbox_form('''<p>Would you require visa sponsorship?*</p><fieldset>
+          <div role="checkbox" aria-checked="false"><input type="checkbox"><p>Yes</p></div>
+          <div role="checkbox" aria-checked="false"><input type="checkbox"><p>No</p></div>
+          </fieldset>''', require_visa='Yes')
+        browser.click = lambda node: None
+        from modules.linkedin_easy_apply import MissingApplicationAnswer
+        with self.assertRaisesRegex(MissingApplicationAnswer, 'did not persist'):
+            ns['answer_questions'](browser.find_element('css selector','dialog'),set(),'Bay Area')
+
+    def test_binary_agreement_cannot_bypass_existing_confirmation_requirement(self):
+        browser, ns = self.checkbox_form('''<p>Do you agree to sign electronically?*</p><fieldset>
+          <div role="checkbox" aria-checked="false"><input type="checkbox"><p>Yes</p></div>
+          <div role="checkbox" aria-checked="false"><input type="checkbox"><p>No</p></div></fieldset>''')
+        from modules.linkedin_easy_apply import MissingApplicationAnswer
+        with self.assertRaisesRegex(MissingApplicationAnswer, 'needs confirmation'):
+            ns['answer_questions'](browser.find_element('css selector','dialog'),set(),'Bay Area')
+        self.assertEqual(browser.clicks, [])
+
+    def test_required_checkboxes_selected_and_optional_preferences_preserved(self):
+        browser,ns=self.checkbox_form('<div><input id="required" type="checkbox" required><label for="required">Required selection*</label></div>'
+            '<div><input id="sms" type="checkbox"><label for="sms">Send optional SMS updates</label></div>')
+        ns['answer_questions'](browser.find_element('css selector','dialog'),set(),'Bay Area')
+        self.assertEqual(browser.clicks,['required'])
+
+    def test_standalone_aria_checkbox_selected_and_state_verified(self):
+        browser,ns=self.checkbox_form('<div id="required" role="checkbox" aria-required="true" aria-checked="false" aria-label="Required selection"></div>')
+        ns['answer_questions'](browser.find_element('css selector','dialog'),set(),'Bay Area')
+        self.assertEqual(browser.clicks,['required'])
+
+    def test_electronic_signature_requires_job_specific_confirmation(self):
+        from modules.linkedin_easy_apply import MissingApplicationAnswer
+        import os
+        for approved,job,expected in [('', '123',False),('999','123',False),('123','123',True)]:
+            browser,ns=self.checkbox_form('<div><p>*</p><input id="sign" type="checkbox"><label for="sign">Yes, I agree to sign electronically.</label></div>')
+            with patch.dict(os.environ,{'JOBROBO_APPROVED_E_SIGNATURE_JOB_IDS':approved}):
+                if expected:ns['answer_questions'](browser.find_element('css selector','dialog'),set(),'Bay Area',job_id=job)
+                else:
+                    with self.assertRaises(MissingApplicationAnswer):ns['answer_questions'](browser.find_element('css selector','dialog'),set(),'Bay Area',job_id=job)
+            self.assertEqual(browser.clicks,['sign'] if expected else [])
+
+    def test_optional_ai_draft_failure_leaves_blank_without_blocking(self):
+        from test_linkedin_easy_apply import NavigationTests
+        from modules.linkedin_easy_apply import MissingApplicationAnswer
+        browser,questions=NavigationTests().answer_native_form('<dialog open><label for="q">Optional descriptive answer</label><textarea id="q"></textarea></dialog>',
+            ai_descriptive_answers_enabled=True,_draft_answer=Mock(side_effect=MissingApplicationAnswer('provider unavailable')))
+        self.assertEqual(browser.find_element('css selector','#q').get_attribute('value'),None)
+
+    def test_modern_hidden_checkbox_uses_wrapper_text_and_checked_state(self):
+        import os
+        markup=('<div role="checkbox" aria-checked="false"><div><div>'
+            '<input id="sign" type="checkbox" style="display:none"><label for="sign"></label>'
+            '</div><p>Yes, I agree to sign electronically.</p></div></div>'
+            '<div role="checkbox" aria-checked="false"><input id="sms" type="checkbox" style="display:none">'
+            '<label for="sms"></label><p>(Optional) Receive text updates</p></div>')
+        browser,ns=self.checkbox_form(markup)
+        with patch.dict(os.environ,{'JOBROBO_APPROVED_E_SIGNATURE_JOB_IDS':'123'}):
+            questions=ns['answer_questions'](browser.find_element('css selector','dialog'),set(),'Bay Area',job_id='123')
+        wrappers=browser.find_elements('css selector','[role="checkbox"]')
+        self.assertEqual([n.get_attribute('aria-checked') for n in wrappers],['true','false'])
+        self.assertEqual(len(browser.clicks),1)
+        self.assertTrue(any('sign electronically' in q[0] and q[1] is True for q in questions))
+
+    def test_preparation_never_opens_help_needed_popup(self):
+        h=SearchRunnerTests();h.setUp()
+        try:
+            h.namespace['pause_at_failed_question']=True
+            def blocked(browser,fill,**options):
+                self.assertFalse(options['on_blocked']('Required field unavailable'))
+                raise ValueError('blocked')
+            h.namespace['advance_to_review']=blocked
+            with self.assertRaises(ValueError):h.namespace['prepare_easy_apply']('123','Role','JD','Bay Area')
+            h.namespace['pyautogui'].alert.assert_not_called()
+        finally:h.doCleanups()
+
+    def test_descriptive_provider_failure_retries_once_without_help_popup(self):
+        from modules.application_drafts import DraftError
+        from modules.ai.application_drafting import ApplicationDraftingError
+        h=SearchRunnerTests();h.setUp()
+        try:
+            source=h.directory/'source.pdf';source.write_bytes(b'%PDF-fixture')
+            h.namespace['default_resume_docx_path']=str(source)
+            h.namespace['ai_descriptive_answers_enabled']=True
+            h.namespace['resume_upload_target']=Mock(return_value=h.modal)
+            h.namespace['use_AI_for_resume']=True
+            def upload(*args,**kwargs):kwargs['on_attached'](str(source));return True,str(source)
+            h.namespace['upload_optimized_resume']=upload
+            def answer(modal,questions,*args,draft_answer=None,**kwargs):
+                return {('Why this role?',draft_answer('Why this role?','descriptive'),'textarea','')}
+            h.namespace['answer_questions']=answer
+            error=DraftError('provider failed');error.__cause__=ApplicationDraftingError('request failed')
+            drafts=Mock();drafts.answer.side_effect=[error,'A grounded answer'];drafts.artifact_summary.return_value={}
+            with patch('modules.application_drafts.ApplicationDrafts',return_value=drafts), \
+                 patch('modules.ai.application_drafting.create_drafting_client',return_value=Mock()), \
+                 patch('modules.ai.application_drafting.make_drafting_provider',return_value=Mock()):
+                h.namespace['prepare_easy_apply']('123','Role','JD','Bay Area')
+            self.assertEqual(drafts.answer.call_count,2)
+            h.namespace['pyautogui'].alert.assert_not_called()
+        finally:h.doCleanups()
+
+    def test_custom_numeric_validation_refills_once_without_manual_popup(self):
+        from selenium.webdriver.common.by import By
+        h=SearchRunnerTests();h.setUp()
+        try:
+            h.namespace['By']=By
+            h.modal.find_elements=Mock(return_value=[Mock()])
+            h.namespace['resume_upload_target']=Mock(return_value=None)
+            answer=Mock(return_value=set())
+            h.namespace['answer_questions']=answer
+            def blocked(browser,fill,**options):
+                fill(h.modal)
+                self.assertTrue(options['on_blocked']('next blocked by form validation (Invalid input)'))
+                self.assertFalse(options['on_blocked']('next blocked by form validation (Invalid input)'))
+                return h.modal
+            h.namespace['advance_to_review']=blocked
+            with patch('modules.linkedin_work_history.repair_work_history_dates',return_value=False), \
+                 patch('modules.linkedin_form_fields.field_limit',return_value=20), \
+                 patch('modules.linkedin_form_fields.short_numeric_rejection',return_value=True):
+                h.namespace['prepare_easy_apply']('123','Role','JD','Bay Area')
+            self.assertEqual(answer.call_count,2)
+            h.namespace['pyautogui'].alert.assert_not_called()
+        finally:h.doCleanups()
+
+    def test_stale_answer_controls_reacquired_without_reupload_or_navigation(self):
+        h=SearchRunnerTests();h.setUp()
+        try:
+            source=h.directory/'source.pdf';source.write_bytes(b'%PDF-fixture')
+            h.namespace['default_resume_docx_path']=str(source)
+            h.namespace['use_AI_for_resume']=True
+            h.namespace['resume_upload_target']=Mock(return_value=h.modal)
+            def upload(*args,**kwargs):kwargs['on_attached'](str(source));return True,str(source)
+            h.namespace['upload_optimized_resume']=Mock(side_effect=upload)
+            fresh=Modal()
+            h.namespace['wait_for_application_modal']=Mock(side_effect=[h.modal,h.modal,fresh])
+            answer=Mock(side_effect=[StaleElementReferenceException('React replaced a field'),set()])
+            h.namespace['answer_questions']=answer
+            h.namespace['prepare_easy_apply']('123','Role','JD','Bay Area')
+            self.assertEqual(answer.call_count,2)
+            self.assertIs(answer.call_args_list[-1].args[0],fresh)
+            h.namespace['upload_optimized_resume'].assert_called_once()
+            self.assertEqual(h.events,[])
+            h.namespace['pyautogui'].alert.assert_not_called()
+        finally:h.doCleanups()
+
+    def test_persistently_stale_fields_stop_after_three_attempts(self):
+        h=SearchRunnerTests();h.setUp()
+        try:
+            answer=Mock(side_effect=StaleElementReferenceException('Repeated rerender'))
+            h.namespace['answer_questions']=answer
+            with self.assertRaises(StaleElementReferenceException):
+                h.namespace['prepare_easy_apply']('123','Role','JD','Bay Area')
+            self.assertEqual(answer.call_count,3)
+            self.assertEqual(h.events,[])
+        finally:h.doCleanups()
+
+    def test_nonmodal_messaging_does_not_block_clear_job_card(self):
+        from modules.linkedin_post_submit import select_job_card
+        browser=self.browser(['<aside role="dialog" aria-label="Messaging">'+'<input>'*6+'</aside>'])
+        def execute(script,*args):
+            if 'jobrobo-dialog-obstruction' in script:return {'blocking':False,'reason':'nonmodal_outside_jobs'}
+            return True
+        browser.execute_script=execute
+        card=SimpleNamespace(click=Mock())
+        select_job_card(browser,'123',lambda:('123',card),timeout=.2)
+        card.click.assert_called_once()
+        self.assertEqual(browser.clicks,[])
+
+    def test_card_local_failure_keeps_pending_and_continues_jobs_then_next_query(self):
+        from modules.linkedin_post_submit import JobCardBlocked
+        h=SearchRunnerTests();h.setUp()
+        try:
+            first,second=spec('card-local',3),spec('next-query')
+            manifest=h.manifest([first,second],{first.query_id:[['1','2']],second.query_id:[['3']]})
+            original=h.namespace['get_job_main_details']
+            count=[0]
+            def detail(*args):
+                count[0]+=1
+                if count[0]==1:raise JobCardBlocked('1',{'stage':'select_job_card','cause_type':'CardClickPointObscured'})
+                return original(*args)
+            h.namespace['get_job_main_details']=detail
+            h.execute(manifest)
+            self.assertEqual([r['Job ID'] for r in h.rows()],['2','3'])
+            self.assertEqual(manifest.query(first.query_id)['jobs']['1']['status'],'in_progress')
+            self.assertNotIn('1',manifest.processed_ids())
+            self.assertEqual(manifest.query(first.query_id)['stop_reason'],'job_cards_pending')
+            self.assertEqual(manifest.query(second.query_id)['status'],'complete')
+        finally:h.doCleanups()
+
+    def test_shadow_application_cleanup_closes_form_without_submitting(self):
+        from test_linkedin_easy_apply import Browser, form
+        from modules.linkedin_form_cleanup import discard_application
+        shadow=Browser([form(action='Submit application',extra='<button>Close</button>'),'<main>Jobs</main>'])
+        host=SimpleNamespace(id='open-host',shadow_root=shadow)
+        browser=Browser(['<main>Jobs</main>'])
+        browser.execute_script=Mock(return_value=[host])
+        self.assertTrue(discard_application(browser,timeout=.5))
+        self.assertEqual(shadow.clicks,['Close'])
+
+    def test_form_inside_unmarked_open_shadow_root_is_found(self):
+        from test_linkedin_easy_apply import Browser, form
+        from modules.linkedin_easy_apply import wait_for_application_modal
+        shadow=Browser([form(action='Submit application')])
+        host=SimpleNamespace(id='open-host',shadow_root=shadow)
+        browser=Browser(['<main>Jobs</main>'])
+        browser.execute_script=Mock(return_value=[host])
+        modal=wait_for_application_modal(browser,timeout=.01)
+        self.assertIn('Apply',modal.get_attribute('aria-label'))
+        self.assertEqual(shadow.clicks,[])
+
+    def test_read_only_containment_adapter_still_finds_document_dialog(self):
+        from test_linkedin_easy_apply import Browser, form
+        from modules.linkedin_easy_apply import wait_for_application_modal
+        browser=Browser([form(action='Submit application')])
+        browser.execute_script=lambda script,parent,child:parent.node in child.node.parents
+        self.assertTrue(wait_for_application_modal(browser,timeout=.01))
+        self.assertEqual(browser.clicks,[])
+
+    def test_fit_warning_inside_shadow_root_continues_only_once(self):
+        from test_linkedin_easy_apply import Browser, form
+        from modules.linkedin_easy_apply import wait_for_application_modal
+        shadow=Browser(['<dialog open><p>This job may not be the best fit</p>'
+            '<button>Continue applying</button></dialog>',form(action='Submit application')])
+        host=SimpleNamespace(id='open-host',shadow_root=shadow)
+        browser=Browser(['<main>Jobs</main>'])
+        browser.execute_script=Mock(return_value=[host])
+        wait_for_application_modal(browser,timeout=.01)
+        self.assertEqual(shadow.clicks,['Continue applying'])
+
+    def test_daily_limit_inside_shadow_root_still_stops(self):
+        from test_linkedin_easy_apply import Browser, form
+        from modules.linkedin_easy_apply import wait_for_application_modal
+        from modules.linkedin_easy_apply import EasyApplyLimitReached
+        shadow=Browser(['<dialog open>You reached today’s Easy Apply limit</dialog>'])
+        host=SimpleNamespace(id='open-host',shadow_root=shadow)
+        browser=Browser(['<main>Jobs</main>'])
+        browser.execute_script=Mock(return_value=[host])
+        with self.assertRaises(EasyApplyLimitReached):
+            wait_for_application_modal(browser,timeout=.01)
+
+    def browser(self, pages):
+        from test_linkedin_easy_apply import Browser
+        browser=Browser(pages)
+        # BeautifulSoup has no layout engine. Real hit-testing is exercised by
+        # the separate local Chrome replay; these fixtures model a blocking host.
+        browser.execute_script=Mock(return_value=True)
+        return browser
+
+    def test_profile_promotion_receipt_prefers_not_now_over_update_profile(self):
+        from modules.linkedin_post_submit import clear_post_submit_ui
+        browser=self.browser(['''<dialog open><p>Your application was sent to jscreen!</p>
+            <h2>Turn your resume into a profile that recruiters notice</h2>
+            <button aria-label="Close dialog">×</button><button>Not now</button>
+            <button>Update profile</button></dialog>''','<main>Jobs</main>'])
+        clear_post_submit_ui(browser,'123',timeout=.1,quiet_seconds=0)
+        self.assertEqual(browser.clicks,['Not now'])
+
+    def test_not_now_in_unrelated_or_active_dialog_is_never_clicked(self):
+        from modules.linkedin_post_submit import clear_post_submit_ui, PostSubmitUIBlocked
+        for body in ('<p>Update your profile</p>',
+                     '<p>Your application was sent</p><input><button>Submit application</button>'):
+            browser=self.browser(['<dialog open>'+body+'<button>Not now</button></dialog>'])
+            with self.assertRaises(PostSubmitUIBlocked):
+                clear_post_submit_ui(browser,'123',timeout=.01,quiet_seconds=0)
+            self.assertEqual(browser.clicks,[])
+
+    def test_late_receipt_at_card_hit_test_is_dismissed_then_card_reacquired(self):
+        from modules.linkedin_post_submit import select_job_card
+        from unittest.mock import patch
+        browser=SimpleNamespace(execute_script=Mock(side_effect=[None,False,None,True]))
+        target=SimpleNamespace(click=Mock())
+        acquire=Mock(return_value=('123',target))
+        with patch('modules.linkedin_post_submit.clear_post_submit_ui') as cleanup:
+            select_job_card(browser,'123',acquire,timeout=1)
+        self.assertGreaterEqual(cleanup.call_count,3)
+        self.assertGreaterEqual(acquire.call_count,2)
+        target.click.assert_called_once()
+
+    def test_clean_entry_failure_continues_other_query_without_retrying_current_job(self):
+        from modules.linkedin_easy_apply import EasyApplyError
+        h=SearchRunnerTests();h.setUp()
+        try:
+            first,second=spec('entry-recoverable',2),spec('other-query')
+            manifest=h.manifest([first,second],{first.query_id:[['1','2']],second.query_id:[['3']]})
+            h.namespace['open_easy_apply']=Mock(side_effect=[EasyApplyError('open: form unavailable'),True,True])
+            h.execute(manifest)
+            self.assertEqual(h.visited,['1','2','3'])
+            self.assertEqual(manifest.query(first.query_id)['jobs']['1']['status'],'in_progress')
+            self.assertNotIn('1',manifest.processed_ids())
+            self.assertEqual([r['Job ID'] for r in h.rows()],['2','3'])
+        finally:h.doCleanups()
+
+    def test_entry_failure_with_unknown_dialog_defers_query_and_tries_next_query(self):
+        from modules.linkedin_easy_apply import EasyApplyError
+        from modules.linkedin_post_submit import PostSubmitUIBlocked
+        h=SearchRunnerTests();h.setUp()
+        try:
+            first,second=spec('entry-blocked'),spec('untouched')
+            manifest=h.manifest([first,second],{first.query_id:[['1']],second.query_id:[['2']]})
+            h.namespace['open_easy_apply']=Mock(side_effect=EasyApplyError('open: form unavailable'))
+            h.namespace['clear_post_submit_ui']=Mock(side_effect=PostSubmitUIBlocked('1',{'stage':'entry_cleanup'}))
+            h.execute(manifest)
+            self.assertEqual(h.visited,['1','2'])
+            self.assertTrue(manifest.query(first.query_id)['ui_recoveries'])
+            self.assertNotIn('1',manifest.processed_ids())
+            self.assertFalse((h.directory/'applied.csv').exists())
+        finally:h.doCleanups()
+
+    def test_known_receipt_done_closes_without_submit_or_discard(self):
+        from modules.linkedin_post_submit import clear_post_submit_ui
+        from test_linkedin_easy_apply import Browser
+        browser=self.browser(['<div id="interop-outlet"><dialog open><p>Your application was sent</p><button>Done</button></dialog></div>','<main>Jobs</main>'])
+        clear_post_submit_ui(browser,'123',timeout=.1,quiet_seconds=0)
+        self.assertEqual(browser.clicks,['Done'])
+        browser=self.browser(['<dialog open><p>Your application was sent</p><button aria-label="Dismiss">×</button><button>Done</button></dialog>','<main>Jobs</main>'])
+        clear_post_submit_ui(browser,'123',timeout=.1,quiet_seconds=0)
+        self.assertEqual(browser.clicks,['Done'])
+
+    def test_slow_native_dismissal_gets_a_fresh_clearance_phase(self):
+        from modules.linkedin_post_submit import clear_post_submit_ui
+        from time import sleep
+        browser=self.browser(['<dialog open><p>Your application was sent</p><button>Done</button></dialog>','<main>Jobs</main>'])
+        def close(node):
+            sleep(.03)
+            browser.page=1
+            browser.render()
+        browser.on_click=close
+        clear_post_submit_ui(browser,'123',timeout=.01,quiet_seconds=0)
+        self.assertEqual(browser.clicks,['Done'])
+
+    def test_unknown_overlay_is_not_dismissed_or_clicked_through(self):
+        from modules.linkedin_post_submit import clear_post_submit_ui, PostSubmitUIBlocked
+        from test_linkedin_easy_apply import Browser
+        browser=self.browser(['<div id="interop-outlet"><dialog open><p>Unrecognized message</p><button>Continue</button><button>Submit</button></dialog></div>'])
+        with self.assertRaises(PostSubmitUIBlocked):clear_post_submit_ui(browser,'123',timeout=.01,quiet_seconds=0)
+        self.assertEqual(browser.clicks,[])
+
+    def test_active_application_form_is_never_closed_as_a_receipt(self):
+        from modules.linkedin_post_submit import clear_post_submit_ui, PostSubmitUIBlocked
+        from test_linkedin_easy_apply import Browser
+        browser=self.browser(['<dialog open><p>Your application was sent</p><form><input></form><button>Dismiss</button></dialog>'])
+        with self.assertRaises(PostSubmitUIBlocked):clear_post_submit_ui(browser,'123',timeout=.01,quiet_seconds=0)
+        self.assertEqual(browser.clicks,[])
+
+    def test_receipt_with_follow_checkbox_can_close_but_submit_form_cannot(self):
+        from modules.linkedin_post_submit import clear_post_submit_ui, PostSubmitUIBlocked
+        browser=self.browser(['<dialog open><p>Your application was sent</p><input type="checkbox"><button>Done</button></dialog>','<main>Jobs</main>'])
+        clear_post_submit_ui(browser,'123',timeout=.1,quiet_seconds=0)
+        self.assertEqual(browser.clicks,['Done'])
+        browser=self.browser(['<dialog open><p>Your application was sent</p><button>Submit application</button><button>Dismiss</button></dialog>'])
+        with self.assertRaises(PostSubmitUIBlocked):clear_post_submit_ui(browser,'123',timeout=.01,quiet_seconds=0)
+        self.assertEqual(browser.clicks,[])
+
+    def test_empty_nonblocking_outlet_does_not_stall_next_job(self):
+        from modules.linkedin_post_submit import clear_post_submit_ui
+        from test_linkedin_easy_apply import Browser
+        browser=self.browser(['<div id="interop-outlet"></div>'])
+        browser.execute_script=Mock(return_value=False)
+        clear_post_submit_ui(browser,'123',timeout=.01,quiet_seconds=0)
+
+    def test_card_reacquired_after_stale_reference(self):
+        from modules.linkedin_post_submit import select_job_card
+        browser=SimpleNamespace(find_elements=lambda *a:[],execute_script=Mock(return_value=True))
+        stale=SimpleNamespace(click=Mock(side_effect=StaleElementReferenceException()))
+        fresh=SimpleNamespace(click=Mock())
+        acquire=Mock(side_effect=[('123',stale),('123',fresh)])
+        select_job_card(browser,'123',acquire,timeout=.2)
+        self.assertEqual(acquire.call_count,2);fresh.click.assert_called_once()
+
+    def test_card_click_attempts_bounded_and_wrong_job_never_clicked(self):
+        from modules.linkedin_post_submit import select_job_card, JobCardBlocked
+        browser=SimpleNamespace(find_elements=lambda *a:[],execute_script=Mock(return_value=True))
+        target=SimpleNamespace(click=Mock(side_effect=ElementClickInterceptedException()))
+        with self.assertRaises(JobCardBlocked):
+            select_job_card(browser,'123',lambda:('123',target),timeout=.2,max_attempts=3)
+        self.assertEqual(target.click.call_count,3)
+        target.click.reset_mock()
+        with self.assertRaises(JobCardBlocked):
+            select_job_card(browser,'123',lambda:('999',target),timeout=.2)
+        target.click.assert_not_called()
+
+    def test_post_submit_block_preserves_success_when_search_reset_also_fails(self):
+        from modules.linkedin_post_submit import PostSubmitUIBlocked
+        from test_search_runner import SearchRunnerTests,spec
+        h=SearchRunnerTests();h.setUp()
+        try:
+            search=spec('receipt-blocked',2);manifest=h.manifest([search],{search.query_id:[['1','2']]})
+            h.namespace['clear_post_submit_ui']=Mock(side_effect=PostSubmitUIBlocked('123',{'stage':'post_submit_cleanup'}))
+            h.execute(manifest)
+            self.assertEqual(h.visited,['1']);self.assertEqual(h.namespace['failed_count'],0)
+            self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'],'applied')
+            self.assertEqual(h.rows()[0]['Job ID'],'1')
+            self.assertEqual(manifest.query(search.query_id)['stop_reason'],'job_cards_pending')
+        finally:h.doCleanups()
+
+    def test_blocked_card_is_pending_and_not_processed(self):
+        from modules.linkedin_post_submit import JobCardBlocked
+        from test_search_runner import SearchRunnerTests,spec
+        h=SearchRunnerTests();h.setUp()
+        try:
+            search=spec('card-blocked',2);manifest=h.manifest([search],{search.query_id:[['1','2']]})
+            h.namespace['get_job_main_details']=Mock(side_effect=JobCardBlocked('1',{'stage':'select_job_card','cause_type':'OverlayRemainsVisible'}))
+            h.execute(manifest)
+            self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'],'in_progress')
+            self.assertNotIn('1',manifest.processed_ids());self.assertNotIn('Submit application',h.events)
+            self.assertEqual(manifest.query(search.query_id)['stop_reason'],'job_cards_pending')
+        finally:h.doCleanups()
+
+    def test_refinement_fallback_logs_validation_reason_without_provider_error_payload(self):
+        from modules.search_planner import build_search_plan
+        from test_search_planner import profile,search_config
+        messages=[]
+        build_search_plan(profile(),search_config(),refine=lambda *a:{'queries':[]},warn=messages.append)
+        self.assertTrue(any('Invalid number of refined query lanes' in message for message in messages))
+        messages=[]
+        build_search_plan(profile(),search_config(),refine=Mock(side_effect=ValueError('private-provider-payload')),warn=messages.append)
+        self.assertFalse(any('private-provider-payload' in message for message in messages))
+
+
+
+
+class LazyResultTests(unittest.TestCase):
+    def test_scroll_new_cards_are_processed_before_exhaustion(self):
+        from test_linkedin_modern_search import DOMBrowser
+        from unittest.mock import Mock,patch
+        from modules.linkedin_modern_search import extend_search_results
+        browser=DOMBrowser('<main></main>')
+        browser.execute_script=Mock(return_value={'at_end':True})
+        with patch('modules.linkedin_search.get_search_cards',side_effect=[['1'],['1'],['1','2']]), \
+             patch('modules.linkedin_search.search_card_id',side_effect=lambda node:node):
+            self.assertTrue(extend_search_results(browser,{'1'},timeout=.01))
+
+    def test_stable_scroll_end_exhausts_results(self):
+        from test_linkedin_modern_search import DOMBrowser
+        from unittest.mock import Mock,patch
+        from modules.linkedin_modern_search import extend_search_results
+        browser=DOMBrowser('<main></main>')
+        browser.execute_script=Mock(return_value={'at_end':True})
+        with patch('modules.linkedin_search.get_search_cards',return_value=['1']), \
+             patch('modules.linkedin_search.search_card_id',side_effect=lambda node:node):
+            self.assertFalse(extend_search_results(browser,{'1'},timeout=.01))
+
+    def test_unknown_scroll_state_is_not_reported_as_exhausted(self):
+        from test_linkedin_modern_search import DOMBrowser
+        from unittest.mock import Mock,patch
+        from modules.linkedin_modern_search import extend_search_results
+        from modules.linkedin_search import SearchUIError
+        browser=DOMBrowser('<main></main>')
+        browser.execute_script=Mock(return_value=None)
+        with patch('modules.linkedin_search.get_search_cards',return_value=['1']), \
+             patch('modules.linkedin_search.search_card_id',side_effect=lambda node:node):
+            with self.assertRaises(SearchUIError):
+                extend_search_results(browser,{'1'},timeout=.01)
+
 
 
 if __name__ == "__main__":

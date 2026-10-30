@@ -75,6 +75,39 @@ class ApplicationDraftsTests(unittest.TestCase):
         unavailable.assert_not_called()
         self.assertEqual(len(self.read()["records"]), 1)
 
+    def test_short_skill_answer_receives_actual_counter_limit_and_format(self):
+        self.provider.return_value['answer'] = 'Vector search'
+        self.assertEqual(self.drafts().answer('Vector Databases', max_length=20), 'Vector search')
+        payload = self.provider.call_args.args[0]
+        self.assertEqual(payload['max_length'], 20)
+        self.assertIn('Omit introductions', payload['answer_format'])
+        self.assertIn('skill phrase', payload['answer_format'])
+
+    def test_numeric_recovery_requests_resume_supported_number(self):
+        self.provider.return_value['answer'] = '2'
+        self.assertEqual(self.drafts().answer('Vector Databases', kind='numeric', max_length=20), '2')
+        payload = self.provider.call_args.args[0]
+        self.assertIn('nonnegative number', payload['answer_format'])
+        self.assertIn('candidate resume', payload['answer_format'])
+        self.assertEqual(payload['question'], 'Vector Databases')
+
+    def test_unresolved_numeric_answer_is_not_typed_or_cached(self):
+        self.provider.return_value['answer'] = 'Not enough evidence'
+        with self.assertRaisesRegex(DraftError, 'supported number'):
+            self.drafts().answer('Vector Databases', kind='numeric', max_length=20)
+        self.assertFalse((self.output / 'answers.json').exists())
+
+    def test_reference_architecture_is_not_misclassified_as_personal_reference_request(self):
+        question = "Have you established reference architectures used across engineering teams?"
+        self.assertEqual(self.drafts().answer(question), "I developed reliable Python services.")
+        self.provider.assert_called_once()
+
+    def test_actual_reference_requests_remain_blocked(self):
+        for question in ("Please provide three references", "3 References (1 Direct Manager)"):
+            with self.subTest(question=question), self.assertRaises(DraftError):
+                self.drafts().answer(question)
+        self.provider.assert_not_called()
+
     def test_every_context_input_invalidates_cached_answer(self):
         question = "Describe your background"
         self.drafts().answer(question)

@@ -1,0 +1,3 @@
+# Optional cloud-browser transport. No local Playwright browser download needed.
+kernel==0.129.0
+playwright==1.64.0

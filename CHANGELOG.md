@@ -36,6 +36,14 @@
 
 ## Unreleased
 
+### Direct job-URL applications
+
+- Prepare or submit TXT URL lists and saved verified-role JSON with the shared resume optimizer configuration and profile answers.
+- Review each prepared application in its employer tab by default; opt into Kernel automatic submission with independent run IDs, explicit resume, durable progress and retry exports.
+- Preserve valid resume autofill, verify asynchronous location choices and exact phone digits, and support scoped native/server-action Continue steps and uploads that automatically advance the form.
+- Permit one delayed CAPTCHA submission continuation for the validated form while keeping answers and form target bound to the original activation.
+- Retain email verification without replaying Submit, distinguish a queued application service from employer confirmation, and publish protected submission outcomes to remaining-role views.
+
 ### LinkedIn application fixes
 
 - Fill classic and native Easy Apply pages through Next, Review and Submit readiness, with verified attachment paths and explicit submission receipts.

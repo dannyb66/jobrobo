@@ -30,6 +30,8 @@ def stable_id(source, text):
 
 
 def role_priority(title):
+    if re.search(r"\bfde\b|\bforward[\s-]+deployed\b", title, re.I):
+        return -1
     if re.search(r"\bfounding\b", title, re.I):
         return 2
     leveled = re.sub(r"\bmember(?: of)? technical staff\b", "", title, flags=re.I)
@@ -114,49 +116,11 @@ class SearchSpec:
 
 
 def render_query(role, profile, config):
-    """Render requirements each run from the canonical config, never copied defaults."""
-    snapshot = filters_snapshot(config)
-    intent, gates = snapshot["intent"], snapshot["gates"]
+    """Describe the work; native controls and post-discovery gates own constraints."""
     opening = role if re.match(r"(?i)^(find|search|looking)\b", role) else f"Find {role} roles"
     parts = [opening.rstrip(".") + "."]
-    if intent["search_location"]:
-        parts.append(f"Location: {intent['search_location']}.")
-    labels = {
-        "job_type": "Employment type", "on_site": "Work arrangement",
-        "experience_level": "Experience level", "companies": "Companies",
-        "location": "Additional locations", "industry": "Industries",
-        "job_function": "Job functions", "job_titles": "Job titles",
-        "benefits": "Benefits", "commitments": "Company commitments",
-    }
-    for key, label in labels.items():
-        if intent[key]:
-            parts.append(f"{label}: {', '.join(intent[key])}.")
-    if intent["date_posted"] and intent["date_posted"] != "Any time":
-        parts.append(f"Posted within the {intent['date_posted'].lower()}.")
-    if intent["salary"]:
-        parts.append(f"Salary: {intent['salary']}.")
-    for key, wording in {
-        "easy_apply_only": "Use Easy Apply when available.",
-        "under_10_applicants": "Prefer jobs with under 10 applicants.",
-        "in_your_network": "Prefer jobs in my network.",
-        "fair_chance_employer": "Prefer fair chance employers.",
-    }.items():
-        if intent[key]:
-            parts.append(wording)
     if _get(profile, "skills"):
         parts.append(f"Focus on {', '.join(_get(profile, 'skills'))}.")
-    # These hints help discovery. The existing post-discovery gates still enforce them.
-    if gates["about_company_bad_words"]:
-        parts.append(f"Exclude companies described as: {', '.join(gates['about_company_bad_words'])}.")
-        if gates["about_company_good_words"]:
-            parts.append(f"Allow company exceptions matching: {', '.join(gates['about_company_good_words'])}.")
-    if gates["bad_words"]:
-        parts.append(f"Exclude descriptions containing: {', '.join(gates['bad_words'])}.")
-    if gates["security_clearance"] is False:
-        parts.append("Exclude roles requiring security clearance or polygraph checks.")
-    if gates["current_experience"] is not None and gates["current_experience"] >= 0:
-        allowance = "; allow two additional years for roles mentioning a master's degree" if gates["did_masters"] else ""
-        parts.append(f"Require at most {gates['current_experience']} years of experience{allowance}.")
     return " ".join(parts)
 
 
@@ -241,11 +205,19 @@ def build_search_plan(profile, config, refine=None, warn=lambda message: None):
             if refine is None:
                 warn("AI search refinement unavailable; using deterministic search queries.")
             else:
+                validation_reason = ""
                 try:
-                    lanes = validate_refinement(refine(roles, _get(profile, "skills"), snapshot), roles)
+                    response = refine(roles, _get(profile, "skills"), snapshot)
+                    try:
+                        lanes = validate_refinement(response, roles)
+                    except ValueError as error:
+                        # These are our own schema/intent validation messages;
+                        # provider exception payloads may contain private data.
+                        validation_reason = ": " + str(error)
+                        raise
                     source = "ai_refined"
                 except Exception as error:
-                    warn(f"AI search refinement failed ({type(error).__name__}); using deterministic search queries.")
+                    warn(f"AI search refinement failed ({type(error).__name__}){validation_reason}; using deterministic search queries.")
         try:
             for _, role, index in lanes:
                 add(role, source, classic=role)

@@ -5,7 +5,7 @@
 
 # Your legal name
 first_name = "Danny"                 # Your first name in quotes Eg: "First", "Danny"
-preferred_first_name = first_name     # Ordinary First name preference; legal-name fields are preserved.
+preferred_first_name = "Danny"      # Override ordinary First name fields only.
 middle_name = ""            # Your name in quotes Eg: "Middle", ""
 last_name = "Basavaraju"                # Your last name in quotes Eg: "Last", "Basavaraju"
 
@@ -50,6 +50,8 @@ Some valid examples are:
 
 Invalid inputs will result in an error!
 '''
+
+visa_status = "H-1B approved"      # User-provided status; does not set sponsorship/work authorization.
 
 # Reused for application questions requesting professional references.
 # Enter real names, relationships (including a direct manager), and contact details.

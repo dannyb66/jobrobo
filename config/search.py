@@ -23,7 +23,7 @@ search_location = "San Francisco Bay Area"               # Some valid examples: 
 switch_number = 10                  # Per-query application/external-link quota; then move to the next query.
 
 # Confirmed submissions across the whole command, including nonstop cycles.
-max_applications_per_run = 1        # Positive integer; None disables the overall submission cap.
+max_applications_per_run = 50       # Positive integer; None disables the overall submission cap.
 
 # Do you want to randomize the search order for search_terms?
 randomize_search_order = False     # True of False, Note: True or False are case-sensitive
@@ -83,7 +83,7 @@ pause_after_filters = False         # True or False, Note: True or False are cas
 ## >>>>>>>>>>> SKIP IRRELEVANT JOBS <<<<<<<<<<<
  
 # Avoid applying to these companies, and companies with these bad words in their 'About Company' section...
-about_company_bad_words = ["Crossover", "Staffing", "Recruiting Agency", "Contract-to-hire"]       # (dynamic multiple search) or leave empty as []. Ex: ["Staffing", "Recruiting", "Name of Company you don't want to apply to"]
+about_company_bad_words = ["Crossover", "Recruiting Agency", "Contract-to-hire"]       # (dynamic multiple search) or leave empty as []. Ex: ["Staffing", "Recruiting", "Name of Company you don't want to apply to"]
 
 # Skip checking for `about_company_bad_words` for these companies if they have these good words in their 'About Company' section... [Exceptions, For example, I want to apply to "Robert Half" although it's a staffing company]
 about_company_good_words = []      # (dynamic multiple search) or leave empty as []. Ex: ["Robert Half", "Dice"]

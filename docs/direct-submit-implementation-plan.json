@@ -1,0 +1,76 @@
+{
+  "status": "implemented_and_validated",
+  "updated_at": "2026-10-21T20:26:35.602080+00:00",
+  "objective": "Each invocation creates an independent run, fills jobs in separate retained tabs and defaults to manual final Submit on the employer pages.",
+  "authorization": "User explicitly permits duplicate employer applications across different runs. This does not authorize development-time employer Submit clicks.",
+  "execution": {
+    "identity": "One generated UUID is used in the manifest, progress, application export and automatic directory name.",
+    "directory": "Default logs/direct_submit/TIMESTAMP-UUID. Optional unused --run-dir uses that exact destination; reused destinations get a unique sibling.",
+    "ledger": "Each direct run owns applications-ledger.json. Fresh runs never consult the shared legacy ledger. Explicit legacy resumes copy only claims belonging to their own attempts.",
+    "prior_status": "Prior applied/uncertain/discarded execution states in selected input are provenance. Inventory admission and live posting checks remain applicable.",
+    "continuation": "Failed/uncertain jobs are recorded and subsequent jobs continue. Possible submissions are not automatically re-clicked within a run.",
+    "portal_duplicate": "Fresh posting-scoped duplicate headings or alerts after final activation are recorded as duplicate/portal_duplicate, and the batch continues.",
+    "reports": "Each run owns its state, input, events, preparation evidence, retry/review exports and canonical applications.json. Manual handoffs also appear in manual-review.json and manual-review.txt.",
+    "history": "Application entity identity includes run UUID and posting key. A new retry run leaves its parent run unchanged. Existing custom exports get a unique filename on reuse.",
+    "cache": "Hash-verified resume artifacts may be reused from the shared output-dir cache; preparation reports and execution state remain per-run.",
+    "resume": "Explicit resume reconnects live manual tabs and continues unstarted jobs within the cumulative cap. Lost manual tabs remain uncertain because their employer outcome cannot be inferred.",
+    "manual_review": "No Tk window. Each handoff reserves its posting, saves a tab mapping and immediately continues filling the batch. The monitor reads Chrome targets without activating tabs.",
+    "confirmation": "Trusted manual clicks are observed, not issued. Confirmed success/duplicates finish; known form rejection stays editable; unclear outcomes remain uncertain and are never auto-reclicked.",
+    "cap": "Outstanding manual Submit/correction tabs reserve the per-run budget."
+  },
+  "shared_preparation": [
+    "Current profile/config facts and Web source",
+    "User first-option choice policy and DEI opt-out policy",
+    "Same saved optimizer JSON as LinkedIn",
+    "Automatic resume/PDF/hash/attachment checks; no restored manual PDF review gate",
+    "AI drafting and accessible field handling",
+    "Always/unknown/never review modes",
+    "TXT/simple JSON/verified ranked StageResult/legacy queue input",
+    "Original role/company IDs and verification versus ranking provenance"
+  ],
+  "commands": {
+    "start": "python3 direct_apply.py submit --input \"$roles\" --limit 2",
+    "txt": "python3 direct_apply.py submit --urls-file jobs.txt",
+    "resume": "python3 direct_apply.py submit --resume /path/printed/by/the/run",
+    "status": "python3 direct_apply.py status --run /path/printed/by/the/run",
+    "retry": "python3 direct_apply.py submit --input /path/to/run/retry.json --pause-before-submit unknown",
+    "pipeline": "python3 job_pipeline.py apply careers --input \"$roles\" --pause-before-submit always --limit 2",
+    "roles": "roles=\"$HOME/Documents/Codex/2026-10-14/task/task1-location-fix/phase2/phase2-engineering-ranked.json\""
+  },
+  "modules": [
+    "modules/submit_runner.py",
+    "modules/submit_state.py",
+    "modules/generic_submit.py",
+    "modules/generic_form_snapshot.js",
+    "modules/external_apply.py",
+    "direct_apply.py",
+    "job_pipeline.py",
+    "modules/manual_tabs.py"
+  ],
+  "validation": {
+    "contract_tests": {
+      "passed": 166,
+      "log": "logs/direct_submit_validation/20261021/retained-tabs/contracts.txt"
+    },
+    "browser_regression": {
+      "passed": 38,
+      "duration_seconds": 162.771,
+      "log": "logs/direct_submit_validation/20261021/retained-tabs/browser-regression.txt"
+    },
+    "final_retained_tab_browser": {
+      "passed": 11,
+      "duration_seconds": 50.753,
+      "log": "logs/direct_submit_validation/20261021/retained-tabs/manual-browser-final.txt"
+    },
+    "unique_browser_scenarios": 39,
+    "browser_method_executions": 49,
+    "syntax_and_diff": "py_compile, plan JSON parsing and git diff --check passed",
+    "scope": "Synthetic local HTTP forms and local uploads only. No employer form submissions or live employer preparation runs."
+  },
+  "related_limitations": [
+    "The earlier Ashby persistence/validation incident remains a separate known issue; independent-run semantics do not establish why that historical save failed.",
+    "Unsupported widgets, access challenges and unknown confirmations retain explicit outcomes."
+  ],
+  "previous_plan_snapshot": "logs/direct_submit_validation/20261021/independent-runs/previous-implementation-plan.json",
+  "tab_review_plan": "docs/direct-submit-tab-review-plan.json"
+}

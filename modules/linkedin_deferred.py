@@ -108,6 +108,8 @@ class DeferredJobs:
         status = info.get("status")
         if not isinstance(status, str) or not status.strip():
             raise ValueError("Deferred job requires a source status")
+        if info.get('verified_submission_outcome') not in {None, 'applied', 'not_submitted'}:
+            raise ValueError('Invalid verified submission outcome')
         candidate = deepcopy(records)
         previous = candidate.get(job_id, {})
         entry = deepcopy(previous)
@@ -122,7 +124,7 @@ class DeferredJobs:
             entry["submit_enabled"] = submit_enabled
         history = entry.setdefault("history", [])
         event = {"status": status, "submit_enabled": submit_enabled, "submission_disabled": disabled}
-        for key in ("run_id", "source_report", "last_seen", "observed_at", "reason"):
+        for key in ("run_id", "source_report", "last_seen", "observed_at", "reason", "requires_submission_check", "verified_submission_outcome"):
             if info.get(key) is not None and info.get(key) != "":
                 event[key] = deepcopy(info[key])
         identity = lambda row: (row.get("run_id"), row.get("source_report"), row.get("status"))
@@ -141,6 +143,30 @@ class DeferredJobs:
             reasons = entry.setdefault("failed_reasons", [])
             if info["reason"] not in reasons:
                 reasons.append(deepcopy(info["reason"]))
+        # Late failure/backfill records remain in history, but cannot reopen a
+        # confirmed application or clear an unresolved submission hold.
+        preserve_state = previous.get('status') == 'applied' and status != 'applied'
+        verified_not_submitted = info.get('verified_submission_outcome') == 'not_submitted' and status == 'failed'
+        if previous.get('status') == 'submission_uncertain' and status != 'applied' and not verified_not_submitted:
+            preserve_state = True
+        if previous.get('observed_at') and info.get('observed_at') and status != 'applied':
+            try:
+                old = datetime.fromisoformat(previous['observed_at'].replace('Z', '+00:00'))
+                new = datetime.fromisoformat(info['observed_at'].replace('Z', '+00:00'))
+                preserve_state |= new < old
+            except (TypeError, ValueError):
+                pass
+        if preserve_state:
+            for key in ('status', 'reason', 'run_id', 'source_report', 'observed_at',
+                        'submission_disabled', 'submit_enabled', 'requires_submission_check'):
+                if key in previous:
+                    entry[key] = deepcopy(previous[key])
+                else:
+                    entry.pop(key, None)
+        if entry.get('status') == 'applied':
+            entry['requires_submission_check'] = False
+        elif previous.get('requires_submission_check') is True and not verified_not_submitted:
+            entry['requires_submission_check'] = True
         if entry == previous:
             self._records = candidate
             return deepcopy(entry)
@@ -175,3 +201,89 @@ class DeferredJobs:
         for item in records.values():
             lines.append("| " + " | ".join(cell(item.get(key, "")) for key in ("title", "company", "job_url", "status")) + " |")
         _atomic_write(target, "\n".join(lines) + "\n")
+
+
+def is_deferred_document(path):
+    """Return whether *path* is the review/retry ledger rather than a stage artifact."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return (isinstance(data, dict) and data.get("version") == 1
+            and data.get("purpose") == "retry_prepared_applications")
+
+
+def build_retry_batch(path, profile, config, limit, applied_ids=(), job_id=None):
+    """Turn a bounded, safe subset of the retry ledger into direct LinkedIn targets.
+
+    Retry records deliberately do not become verified-careers pipeline artifacts.
+    The live employer, job ID, location, Easy Apply state, application history and
+    current form are still checked by the standard browser runner.
+    """
+    from modules.search_planner import SearchSpec, filters_snapshot, stable_id
+
+    if type(limit) is not int or limit < 1:
+        raise ValueError("Retry limit must be a positive integer")
+    document = DeferredJobs(path)
+    applied = {str(value) for value in applied_ids}
+    requested_id = str(job_id) if job_id is not None else None
+    runnable_statuses = {
+        "ready", "failed", "entry_failed", "card_pending", "retry_queued",
+        "details_pending", "platform_limit",
+    }
+    candidates = sorted(document.records, key=lambda row: row.get("updated_at", ""), reverse=True)
+    if requested_id is not None:
+        candidates = [row for row in candidates if str(row["job_id"]) == requested_id]
+        if not candidates:
+            raise ValueError(f"Job ID {requested_id} is not in the deferred retry ledger")
+    specs, selected = [], {}
+    blocked = []
+    current_filters = filters_snapshot(config)
+    for record in candidates:
+        job_id = str(record["job_id"])
+        status = record.get("status")
+        if status == "applied" or job_id in applied:
+            continue
+        if status == 'submission_uncertain' or record.get("requires_submission_check") is True:
+            blocked.append(job_id)
+            continue
+        if status not in runnable_statuses:
+            continue
+        title, company = record.get("title"), record.get("company")
+        if not isinstance(title, str) or not title.strip() or not isinstance(company, str) or not company.strip():
+            continue
+        query = record.get("query")
+        if not isinstance(query, str) or not query.strip():
+            query = f"Find {title.strip()} roles at {company.strip()}"
+        query_id = stable_id("retry", job_id)
+        company_context = {
+            "id": "retry:" + job_id,
+            "name": company.strip(),
+            "aliases": [],
+        }
+        spec = SearchSpec(
+            query_id=query_id,
+            query_text=query.strip(),
+            source="retry",
+            mode=record.get("search_mode") if record.get("search_mode") in {"ai", "classic"} else "ai",
+            profile_name=profile.get("profile_name", "retry"),
+            profile_version=profile.get("profile_version", "1"),
+            filters_snapshot=current_filters,
+            quota=1,
+            classic_query=f"{company.strip()} {title.strip()}",
+            pipeline_context={"company": company_context, "company_id": company_context["id"]},
+        )
+        specs.append(spec)
+        selected.setdefault(query_id, []).append({
+            "linkedin_id": job_id,
+            "title": title.strip(),
+            "company": company.strip(),
+            "description": record.get("description") or "Unknown",
+        })
+        if len(specs) >= limit:
+            break
+    if not specs:
+        if blocked:
+            raise ValueError("No safe retry candidates; submission outcome must be checked first for: " + ", ".join(blocked[:5]))
+        raise ValueError("No unapplied, eligible records found in the retry ledger")
+    return specs, selected

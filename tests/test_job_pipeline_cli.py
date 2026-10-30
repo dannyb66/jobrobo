@@ -12,6 +12,10 @@ import unittest
 from unittest.mock import Mock, patch
 
 import job_pipeline
+# Keep the service module in the baseline sys.modules snapshot used below.
+# Otherwise patch.dict(sys.modules) removes it while leaving a stale package
+# attribute, and later patches can accidentally call the real network service.
+import modules.job_pipeline.service
 from config import job_pipeline as pipeline_config
 from modules.job_pipeline.models import StageResult, write_artifact
 from modules.job_pipeline.store import PipelineStore
@@ -66,6 +70,30 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(request.output_path, str(output))
                 self.assertEqual(request.input_sets[0]["stage"], input_stage)
                 self.assertEqual(json.loads(output.read_text())["stage"], result_stage)
+
+    def test_apply_linkedin_dispatches_deferred_retry_ledger(self):
+        path = self.directory / "retry_jobs.json"
+        path.write_text(json.dumps({"version": 1, "purpose": "retry_prepared_applications", "records": []}))
+        backend = Mock(return_value={"status": "complete", "selected_job_ids": ["123"], "confirmed_submissions": 1})
+        with patch.dict(sys.modules, {"runAiBot": SimpleNamespace(run_deferred_retries=backend)}):
+            self.assertEqual(self.invoke(["apply", "linkedin", "--input", str(path), "--limit", "1", "--job-id", "123"]), 0)
+        backend.assert_called_once_with(str(path), 1, "123")
+        self.assertEqual(json.loads(self.stdout.getvalue())["selected_job_ids"], ["123"])
+
+    def test_retry_auto_submit_is_explicitly_forwarded(self):
+        path = self.directory / "retry_jobs.json"
+        path.write_text(json.dumps({"version": 1, "purpose": "retry_prepared_applications", "records": []}))
+        backend = Mock(return_value={"status": "complete"})
+        with patch.dict(sys.modules, {"runAiBot": SimpleNamespace(run_deferred_retries=backend)}):
+            self.assertEqual(self.invoke(["apply", "linkedin", "--input", str(path), "--limit", "50", "--auto-submit"]), 0)
+        backend.assert_called_once_with(str(path), 50, None, auto_submit=True)
+
+    def test_auto_submit_without_retry_ledger_is_rejected(self):
+        backend = Mock()
+        with patch.dict(sys.modules, {"runAiBot": SimpleNamespace(run_pipeline=backend)}):
+            self.assertEqual(self.invoke(["apply", "linkedin", "--auto-submit"]), 2)
+        backend.assert_not_called()
+        self.assertIn('deferred retry ledger', self.stderr.getvalue())
 
     def test_repeatable_named_sets_are_validated_before_backend(self):
         with PipelineStore(self.db) as store:
@@ -165,6 +193,43 @@ class CliTests(unittest.TestCase):
             self.assertEqual(self.invoke(["verify", "careers", "--db", str(self.db)]), 0)
         self.assertIsNone(verify.call_args.args[2])
         self.assertEqual(verify.call_args.kwargs, {"refresh": None})
+
+    def test_verify_resume_is_forwarded_only_when_requested(self):
+        with patch("modules.job_pipeline.service.verify_careers", return_value=artifact()) as verify:
+            self.assertEqual(self.invoke(["verify", "careers", "--resume", "resume.docx", "--db", str(self.db)]), 0)
+        self.assertEqual(verify.call_args.kwargs, {"refresh": None, "resume_path": "resume.docx"})
+
+    def test_rank_export_is_offline_and_preserves_all_records_without_a_limit(self):
+        source = self.directory / "verified.json"
+        resume = self.directory / "original-resume.txt"
+        output = self.directory / "ranked.json"
+        original = artifact()
+        original.records[0].update(description="Python software development", published_at="2026-10-14T00:00:00Z",
+                                   verified_at="2026-10-14T13:00:00Z", verification_run_id="actual-source-observation")
+        write_artifact(original, source)
+        resume.write_text("Python software engineer")
+        self.assertEqual(self.invoke(["rank", "careers", "--input", str(source), "--resume", str(resume),
+                                     "--as-of", "2026-10-15T00:00:00Z", "--output", str(output), "--db", str(self.db)]), 0)
+        result = json.loads(output.read_text())
+        self.assertFalse(self.db.exists())
+        self.assertEqual(len(result["records"]), 1)
+        self.assertEqual(result["records"][0]["review_priority"]["tier"], 1)
+        self.assertEqual(result["records"][0]["verification_run_id"], "actual-source-observation")
+        self.assertEqual(result["records"][0]["verified_at"], "2026-10-14T13:00:00Z")
+        with self.assertRaises(SystemExit):
+            self.invoke(["rank", "careers", "--limit", "1"])
+
+    def test_rank_invalid_resume_as_of_or_stage_fail_before_database_creation(self):
+        source = self.directory / "companies.json"
+        write_artifact(artifact("companies"), source)
+        for extra, expected in ((["--as-of", "2026-10-15"], "timezone"),
+                                (["--resume", str(self.directory / "missing.docx")], "No such file"),
+                                ([], "Expected verified_roles")):
+            with self.subTest(extra=extra):
+                self.stderr = io.StringIO()
+                self.assertEqual(self.invoke(["rank", "careers", "--input", str(source), "--db", str(self.db)] + extra), 2)
+                self.assertIn(expected, self.stderr.getvalue())
+                self.assertFalse(self.db.exists())
 
     def test_invalid_company_targets_fail_before_service(self):
         for value in ("-1", "one", "1.5"):

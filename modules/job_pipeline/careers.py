@@ -22,6 +22,113 @@ NO_OPENINGS = re.compile(r"\b(?:no (?:current |open |available )?(?:positions|op
 NO_COMPANY_OPENINGS = re.compile(r"\b(?:no (?:current |open |available )?(?:positions|openings|jobs)|not currently hiring|we are not hiring)\b", re.I)
 
 
+
+def clearance_required(description):
+    """Recognize clearance/polygraph requirements, excluding negated requirements.
+
+    Service names (Secret Manager), secrets management and regulatory clearance
+    carry no applicant-clearance meaning. A named clearance is treated as required
+    unless the surrounding clause explicitly makes it optional or unnecessary.
+    """
+    text = str(description or '').casefold().replace('’', "'")
+    term = r"(?:security\s+clearance|(?:top[ -]secret|secret|confidential)\s+clearance|ts\s*/\s*sci(?:\s+clearance)?|polygraph(?:\s+(?:test|examination|screening))?)"
+    for clause in re.split(r'[.;\n]|\bbut\b|\bhowever\b', text):
+        for match in re.finditer(r'\b' + term + r'\b', clause):
+            before, after = clause[:match.start()], clause[match.end():]
+            if re.search(r"\b(?:no|without)\s+(?:(?:active|current|existing|an?|any)\s+){0,4}$", before):
+                continue
+            if re.search(r"\b(?:do(?:es)?\s+not|don't|doesn't|not)\s+(?:require|need)(?:\s+(?:an?|any|active|current|existing|to|have|hold|undergo|pass)){0,5}\s*$", before):
+                continue
+            if re.match(r"\s*(?:(?:is|are|will be)\s+)?(?:not\s+(?:required|necessary|needed)|optional|preferred|not\s+a\s+requirement)\b|\s*(?:isn't|aren't|will not be)\s+(?:required|necessary|needed)\b|\s*:\s*(?:none|not required|no)\b", after):
+                continue
+            return True
+    return False
+
+
+def required_experience_years(description):
+    """Largest explicit candidate-experience minimum; zero means unspecified.
+
+    A range uses its lower bound. Company age and generic year counts do not
+    establish candidate experience. No arbitrary upper bound drops senior roles.
+    """
+    text = str(description or '').casefold()
+    values = []
+    for match in re.finditer(r'\b(\d{1,2})(?:\s*(?:[-–—]|to)\s*\d{1,2})?\s*\+?\s*years?\b', text):
+        prefix = re.split(r'[.\n;]', text[:match.start()])[-1][-100:]
+        suffix = re.split(r'[.\n;]', text[match.end():])[0][:100]
+        if re.search(r"\b(?:we(?:'ve| have)|our (?:company|business|team) has)\b", prefix) or re.match(r'\s+ago\b', suffix):
+            continue
+        if (re.search(r'\b(?:experience|expertise|background|proficiency)\b', prefix + ' ' + suffix)
+                or re.match(r'\s+(?:required|minimum)\b', suffix)
+                or re.search(r'\b(?:minimum(?: of)?|at least|require(?:s|d)?)\s*$', prefix)):
+            values.append(int(match.group(1)))
+    return max(values, default=0)
+
+
+def classify_engineering_role(title, description="", department=None, team=None):
+    """Classify the posting's function broadly, independent of candidate preferences."""
+    title = " ".join(str(title or "").split())
+    text = title.casefold()
+    context = " ".join(_strings(department) + _strings(team)).casefold()
+    technical = r"\b(?:software|developer|ai|ml|model|inference|platform|infrastructure|storage|runtime|data|post[ -]?training|research|security)\b"
+    excluded = re.search(r"\b(?:recruiter|recruiting|recruitment|talent acquisition|account executive|sales development|executive assistant|administrative assistant|assistant to|hr business partner|office manager|revenue analyst)\b", text)
+    excluded = excluded or re.search(r"\b(?:marketing|social media|brand designer|motion designer)\b", text) and not re.search(r"\b(?:engineer|developer|architect)\b", text)
+    excluded = excluded or bool(re.search(r"\bmarketing manager\b", text))
+    family, confidence, evidence = "non_engineering", "high", []
+    if not excluded and text not in {"engineering", "careers", "jobs", "open positions", "software engineering", "our engineering team"}:
+        if re.search(r"\b(?:technical program manager|product manager|storage manager)\b", text) and ("technical program manager" in text or re.search(technical, text) or re.search(technical, context)):
+            family, confidence = "engineering_adjacent", "review"
+            evidence = ["technical_title_or_team_context_requires_review"]
+        elif re.search(r"\b(?:engineers?|engineering|developers?|architects?|mts|technical staff|member(?: of)? technical staff|sre|devops)\b", text):
+            family = "engineering"
+            if re.search(r"\b(?:sales|solutions|support|gtm|advocate|field application|design|marketing|business development)\b", text):
+                family, confidence = "engineering_adjacent", "review"
+            elif re.search(r"\b(?:manager|director|head|vp|vice president|chief)\b", text):
+                family = "engineering_management"
+            evidence = ["engineering_function_in_title"]
+        elif re.search(r"\b(?:research scientist|applied scientist|applied researcher|researcher|data scientist)\b", text) or re.search(r"\b(?:ai|ml|machine learning) research intern\b", text):
+            family, confidence = "technical_research", "review"
+            evidence = ["technical_science_or_research_title"]
+        elif re.search(r"\b(?:fellowship)\b", text) and (re.search(technical, text) or re.search(technical, context)):
+            family, confidence = "engineering_adjacent", "review"
+            evidence = ["technical_title_or_team_context_requires_review"]
+        elif re.search(r"\bfellowship\b", text) and re.search(r"\b(?:full[ -]?time research|fellowship.{0,100}researchers|fellows.{0,100}published research)\b", str(description or ""), re.I):
+            family, confidence = "technical_research", "review"
+            evidence = ["research_fellowship_work_explicit_in_posting"]
+        elif re.search(r"\bit[ /-]?(?:ops|support|operations|systems?)\b", text) and re.search(r"\b(?:specialist|administrator|analyst)\b", text):
+            family, confidence = "engineering_adjacent", "review"
+            evidence = ["technical_operations_function_requires_review"]
+        elif re.search(r"\bcapacity manager\b", text) and re.search(r"\bengineering role\b", str(description or ""), re.I) and re.search(r"\b(?:kubernetes|gpu|operators?|orchestration)\b", str(description or ""), re.I):
+            family, confidence = "engineering_adjacent", "review"
+            evidence = ["posting_explicitly_describes_engineering_work"]
+    return {"family": family, "engineering_related": family != "non_engineering", "confidence": confidence,
+            "requires_review": confidence == "review", "evidence": evidence}
+
+
+def evaluate_verification_role(role, search_config):
+    """Verify open engineering work within configured geography; other fit stays separate."""
+    for key, default in {"title": "", "description": "", "status": "unknown", "workplace_type": "Unknown", "employment_type": "Unknown", "locations": []}.items():
+        if role.get(key) is None:
+            role[key] = deepcopy(default)
+    classification = classify_engineering_role(role["title"], role["description"], role.get("department"), role.get("team"))
+    application = evaluate_role(deepcopy(role), search_config)
+    reasons = []
+    if role["status"] != "open":
+        reasons.append("role_closed" if role["status"] == "closed" else "unverified_open_status")
+    if role.get("is_prospect") is True:
+        reasons.append("prospect_post_not_verified_vacancy")
+    if not classification["engineering_related"]:
+        reasons.append("outside_role_families")
+    reasons.extend(location_reasons(role["locations"], role["workplace_type"],
+                                    setting(search_config, "search_location", "")))
+    role.update({"role_classification": classification, "verification_policy_version": 3,
+                 "evaluation_scope": "engineering_inventory", "verification_eligible": not reasons,
+                 "verification_exclusion_reasons": reasons, "eligible": not reasons, "exclusion_reasons": reasons,
+                 "application_eligible": application["eligible"], "application_exclusion_reasons": application["exclusion_reasons"],
+                 "unverified_preferences": application["unverified_preferences"],
+                 "review_notes": list(dict.fromkeys(application["exclusion_reasons"] + (["engineering_adjacent_or_research_review"] if classification["requires_review"] else [])))})
+    return role
+
 def _date(value):
     if not isinstance(value, str):
         return None
@@ -142,6 +249,8 @@ def role_record(company, row, origin, kind="official_careers"):
         "sources": [*deepcopy(company.get("sources", [])), provenance(kind, origin, row.get("id"), "career_verification")],
         "published_at": row.get("publishedAt") or row.get("datePosted"),
         "salary": deepcopy(row.get("compensation") or row.get("baseSalary")),
+        "department": deepcopy(row.get("department") or row.get("departments")),
+        "team": deepcopy(row.get("team") or row.get("teamName")),
     }
 
 
@@ -178,9 +287,10 @@ def evaluate_role(role, search_config):
     if lowered.strip() in {"", "unknown", "n/a", "not available", "notavailable"}:
         reasons.append("missing_full_description")
         # Failed live selectors cannot disprove exclusions established from a full JD.
-        reasons.extend(reason for reason in role.get("exclusion_reasons", [])
+        reasons.extend(reason for reason in role.get("exclusion_reasons", []) + role.get("application_exclusion_reasons", [])
                        if reason.startswith("description_exclusion:") or reason in {"security_clearance_required", "experience_excluded"})
-    if not OCCUPATION.search(title) or not (TECH_TITLE.search(title) or re.search(r"\b(?:mts|member(?: of)? technical staff)\b", title, re.I)):
+    classification = classify_engineering_role(title, description, role.get("department"), role.get("team"))
+    if not classification["engineering_related"]:
         reasons.append("outside_role_families")
     preferences = setting(search_config, "on_site", []) or []
     if preferences and role["workplace_type"] not in preferences:
@@ -207,13 +317,13 @@ def evaluate_role(role, search_config):
     for word in setting(search_config, "bad_words", []) or []:
         if word.casefold() in lowered:
             reasons.append("description_exclusion:" + word)
-    if setting(search_config, "security_clearance", True) is False and re.search(r"security clearance|polygraph", lowered):
+    if setting(search_config, "security_clearance", True) is False and clearance_required(description):
         reasons.append("security_clearance_required")
     years = setting(search_config, "current_experience", -1)
     if type(years) is int and years >= 0:
-        required = [int(value) for value in re.findall(r"\b(\d+)(?:\s*[-–]\s*\d+)?\+?\s+years?\b", lowered)]
+        required = required_experience_years(description)
         allowance = 2 if setting(search_config, "did_masters", False) and "master" in lowered else 0
-        if required and max(required) > years + allowance:
+        if required > years + allowance:
             reasons.append("experience_excluded")
         if not required:
             reasons.append("unknown_required_experience")
@@ -232,6 +342,10 @@ def evaluate_role(role, search_config):
     ) if setting(search_config, key)]
     role["exclusion_reasons"] = list(dict.fromkeys(reasons))
     role["eligible"] = not reasons
+    role["application_eligible"] = not reasons
+    role["application_exclusion_reasons"] = list(role["exclusion_reasons"])
+    role["evaluation_scope"] = "application_requirements"
+    role["role_classification"] = classification
     return role
 
 
@@ -300,6 +414,8 @@ def _board(company, board, client, timeout, max_pages):
                     continue
                 row["location"] = categories.get("allLocations") or categories.get("location")
                 row["employmentType"] = categories.get("commitment")
+                row["department"] = categories.get("department") or row.get("department")
+                row["team"] = categories.get("team") or row.get("team")
                 sections = [job.get("descriptionPlain") or job.get("description") or "", job.get("additionalPlain") or job.get("additional") or ""]
                 sections.extend(str(section.get("text", "")) + " " + str(section.get("content", "")) for section in job.get("lists", []) if isinstance(section, dict))
                 row["description"] = " ".join(section for section in sections if isinstance(section, str))
@@ -374,7 +490,8 @@ def _generic_roles(company, page):
         active = any(plain_text(node.text()).casefold() in {"apply", "apply now", "apply for this job", "apply for this role"}
                      for node in document.nodes() if node.tag in {"button", "a"})
         closed = bool(NO_OPENINGS.search(document.root.text()))
-        if OCCUPATION.search(title) and description:
+        detail_path = bool(re.search(r"/(?:careers|jobs)/[^/]+", urlparse(page.url).path))
+        if classify_engineering_role(title, description)["engineering_related"] and (description or active and detail_path or closed):
             properties = {}
             for node in document.nodes():
                 key = node.attrs.get("itemprop")
@@ -456,7 +573,7 @@ def verify_company(company, search_config, client=None, render=None):
             for anchor in document.nodes("a"):
                 title = plain_text(anchor.text())
                 link = public_url(anchor.attrs.get("href"), page.url)
-                if (link and domain_of(link) == domain_of(page.url) and TECH_TITLE.search(title) and OCCUPATION.search(title)
+                if (link and domain_of(link) == domain_of(page.url) and classify_engineering_role(title)["engineering_related"]
                         and re.search(r"/(?:careers|jobs)/[^/]+", urlparse(link).path)
                         and link not in visited and link not in queue):
                     queue.append(link)
@@ -472,7 +589,7 @@ def verify_company(company, search_config, client=None, render=None):
     for row in rows:
         previous = deduplicated.get(row["id"])
         if previous is None or len(row["description"]) > len(previous["description"]):
-            deduplicated[row["id"]] = evaluate_role(row, search_config)
+            deduplicated[row["id"]] = evaluate_verification_role(row, search_config)
     records = sorted(deduplicated.values(), key=lambda role: (role["priority_tier"], role["title"].casefold(), role["id"]))
     for role in records:
         if not role["description"]:

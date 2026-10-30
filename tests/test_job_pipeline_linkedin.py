@@ -87,8 +87,8 @@ class LinkedInPreparationTests(unittest.TestCase):
         frozen_careers.start()
         self.addCleanup(frozen_careers.stop)
 
-    def specs(self, roles=None, search=None):
-        return prepare_specs(roles if roles is not None else [role()], profile(), search or config())
+    def specs(self, roles=None, search=None, *, application=True):
+        return prepare_specs(roles if roles is not None else [role()], profile(), search or config(), application=application)
 
     def test_freshness_accepts_seven_day_boundary_and_rejects_missing_stale_future(self):
         self.assertTrue(fresh_role(role(verified_at=(NOW - timedelta(days=7)).isoformat())))
@@ -118,10 +118,12 @@ class LinkedInPreparationTests(unittest.TestCase):
         self.assertEqual(len(specs), 1)
         current = specs[0]
         self.assertIn("Companies: Example AI", current.query_text)
-        self.assertIn("California", current.query_text)
-        self.assertIn("Full-time", current.query_text)
-        self.assertIn("Remote, Hybrid", current.query_text)
-        self.assertIn("Use Easy Apply", current.query_text)
+        self.assertNotIn("California", current.query_text)
+        self.assertNotIn("Full-time", current.query_text)
+        self.assertNotIn("Use Easy Apply", current.query_text)
+        self.assertEqual(current.filters_snapshot["intent"]["search_location"], "California")
+        self.assertEqual(current.filters_snapshot["intent"]["on_site"], ["Remote", "Hybrid"])
+        self.assertTrue(current.filters_snapshot["intent"]["easy_apply_only"])
         self.assertEqual(current.filters_snapshot["intent"]["companies"], ["Example AI"])
         self.assertEqual(current.pipeline_context["career_job_ids"], [primary["id"], second["id"]])
         self.assertEqual(current.pipeline_context["verification_run_ids"], ["careers-run"])
@@ -184,12 +186,12 @@ class LinkedInPreparationTests(unittest.TestCase):
         current = specs[0]
         for title in ("Principal Systems Engineer", "Member of Technical Staff - Inference Runtime",
                       "Member of Technical Staff - Machines", "Principal Member of Technical Staff - Systems",
-                      "AI Engineer", "Platform Engineer"):
+                      "AI Engineer", "Platform Engineer", "Sales Engineer", "Support Engineer", "SRE", "Engineering Manager"):
             with self.subTest(title=title):
                 self.assertTrue(role_matches(title, "Build production services", current))
         for title in ("Staff Platform Engineer", "Senior Software Engineer", "Junior AI Engineer",
                       "Senior Member of Technical Staff - Systems", "Staff Member of Technical Staff - Systems",
-                      "Software Engineering Intern", "Sales Engineer", "Support Engineer", "Recruiter"):
+                      "Software Engineering Intern", "Recruiter"):
             with self.subTest(title=title):
                 self.assertFalse(role_matches(title, "Build AI platform infrastructure", current))
 

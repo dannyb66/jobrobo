@@ -1,0 +1,294 @@
+{
+  "schema": "jobrobo-validation-url-set-v1",
+  "created_at": "2026-10-22T23:45:40.558448+00:00",
+  "sample_run_id": "validation:fc3b93f6-1c5e-4b39-a463-4edf16eda417",
+  "source": {
+    "path": "/Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task1-location-fix/phase2/phase2-engineering-ranked-remaining.json",
+    "sha256": "5c5d3868393a54e68c64709fe5486745a09017b2124d2809b4b10c908e5a24dc",
+    "set_name": "phase2-geographic-shortlist",
+    "run_id": "45ff1216-520a-4af4-a4d9-b2ebe83980b8",
+    "record_count": 190
+  },
+  "files": {
+    "txt": "jobs-validation.txt",
+    "json": "jobs-validation.json"
+  },
+  "coverage": {
+    "selected": 10,
+    "providers": {
+      "lever": 2,
+      "greenhouse": 2,
+      "ashby": 5,
+      "generic_entry": 1
+    },
+    "known_ats_providers": 3,
+    "generic_entries": 1,
+    "employer_boards": 8,
+    "cases_with_preference_warnings": 4
+  },
+  "selection_rules": [
+    "Exclude confirmed/possibly submitted posting URLs and the earlier Stockholm role.",
+    "Cover all identifiable providers in this source; spread Ashby and Lever across employers.",
+    "Choose minimal available preference warnings within provider coverage; keep remaining warnings explicit.",
+    "Nine roles retain their selected Task 1 records; case 4 is the user-approved, live-verified replacement for a retired CareerJumpShip listing."
+  ],
+  "limits": [
+    "Known provider coverage is inferred from saved URL hosts, not observed form widgets.",
+    "Greenhouse roles in this shortlist all belong to Baton; two roles may share the same form.",
+    "Workday, SmartRecruiters, iCIMS and other providers are absent from this source and not covered.",
+    "The Ondo Finance listing was verified on 2026-10-22; the original CareerJumpShip IT Engineer listing is retained only in the ignored audit copy.",
+    "The Ondo application service accepted the form and queued employer delivery; that is not employer-submission confirmation.",
+    "Live outcome counts below are an audit snapshot; recheck the saved outcome artifact before relying on later changes.",
+    "Known ATS coverage is inferred from saved job URLs; the generic CareerJumpShip workflow is a separate service, not an observed ATS.",
+    "Greenhouse roles in this shortlist belong to Baton; two roles may share the same form.",
+    "Workday, SmartRecruiters, iCIMS and other providers are absent from this sample."
+  ],
+  "cases": [
+    {
+      "case": 1,
+      "role_id": "role:f67b129dcde53554e7d19342",
+      "provider_from_url": "lever",
+      "company": "Instrumentl",
+      "title": "Senior Backend Engineer",
+      "url": "https://jobs.lever.co/Instrumentl/76f33356-fa76-44fc-9576-6186113ec086",
+      "locations": [
+        "Oakland, CA",
+        "Remote - Canada",
+        "Remote - USA"
+      ],
+      "application_eligible": false,
+      "preference_warnings": [
+        "unknown_posted_date"
+      ],
+      "source_verified_at": "2026-10-15T02:37:57.258458+00:00",
+      "source_verification_run_id": "45ff1216-520a-4af4-a4d9-b2ebe83980b8",
+      "validation_focus": "Lever baseline: identity fields, resume attachment and manual final action",
+      "live_form_inspected": false,
+      "validation_result": "not_run"
+    },
+    {
+      "case": 2,
+      "role_id": "role:59b2793f7398c5891aa79e87",
+      "provider_from_url": "greenhouse",
+      "company": "Baton",
+      "title": "Software Engineer - Data Platform",
+      "url": "https://job-boards.greenhouse.io/baton/jobs/5177637007",
+      "locations": [
+        "San Francisco, California, United States"
+      ],
+      "application_eligible": false,
+      "preference_warnings": [
+        "unknown_posted_date"
+      ],
+      "source_verified_at": "2026-10-15T02:38:02.151817+00:00",
+      "source_verification_run_id": "45ff1216-520a-4af4-a4d9-b2ebe83980b8",
+      "validation_focus": "Greenhouse baseline: required fields, dropdown readback and upload receipt",
+      "live_form_inspected": false,
+      "validation_result": "not_run"
+    },
+    {
+      "case": 3,
+      "role_id": "role:5f4cca025bf815a62e7df72f",
+      "provider_from_url": "ashby",
+      "company": "DuckDuckGo",
+      "title": "Senior Privacy Engineer",
+      "url": "https://jobs.ashbyhq.com/duck-duck-go/80797cf4-64b2-4e94-9d87-6f2ecc45c862",
+      "locations": [
+        "Remote",
+        "Japan (Remote)",
+        "Slovakia (Remote)",
+        "Spain (Remote)",
+        "Czechia (Remote)",
+        "Switzerland (Remote)",
+        "Estonia (Remote)",
+        "Singapore (Remote)",
+        "Mexico (Remote)",
+        "USA (Remote)",
+        "Israel (Remote)",
+        "Kyrgyzstan (Remote)",
+        "Bulgaria (Remote)",
+        "Austria (Remote)",
+        "India (Remote)",
+        "Iceland (Remote)",
+        "Hungary (Remote)",
+        "Ireland (Remote)",
+        "Canada (Remote)",
+        "South Africa (Remote)",
+        "Brazil (Remote)",
+        "Finland (Remote)",
+        "UK (Remote)",
+        "Romania (Remote)",
+        "Cyprus (Remote)",
+        "Malta (Remote)",
+        "Latvia (Remote)",
+        "Argentina (Remote)",
+        "Poland (Remote)",
+        "Uruguay (Remote)"
+      ],
+      "application_eligible": true,
+      "preference_warnings": [],
+      "source_verified_at": "2026-10-15T02:38:08.187725+00:00",
+      "source_verification_run_id": "45ff1216-520a-4af4-a4d9-b2ebe83980b8",
+      "validation_focus": "Ashby at a different employer: location choices and applicable optional/demographic controls",
+      "live_form_inspected": false,
+      "validation_result": "not_run"
+    },
+    {
+      "case": 4,
+      "role_id": "url:e1367e0a7800421338e0f615",
+      "provider_from_url": "generic_entry",
+      "company": "Ondo Finance via CareerJumpShip",
+      "title": "Infrastructure Engineer (DevOps)",
+      "url": "https://www.careerjumpship.com/jobs/infrastructure-engineer-devops-ondo-finance-8257c5e6",
+      "locations": [],
+      "application_eligible": true,
+      "preference_warnings": [],
+      "source_verified_at": "2026-10-22T01:54:32.509757+00:00",
+      "source_verification_run_id": null,
+      "validation_focus": "Generic service entry: application form, upload proof, consent, handoff and employer-delivery status",
+      "live_form_inspected": true,
+      "validation_result": "service_submission_pending",
+      "replaces_role_id": "role:a879206d471b222bd025426e",
+      "replacement_approval": "user explicitly approved a verified replacement",
+      "replacement_evidence": "logs/direct_submit_validation/20261021/fixes/replacement-verification.json"
+    },
+    {
+      "case": 5,
+      "role_id": "role:711ea80ec4b510124a5822b2",
+      "provider_from_url": "ashby",
+      "company": "Namespace",
+      "title": "Infrastructure Software Engineer",
+      "url": "https://jobs.ashbyhq.com/namespace/168f6c0b-a28c-4b04-9432-228a297aeedc",
+      "locations": [
+        "Switzerland",
+        "New York",
+        "Germany",
+        "United Kingdom",
+        "San Francisco surroundings"
+      ],
+      "application_eligible": true,
+      "preference_warnings": [],
+      "source_verified_at": "2026-10-15T02:38:05.275275+00:00",
+      "source_verification_run_id": "45ff1216-520a-4af4-a4d9-b2ebe83980b8",
+      "validation_focus": "Ashby employer variation: required profile and prose-answer coverage",
+      "live_form_inspected": false,
+      "validation_result": "not_run"
+    },
+    {
+      "case": 6,
+      "role_id": "role:26879655ad082d5ec936059c",
+      "provider_from_url": "lever",
+      "company": "Shield AI",
+      "title": "Engineer, Software- open level (R5285)",
+      "url": "https://jobs.lever.co/shieldai/22e914d8-488d-4f22-96a9-61dd4b15ea04",
+      "locations": [
+        "United States",
+        "San Diego, California",
+        "San Mateo, California",
+        "Dallas, Texas",
+        "Washington, D.C."
+      ],
+      "application_eligible": false,
+      "preference_warnings": [
+        "unknown_employment_type",
+        "unknown_posted_date"
+      ],
+      "source_verified_at": "2026-10-15T02:38:05.849603+00:00",
+      "source_verification_run_id": "45ff1216-520a-4af4-a4d9-b2ebe83980b8",
+      "validation_focus": "Second Lever employer: employer-specific questions and explicit handling of missing facts",
+      "live_form_inspected": false,
+      "validation_result": "not_run"
+    },
+    {
+      "case": 7,
+      "role_id": "role:000bc1ab694db4fc1a95ed47",
+      "provider_from_url": "greenhouse",
+      "company": "Baton",
+      "title": "Staff Software Engineer - Infrastructure, Data Platform",
+      "url": "https://job-boards.greenhouse.io/baton/jobs/5196180007",
+      "locations": [
+        "San Francisco, California, United States"
+      ],
+      "application_eligible": false,
+      "preference_warnings": [
+        "unknown_posted_date"
+      ],
+      "source_verified_at": "2026-10-15T02:38:02.161793+00:00",
+      "source_verification_run_id": "45ff1216-520a-4af4-a4d9-b2ebe83980b8",
+      "validation_focus": "Second Greenhouse role: compare role-specific required questions against the baseline",
+      "live_form_inspected": false,
+      "validation_result": "not_run"
+    },
+    {
+      "case": 8,
+      "role_id": "role:8cefb2963b525fad7e431701",
+      "provider_from_url": "ashby",
+      "company": "Solace Health",
+      "title": "Senior Backend Engineer",
+      "url": "https://jobs.ashbyhq.com/Solace/009e6604-cc72-40c5-969d-ffc2e06390d4",
+      "locations": [
+        "United States"
+      ],
+      "application_eligible": true,
+      "preference_warnings": [],
+      "source_verified_at": "2026-10-15T02:38:03.931748+00:00",
+      "source_verification_run_id": "45ff1216-520a-4af4-a4d9-b2ebe83980b8",
+      "validation_focus": "Ashby remote role: location/work-authorization readback and visible field persistence",
+      "live_form_inspected": false,
+      "validation_result": "not_run"
+    },
+    {
+      "case": 9,
+      "role_id": "role:215433e611d0449106768372",
+      "provider_from_url": "ashby",
+      "company": "Modal",
+      "title": "Member of Technical Staff - Inference Runtime",
+      "url": "https://jobs.ashbyhq.com/modal/6195f552-ca6f-4540-b7f6-e7e6054e47ad",
+      "locations": [
+        "San Francisco"
+      ],
+      "application_eligible": true,
+      "preference_warnings": [],
+      "source_verified_at": "2026-10-15T02:38:09.870757+00:00",
+      "source_verification_run_id": "45ff1216-520a-4af4-a4d9-b2ebe83980b8",
+      "validation_focus": "Modal San Francisco role: location/office answers and confirmation monitoring after any manual Submit",
+      "live_form_inspected": false,
+      "validation_result": "not_run"
+    },
+    {
+      "case": 10,
+      "role_id": "role:21042d95ed1fe3b32800521e",
+      "provider_from_url": "ashby",
+      "company": "baseten",
+      "title": "Software Engineer - Inference Platform",
+      "url": "https://jobs.ashbyhq.com/baseten/14c4a663-0b1f-4c11-93ff-1359741ee456",
+      "locations": [
+        "San Francisco",
+        "Toronto",
+        "New York",
+        "Montreal",
+        "Seattle"
+      ],
+      "application_eligible": true,
+      "preference_warnings": [],
+      "source_verified_at": "2026-10-15T02:37:42.321524+00:00",
+      "source_verification_run_id": "45ff1216-520a-4af4-a4d9-b2ebe83980b8",
+      "validation_focus": "Baseten different role: attachment checks and Ashby success-banner regression coverage",
+      "live_form_inspected": false,
+      "validation_result": "not_run"
+    }
+  ],
+  "new_employer_actions": 0,
+  "outcomes": {
+    "source": "logs/direct_submit_validation/20261021/fixes/validation-outcomes.json",
+    "observed_at": "2026-10-22T03:17:55.491189+00:00",
+    "total": 10,
+    "all_employer_confirmed": false,
+    "counts": {
+      "confirmed": 6,
+      "email_verification_pending": 1,
+      "hcaptcha_unconfirmed": 2,
+      "service_submission_pending": 1
+    }
+  }
+}

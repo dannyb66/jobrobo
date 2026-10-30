@@ -141,6 +141,36 @@ class DeferredJobsTests(unittest.TestCase):
         self.jobs.record(self.info(job_id="23456"))
         self.assertEqual([r["job_id"] for r in self.jobs.records], ["12345", "23456"])
 
+    def test_confirmed_application_cannot_be_downgraded_by_late_failure(self):
+        self.jobs.record(self.info(status='applied', submission_disabled=False,
+                                   requires_submission_check=False, reason='LinkedIn confirmed'))
+        row = self.jobs.record(self.info(status='failed', run_id='later', reason='Cleanup failed',
+                                         requires_submission_check=True))
+        self.assertEqual(row['status'], 'applied')
+        self.assertEqual(row['run_id'], 'run-1')
+        self.assertEqual(row['reason'], 'LinkedIn confirmed')
+        self.assertFalse(row['requires_submission_check'])
+        self.assertFalse(row['submission_disabled'])
+        self.assertEqual(row['history'][-1]['status'], 'failed')
+        self.assertIn('Cleanup failed', row['failed_reasons'])
+
+    def test_submission_hold_survives_a_later_successful_preparation(self):
+        self.jobs.record(self.info(status='submission_uncertain', submission_disabled=False,
+                                   requires_submission_check=True))
+        row = self.jobs.record(self.info(status='ready', run_id='later', requires_submission_check=False))
+        self.assertEqual(row['status'], 'submission_uncertain')
+        self.assertTrue(row['requires_submission_check'])
+        row = self.jobs.record(self.info(status='applied', run_id='verified', submission_disabled=False))
+        self.assertEqual(row['status'], 'applied')
+        self.assertFalse(row['requires_submission_check'])
+
+    def test_older_observation_is_audited_without_reopening_excluded_job(self):
+        self.jobs.record(self.info(status='skipped', observed_at='2026-10-25T12:00:00Z'))
+        row = self.jobs.record(self.info(status='failed', run_id='old', observed_at='2026-10-24T12:00:00Z'))
+        self.assertEqual(row['status'], 'skipped')
+        self.assertEqual(row['observed_at'], '2026-10-25T12:00:00Z')
+        self.assertEqual(row['history'][-1]['status'], 'failed')
+
     def test_occurrence_time_is_never_invented_and_ingestion_is_current(self):
         row = self.jobs.record(self.info(created_at="1900-01-01", updated_at="1900-01-01"))
         self.assertNotIn("last_seen", row)
