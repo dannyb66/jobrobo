@@ -218,6 +218,9 @@ return (hit.textContent||'').trim();
 
 COMBOBOX_VALUE_JS = r"""
 const el=arguments[0];
+// An autocomplete stores the pick straight in its own input.
+const own=(el.value||'').trim();
+if(own)return [own];
 let box=el;
 for(let i=0;i<6&&box;i++){
   const found=[...box.querySelectorAll('[class*=single-value],[class*=multi-value__label]')].map(e=>(e.textContent||'').trim());
@@ -250,6 +253,11 @@ def _open_combobox(driver, element, wait=time.sleep):
         try:
             driver.execute_script(COMBOBOX_OPEN_JS, element)
             wait(0.15)
+            # An autocomplete (Ashby's location/school inputs) never opens on a
+            # click; it waits for typed input. A harmless nudge gets its list up.
+            if str(element.get_attribute("aria-autocomplete") or "").lower() == "list":
+                element.send_keys("a")
+                wait(0.5)
         except Exception:
             pass
         try:
@@ -338,11 +346,26 @@ def _pick_combobox(driver, element, value, wait=time.sleep):
     from .external_questions import normalize_label
 
     chosen = value if isinstance(value, str) else str(value)
-    options = _open_combobox(driver, element, wait)
+    autocomplete = str(element.get_attribute("aria-autocomplete") or "").lower() == "list"
+    if autocomplete:
+        # Type the whole answer: the list is queried by prefix, and its entries
+        # are longer than the answer ("San Diego" -> "San Diego, California,
+        # United States"), so a click alone can never find them.
+        try:
+            element.clear()
+        except Exception:
+            pass
+        element.send_keys(chosen)
+        wait(0.8)
+        options = _combo_options(driver)
+    else:
+        options = _open_combobox(driver, element, wait)
     picked = driver.execute_script(COMBOBOX_PICK_JS, element, chosen)
     if picked is None:
         lowered = chosen.casefold()
         prefix = next((o["label"] for o in options if o["label"].casefold().startswith(lowered)), None)
+        if prefix is None and autocomplete:
+            prefix = next((o["label"] for o in options if lowered in o["label"].casefold()), None)
         if prefix:
             picked = driver.execute_script(COMBOBOX_PICK_JS, element, prefix)
     if picked is None:

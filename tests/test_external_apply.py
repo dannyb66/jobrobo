@@ -37,6 +37,9 @@ class Element:
             # per call, so the field must accumulate rather than be replaced.
             self.data["value"] = (self.data.get("value") or "") + value
 
+    def get_attribute(self, name):
+        return self.data.get(name)
+
     def click(self):
         if self.data.get("combobox"):
             # A click on a closed control opens it (react-select semantics); the
