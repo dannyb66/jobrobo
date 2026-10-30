@@ -550,17 +550,19 @@ def education_checkbox_answers(modal, source_docx, configured):
     """
     from pathlib import Path
     from modules.linkedin_easy_apply import MissingApplicationAnswer
-    groups = modal.find_elements(By.XPATH,
+    groups = _found(modal, By.XPATH,
         './/*[count(.//input[@type="checkbox"])>1][not(.//*[count(.//input[@type="checkbox"])>1])]')
     requested = {}
     education = None
     for group in groups:
-        text = ' '.join(group.text.split())
+        # group.text is a Mock on a test double.
+        raw_text = group.text
+        text = ' '.join(raw_text.split()) if isinstance(raw_text, str) else ''
         # The options may be in an inner list and the prompt just above it.
         for _ in range(3):
             if re.search(r'field(?:s)? of study|major(?:s)?\b|degree(?:s)?\b', text, re.I):
                 break
-            parents = group.find_elements(By.XPATH, './parent::*')
+            parents = _found(group, By.XPATH, './parent::*')
             if not parents or parents[0].get_attribute('role') == 'dialog':
                 break
             group = parents[0]
