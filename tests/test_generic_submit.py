@@ -113,7 +113,11 @@ class SubmitContracts(TestCase):
             run.update(jobs[1],status='submission_uncertain',stage='confirmation',retryable=False)
             directory=run.directory;run.close()
             self.assertEqual((directory/'retry.txt').read_text(),'https://a.test/job/1\n')
-            self.assertEqual(len(load_jobs([str(directory/'retry.json')])),1)
+            # retry.json now tracks every non-success URL so a later run can pick
+            # it up; only the retryable one is marked safe to replay automatically.
+            tracked=load_jobs([str(directory/'retry.json')])
+            self.assertEqual(len(tracked),2)
+            self.assertEqual((directory/'retry-manual.txt').read_text(),'https://a.test/job/2\n')
             self.assertEqual(len(json.loads((directory/'needs-review.json').read_text())['jobs']),1)
             resumed=SubmitRun(directory);self.assertEqual(resumed.options['pause'],'unknown');resumed.close()
             self.assertEqual(status(directory)['counts']['submission_uncertain'],1)
