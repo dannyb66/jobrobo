@@ -1049,6 +1049,24 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertFalse(any("easy_apply_only" in warning or "under_10_applicants" in warning for warning in warnings))
         namespace["set_search_location"].assert_called_once_with("San Francisco Bay Area")
 
+    def test_classic_external_mode_clears_previous_easy_apply_switch(self):
+        search = spec('external-filters')
+        search.mode = 'classic'
+        search.filters_snapshot['intent'] = {'application_mode':'external_only', 'easy_apply_only':False}
+        selected = [True]
+        label = Mock()
+        label.click.side_effect = lambda: selected.__setitem__(0, False)
+        control = SimpleNamespace(is_selected=lambda: selected[0], find_elements=lambda *a: [label])
+        browser = Mock()
+        browser.find_elements.side_effect = lambda by, xpath: [control] if '//fieldset[' in xpath else []
+        namespace = {'driver':browser, 'By':self.namespace['By'], 'NoSuchElementException':MissingElement,
+            'buffer':Mock(), 'scroll_to_view':Mock(), 'try_xp':Mock(), 'pause_after_filters':False,
+            'apply_configured_filters':apply_configured_filters}
+        extract_functions(namespace, 'apply_filters')
+        namespace['apply_filters'](search)
+        label.click.assert_called_once()
+        self.assertFalse(selected[0])
+
     def test_out_of_area_hybrid_job_skips_before_description_form_upload_or_submit(self):
         search = spec("bay-area")
         search.filters_snapshot["intent"]["search_location"] = "San Francisco Bay Area"

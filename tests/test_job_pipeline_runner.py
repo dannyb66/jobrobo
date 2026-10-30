@@ -630,7 +630,7 @@ class BackendApplicationResumeTests(unittest.TestCase):
             "workplace_type": "Remote", "employment_type": "Full-time", "locations": ["United States"],
             "published_at": datetime.now(timezone.utc).isoformat(),
         }
-        specs, errors = prepare_specs([role], search_profile, dict(mapping(search), switch_number=2))
+        specs, errors = prepare_specs([role], search_profile, dict(mapping(search), switch_number=2, application_mode='easy_apply_only'))
         self.assertEqual(errors, [])
         spec = specs[0]
         selected = [{
@@ -674,7 +674,7 @@ class BackendApplicationResumeTests(unittest.TestCase):
                     result_sink(job)
                 return selected, []
             runtime_patches["collect_linkedin_jobs"] = collect
-        with patch.object(search, "switch_number", 2), patch.object(search, "max_applications_per_run", application_cap), patch.multiple(runAiBot, create=True, **runtime_patches):
+        with patch.object(search, 'application_mode', 'easy_apply_only'), patch.object(search, "switch_number", 2), patch.object(search, "max_applications_per_run", application_cap), patch.multiple(runAiBot, create=True, **runtime_patches):
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 first = runAiBot.run_pipeline(request)
             state_directory = runner.runner.directory / "state"

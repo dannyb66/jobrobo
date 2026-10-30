@@ -268,7 +268,7 @@ class NavigationTests(unittest.TestCase):
             <a>Recommended job</a><button>Continue applying</button><button>Explore more jobs</button></dialog>'''
         browser=Browser([warning,form(),form('Questions','Review'),form('Review','Submit application')])
         fill=Mock()
-        self.navigate(browser,fill)
+        advance_to_review(browser, fill, timeout=1)
         self.assertEqual(browser.clicks,['Continue applying','Next','Review'])
         self.assertEqual(fill.call_count,3)
 

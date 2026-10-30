@@ -827,6 +827,14 @@ class ModernFilterReplayTests(unittest.TestCase):
         self.assertFalse(any('application_mode' in warning for warning in result.warnings))
         self.assertNotIn('easy_apply_only', result.verified_filters)
 
+    def test_external_mode_clears_an_already_selected_easy_apply_facet(self):
+        from modules.linkedin_modern_search import _apply_filters, _facet, _selected
+        self.prepare()
+        self.assertTrue(_selected(_facet(self.browser, 'easy_apply_only')))
+        _apply_filters(self.browser, {'application_mode':'external_only', 'easy_apply_only':False},
+                       wait=immediate, timeout=.1)
+        self.assertFalse(_selected(_facet(self.browser, 'easy_apply_only')))
+
     def test_native_preselected_remote_only_is_cleared_for_remote_or_hybrid_intent(self):
         original_type = self.browser.type_into
 

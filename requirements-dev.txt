@@ -1,3 +1,4 @@
 # DOM fixtures exercise the actual LinkedIn markup without a live browser.
 beautifulsoup4>=4.12,<5
 lxml>=5,<7
+pytest>=8,<9

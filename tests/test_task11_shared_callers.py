@@ -18,22 +18,27 @@ class SharedCallerTests(unittest.TestCase):
             self.assertEqual(callback(job_description='Exact JD',job_id='job'),'synthetic.pdf')
             generate.assert_called_once_with(job_description='Exact JD',job_id='job',rewrite_all_bullets=True,rewrite_experience_concurrency=3)
 
-    def test_hosted_strict_failure_does_not_reach_form_or_source_upload(self):
+    def test_hosted_route_uses_shared_submit_engine_without_a_second_optimizer(self):
         from modules.external_apply import ExternalApplicationResult
-        for failure in (None,RuntimeError('Synthetic failure')):
-            with self.subTest(failure=type(failure).__name__),TemporaryDirectory() as temp:
-                root=Path(temp);source=root/'source.docx';source.write_bytes(b'synthetic')
-                source.with_suffix('.pdf').write_bytes(b'synthetic')
-                optimize=Mock(side_effect=failure) if isinstance(failure,Exception) else Mock(return_value=None)
-                ns={'search_profile':SimpleNamespace(search_state_dir=str(root/'state')),'default_resume_docx_path':str(source),'default_resume_path':str(source.with_suffix('.pdf')),'use_AI_for_resume':True,'run_resume_optimization':optimize,'print_lg':Mock(),'first_name':'Danny','last_name':'Basavaraju','full_name':'Danny Basavaraju','active_search':None,'driver':Mock(),'checkpoint_external_application':Mock()}
-                extract_functions(ns,'prepare_external_application')
-                with patch('modules.config_loader.load_runtime_config',return_value={'expected_page_count':2,'rewrite_all_bullets':True}),patch('modules.external_apply.ExternalApplicationLedger') as ledger,patch('modules.ai.resume_optimizer.ResumeOptimizer.verify_format',return_value={'passed':True}),patch('modules.external_questions.load_question_config',return_value={}),patch('modules.external_questions.make_local_ai_answerer',return_value=None),patch('modules.external_apply.apply_hosted_application',return_value=ExternalApplicationResult('awaiting_review','https://example.test/apply')) as hosted:
-                    ledger.return_value.protected.return_value=False
-                    result=ns['prepare_external_application']('https://example.test/apply','job','Engineer','Exact JD','Example')
-                self.assertEqual(result.status,'manual_handoff')
-                self.assertIn('fallback is disabled',result.reason)
-                hosted.assert_not_called()
-                ns['checkpoint_external_application'].assert_not_called()
+        ns={'search_profile':SimpleNamespace(search_state_dir='logs/search_runs'),
+            'driver':SimpleNamespace(current_window_handle='employer'),
+            'active_manifest':None,'active_search':None,'search_metadata':Mock(return_value={'Search Run ID':'search-run'}),
+            'checkpoint_job':Mock(),'run_resume_optimization':Mock(),
+            'external_apply_pause_before_submit':'never','external_apply_captcha_solver':True}
+        extract_functions(ns,'prepare_external_application')
+        outcome=ExternalApplicationResult('failed','https://example.test/apply',
+            reason='No verified optimized resume available',direct_status='blocked')
+        with patch('modules.linkedin_external_submit.submit_employer_tab',return_value=outcome) as submit, patch('modules.external_apply.apply_hosted_application') as legacy:
+            result=ns['prepare_external_application']('https://example.test/apply','123','Engineer','Exact JD','Example')
+        self.assertIs(result,outcome)
+        self.assertEqual(submit.call_args.args,(ns['driver'],'employer','https://example.test/apply'))
+        self.assertEqual(submit.call_args.kwargs['description'],'Exact JD')
+        self.assertEqual(submit.call_args.kwargs['pause'],'never')
+        self.assertTrue(submit.call_args.kwargs['captcha_solver'])
+        submit.call_args.kwargs['checkpoint']('submitting','pending employer receipt')
+        ns['checkpoint_job'].assert_called_once_with('123','submitting','pending employer receipt')
+        ns['run_resume_optimization'].assert_not_called()
+        legacy.assert_not_called()
 
     def test_strict_generated_reports_need_independent_attachment_verification(self):
         import test_direct_careers_apply as harness

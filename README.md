@@ -234,6 +234,20 @@ eligible failures also enter `logs/deferred_applications/retry_jobs.json`.
 Uncertain submissions remain protected for reconciliation rather than automatic
 Submit replay. `--fresh` preserves these protections and previous employer
 submission holds, including those recorded by the direct-submit command.
+If a retained application is later confirmed in its linked direct run, the next
+LinkedIn resume imports that confirmation without replaying Submit or counting
+it as a new submission in that invocation.
+
+Post-submit CAPTCHA handling has one bounded solve cycle (at most two solver
+calls). An exhausted challenge stays uncertain, reserves one application slot,
+and remains in retry records for outcome checking while other jobs continue.
+The local browser regression tests submission, retained uncertainty, and the next
+job without contacting employers:
+
+```bash
+JOBROBO_BROWSER_TESTS=1 python3 -m pytest -q \
+  tests/test_generic_submit.py::SubmitBrowserTests::test_borrowed_browser_continues_after_rejected_captcha
+```
 
 Test the form and optimized attachment without submitting:
 

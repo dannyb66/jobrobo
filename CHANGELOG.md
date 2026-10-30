@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.7.0] - 2026-10-30
+
+### Fixed
+
+- Continue LinkedIn employer applications after a rejected CAPTCHA using one bounded solve cycle; preserve uncertain attempts for outcome checks.
+- Save employer submission checkpoints before Submit and import later confirmations on resume without replaying an application or counting it twice.
+- Retain failed employer tabs and diagnostics, keep manual blockers out of automatic retries, and clear stale Easy Apply filters for employer-only searches.
+- Match employer titles containing HTML entities and preserve browser ownership when handing off direct applications.
+
 ## [0.1.6.0] - 2026-10-28
 
 ### Fixed

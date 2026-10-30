@@ -59,6 +59,15 @@ class RetryBatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "submission outcome must be checked"):
             build_retry_batch(self.path, self.profile, self.config, 1)
 
+    def test_external_manual_blocker_is_retained_but_not_auto_selected(self):
+        for job_id, retryable in [('100', False), ('101', True)]:
+            self.add(job_id)
+            self.ledger.record({'job_id':job_id, 'status':'failed', 'submission_disabled':False,
+                'external_application':{'direct_status':'blocked', 'retryable':retryable}})
+        _, selected = build_retry_batch(self.path, self.profile, self.config, 5)
+        self.assertEqual([job['linkedin_id'] for rows in selected.values() for job in rows], ['101'])
+        self.assertEqual(len(self.ledger.records), 2)
+
     def test_retry_submission_pause_defaults_on_and_explicit_opt_in_disables_it(self):
         from test_search_runner import extract_functions
         class StopBeforeBrowser(RuntimeError):

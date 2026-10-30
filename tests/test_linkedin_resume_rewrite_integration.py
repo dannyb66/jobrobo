@@ -107,8 +107,8 @@ class LinkedInRewriteIntegrationTests(TestCase):
             with self.subTest(output=type(output).__name__):
                 optimize = Mock(side_effect=output) if isinstance(output, Exception) else Mock(return_value=output)
                 with patch('modules.resume_all_bullets.verify_strict_attachment') as verify:
-                    self.assertEqual(self.upload(optimize, runtime_config_override=self.config),
-                                     (False, 'Strict rewrite incomplete'))
+                    expected = 'generation failed' if isinstance(output, Exception) else 'No verified job-specific optimized PDF is available'
+                    self.assertEqual(self.upload(optimize, runtime_config_override=self.config), (False, expected))
                     verify.assert_not_called()
         self.file_input.send_keys.assert_not_called()
         self.source_verify.assert_not_called()

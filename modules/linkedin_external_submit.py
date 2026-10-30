@@ -102,10 +102,14 @@ def submit_employer_tab(driver, handle, url, *, job_id, title, company, descript
     def observe(_job, state):
         # Runs after the direct checkpoint is durable, before the Submit click.
         status = state['status']
+        metadata = {'external_application':dict(status='applied' if status == 'applied' else 'submitting',
+            application_link=url, direct_run_id=state['direct_run_id'], direct_run_dir=state['direct_run_dir'],
+            direct_status=status, attempt_id=state.get('attempt_id'), retryable=False,
+            preparation_report=state.get('preparation_report'), resume_sha256=state.get('resume_sha256'))}
         if status == 'applied':
-            checkpoint('applied', 'Employer confirmed submission')
+            checkpoint('applied', 'Employer confirmed submission', **metadata)
         elif status in {'submitting', 'submission_uncertain'} or state.get('verification_after_submit'):
-            checkpoint('submitting', 'Employer submission awaiting confirmation')
+            checkpoint('submitting', 'Employer submission awaiting confirmation', **metadata)
 
     result = run_submissions([job], run_dir=history/('linkedin-'+str(job_id)),
         config_dir=config_dir, output_dir=state_dir.parent/'url_preparations',
@@ -117,7 +121,7 @@ def submit_employer_tab(driver, handle, url, *, job_id, title, company, descript
     report = json.loads(Path(report_path).read_text()) if report_path and Path(report_path).is_file() else {}
     status = row['status']
     mapped = ('applied' if status == 'applied' else 'duplicate' if status == 'duplicate' else
-              'submitting' if status in {'submission_uncertain', 'submitting'} or row.get('verification_after_submit') else
+              'submitting' if status in {'submission_uncertain', 'submitting', 'awaiting_manual_submit', 'awaiting_correction'} or row.get('verification_after_submit') else
               'manual_handoff' if status in {'awaiting_manual_submit', 'awaiting_correction', 'awaiting_email_verification', 'awaiting_review'} else 'failed')
     identity = identify_ats(report.get('resolved_url', url))
     resume = report.get('resume') or {}
@@ -132,6 +136,9 @@ def submit_employer_tab(driver, handle, url, *, job_id, title, company, descript
 
 def finish_browser(driver, retained_handles):
     """Leave unresolved employer tabs alive; otherwise release the browser normally."""
+    if not retained_handles:
+        driver.quit()
+        return False
     retained = set(retained_handles) & set(driver.window_handles)
     if retained:
         driver.switch_to.window(next(iter(retained)))
@@ -139,3 +146,28 @@ def finish_browser(driver, retained_handles):
         return True
     driver.quit()
     return False
+
+
+def reconcile_confirmed_attempt(manifest, spec, job_id):
+    """Read a linked direct-run confirmation without opening a page or replaying Submit."""
+    job_id = str(job_id)
+    parent = manifest.query(spec.query_id)['jobs'][job_id]
+    link = parent.get('external_application') or {}
+    if not link.get('direct_run_dir') or not link.get('direct_run_id') or not link.get('attempt_id'):
+        return False
+    try:
+        progress = json.loads((Path(link['direct_run_dir'])/'progress.json').read_text())
+        if progress.get('schema') != 'direct-submit-progress-v1' or progress.get('run_id') != link['direct_run_id']:
+            return False
+        proof = next((row for row in progress['jobs'] if row['id'] == 'linkedin:'+job_id
+                      and row.get('attempt_id') == link['attempt_id'] and row['status'] == 'applied'
+                      and ExternalApplicationLedger.target_key(row['url']) == ExternalApplicationLedger.target_key(link['application_link'])), None)
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    if proof is None:
+        return False
+    manifest.record_job(spec, job_id, 'applied', 'Confirmed in the linked employer submission run during resume')
+    manifest.query(spec.query_id)['jobs'][job_id]['external_application'] = {
+        **link, 'status':'applied', 'direct_status':'applied', 'submitted_at':proof.get('submitted_at')}
+    manifest.save()
+    return True

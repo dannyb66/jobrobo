@@ -214,6 +214,45 @@ class Handler(BaseHTTPRequestHandler):
 class SubmitActivationTests(TestCase):
     """Pure helpers; no browser needed."""
 
+    def test_rejected_post_submit_captcha_has_one_bounded_solve_cycle(self):
+        from types import SimpleNamespace
+        from modules.generic_submit import submit_ready
+        with TemporaryDirectory() as tmp:
+            job=load_jobs(url='https://example.test/jobs/bounded-captcha')[0]
+            run=SubmitRun(Path(tmp)/'run',jobs=[job])
+            self.addCleanup(run.close)
+            ledger=ExternalApplicationLedger(Path(tmp)/'ledger.json')
+            activated=[False];clock=[0.0]
+            driver=Mock(current_url=job['url'],browser_backend='local')
+            def script(source,*args):
+                if source=='return window.__jobroboPrepare.documentId':return 'document'
+                if 'finalActivated' in source:return {'activated':activated[0],'document':'document'}
+                return True
+            driver.execute_script.side_effect=script
+            state=lambda:{'url':job['url'],'headings':['Staff Engineer'],'alerts':[], 'fields':[],
+                          'challenge':activated[0]}
+            browser=SimpleNamespace(driver=driver,allow_local=False,read=state,actions=[])
+            report={'url':job['url'],'resolved_url':job['url'],'resume':{'pdf_sha256':'hash'},
+                    'attachment':{'name':'optimized.pdf'},'questions':[],'review_binding_sha256':'binding'}
+            def activate(**kw):activated[0]=True
+            def sleep(seconds):clock[0]+=seconds
+            with patch('modules.generic_submit.validate_final',return_value=(state(),{'element':Mock()},'')), \
+                 patch('modules.generic_submit._activate',side_effect=activate) as click, \
+                 patch('modules.generic_submit._accept_cookie_banner'), patch('modules.generic_submit._await_painted_challenge'), \
+                 patch('modules.kernel_challenges.wait_for_challenge',return_value=True), \
+                 patch('modules.captcha_solver.enabled',return_value=True), \
+                 patch('modules.captcha_solver.solve',return_value={'status':'rejected','responses':1}) as solve, \
+                 patch('modules.generic_submit.time.monotonic',side_effect=lambda:clock[0]), \
+                 patch('modules.generic_submit.time.sleep',side_effect=sleep):
+                result=submit_ready(browser,report,Path(tmp),job=job,run=run,ledger=ledger,
+                    attempt_id='attempt',pause='never',confirmation_timeout=.03,poll_interval=.01)
+            self.assertEqual(solve.call_count,2)
+            click.assert_called_once()
+            self.assertEqual(result['status'],'submission_uncertain')
+            self.assertEqual(run.rows()[0][1]['stage'],'captcha_unresolved_after_submit')
+            self.assertTrue(ledger.protected(job['url']))
+            self.assertLess(clock[0],3)
+
     def test_intercepted_final_submit_falls_back_to_a_dom_click(self):
         """A footer overlaying Submit must not fail the whole application."""
         from modules.generic_submit import _activate
@@ -306,6 +345,19 @@ class SubmitBrowserTests(TestCase):
         self.assertNotIn(handles[0], driver.window_handles)
         self.assertIn(handles[1], driver.window_handles)
         self.assertNotIn(handles[2], driver.window_handles)
+
+    def test_borrowed_browser_continues_after_rejected_captcha(self):
+        class ChallengedBrowser(SubmissionBrowser):
+            def read(self):
+                state=super().read()
+                if '/no-confirm/borrowed-b' in state['url'] and '/receive/no-confirm/borrowed-b' in Handler.receipts:
+                    state['challenge']=True
+                return state
+        with patch('modules.submit_runner.SubmissionBrowser',ChallengedBrowser), \
+             patch('modules.captcha_solver.enabled',return_value=True), \
+             patch('modules.captcha_solver.solve',return_value={'status':'rejected','responses':1}) as solve:
+            self.test_borrowed_browser_confirms_keeps_uncertain_and_continues()
+        self.assertEqual(solve.call_count,2)
     def test_repeated_fresh_runs_allow_same_posting_and_preserve_old_run(self):
         jobs=self.jobs('/job/a');jobs[0]['prior_status']='applied'
         old=ExternalApplicationLedger(self.ledger)
