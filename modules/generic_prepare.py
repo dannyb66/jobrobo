@@ -726,7 +726,9 @@ def _custom_choice_once(browser, field, resolver, provider):
     # Get candidate text before opening autocomplete (city/country etc.).
     probe = {'label': label, 'name': field['name'], 'kind': 'text', 'required': field['required'], 'fields': [field]}
     if normalize_label(label) in {'location', 'location city', 'current location', 'please list your current location',
-                                 'which city and country do you intend to work from'}:
+                                 'which city and country do you intend to work from',
+                                 'where are you based from today', 'where are you based',
+                                 'where are you located', 'what city are you based in'}:
         context = label + ' ' + field.get('context_text', '')
         country_only = (re.search(r'\bcountr(?:y|ies)\b', context, re.I) and
                         not re.search(r'\bcit(?:y|ies)\b|\bstreet\b|\bpostal\b|\bstate\b|\bprovince\b', context, re.I))
@@ -743,6 +745,17 @@ def _custom_choice_once(browser, field, resolver, provider):
         return True, 'existing_browser', ''
     browser.driver.execute_script('arguments[0].scrollIntoView({block:"center",inline:"nearest",behavior:"instant"})', element)
     time.sleep(0.15)
+    autocomplete = str(element.get_attribute('aria-autocomplete') or '').lower() == 'list'
+    if autocomplete:
+        # A click never opens one of these; it needs typed input. Seed it from
+        # the configured city so the list queries something relevant.
+        seed = resolver.typed.candidate.get('city') or resolver.typed.candidate.get('country') or ''
+        if seed:
+            try:
+                element.clear()
+            except Exception:
+                pass
+            element.send_keys(str(seed))
     # Some accessible select inputs require their adjacent toggle button;
     # clicking/focusing the text input alone does not open the option list.
     toggle = browser.driver.execute_script("""
