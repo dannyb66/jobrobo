@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 VENV_PYTHON = ROOT / ".venv-captchakraken" / "bin" / "python"
 SIDECAR = ROOT / "scripts" / "captcha_solve.py"
-DEFAULT_TIMEOUT = 180
+DEFAULT_TIMEOUT = 100
 
 # Outcomes a caller may act on. ``cleared`` is the only one that means "go on".
 CLEARED = "cleared"
@@ -137,8 +137,10 @@ def solve(driver, *, expect_provider: str | None = None, timeout: int = DEFAULT_
     except Exception:
         pass
 
+    # Three loops, not five: a board that has not cleared in three is rarely
+    # going to, and the caller retries a rejection with a fresh solve anyway.
     command = [str(VENV_PYTHON), str(SIDECAR), "--cdp", url, "--url", page_url,
-               "--max-responses", "5"]
+               "--max-responses", "3", "--overall-timeout-ms", "75000"]
     if wait_painted_ms:
         command += ["--wait-painted-ms", str(wait_painted_ms)]
     if expect_provider:

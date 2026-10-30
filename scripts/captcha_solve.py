@@ -341,18 +341,26 @@ def main(argv=None) -> int:
                     overall_solve_timeout_ms=args.overall_timeout_ms,
                     max_solve_loops=args.max_responses,
                 )
-                from captchakraken import planner as _planner
-                _http = _planner.ActionPlanner.__dict__.get("_http")
-                orig_post = getattr(_http, "post", None)
-                if orig_post is not None:
-                    def counting_post(*a, **kw):
-                        RESPONSE_COUNT["n"] += 1
-                        return orig_post(*a, **kw)
-                    _http.post = counting_post
-                outcome = grid_solver_class()(config).solve(page)
-                if orig_post is not None:
-                    _http.post = orig_post
-                responses = max(len(getattr(outcome, "token_usage", []) or []), RESPONSE_COUNT["n"])
+                # Count billed calls by patching the HTTP verb itself: the
+                # planner keeps a per-instance Session, so a class lookup of
+                # `_http` finds nothing.
+                import requests as _requests
+                orig_post = _requests.Session.post
+
+                def counting_post(self, *a, **kw):
+                    RESPONSE_COUNT["n"] += 1
+                    return orig_post(self, *a, **kw)
+
+                _requests.Session.post = counting_post
+                outcome = None
+                try:
+                    outcome = grid_solver_class()(config).solve(page)
+                finally:
+                    _requests.Session.post = orig_post
+                    # A rejected solve raises, so this must be counted here or
+                    # the billed calls of every failed attempt read as zero.
+                    responses = max(len(getattr(outcome, "token_usage", []) or []),
+                                    RESPONSE_COUNT["n"])
                 after = probe(page)
                 token_now = token_length(page)
                 cleared = not after.get("active") or token_now > 0
