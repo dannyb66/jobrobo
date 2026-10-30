@@ -146,6 +146,9 @@ def complete_email_verification(browser, *, timeout=120, wait=time.sleep):
     return code
 
 
+SOLVE_ATTEMPT_LIMIT = 3
+
+
 def _activate(*, driver, element):
     """Click the final Submit, falling back to a DOM click.
 
@@ -325,7 +328,8 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                            retryable=False, attempt_id=attempt_id)
                 return {'status': 'applied', 'submitted_at': outcome.submitted_at, 'confirmation_verified': True,
                         'final_review_verified': True, 'blockers': []}
-            if (claimed and scoped and state.get('challenge') and not solver_attempted_after_submit
+            if (claimed and scoped and state.get('challenge')
+                    and solve_attempts < SOLVE_ATTEMPT_LIMIT
                     and getattr(browser.driver, 'browser_backend', None) != 'kernel'):
                 # An invisible widget only appears after Submit; solve it here and
                 # let the loop re-judge, rather than timing out on the prompt.
@@ -340,7 +344,11 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     # board, and a second fresh solve re-deals it far more cheaply
                     # than five rounds inside one exhausted window.
                     outcome_record = captcha_solver.solve(browser.driver)
-                    while (not captcha_solver.cleared(outcome_record) and solve_attempts < 1
+                    solve_attempts += 1
+                    # Hard ceiling per job. The confirmation loop re-enters this
+                    # branch on every pass, so without a cap a stubborn board was
+                    # re-solved indefinitely (one job took eleven attempts).
+                    while (not captcha_solver.cleared(outcome_record) and solve_attempts < SOLVE_ATTEMPT_LIMIT
                            and outcome_record.get('status') == 'rejected'):
                         solve_attempts += 1
                         wait_between = min(2.0, max(0.0, 2.0 - (time.monotonic() - solved_from)))

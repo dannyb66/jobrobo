@@ -214,7 +214,7 @@ class Handler(BaseHTTPRequestHandler):
 class SubmitActivationTests(TestCase):
     """Pure helpers; no browser needed."""
 
-    def test_rejected_post_submit_captcha_has_one_bounded_solve_cycle(self):
+    def test_rejected_post_submit_captcha_stops_at_three_attempts(self):
         from types import SimpleNamespace
         from modules.generic_submit import submit_ready
         with TemporaryDirectory() as tmp:
@@ -246,12 +246,13 @@ class SubmitActivationTests(TestCase):
                  patch('modules.generic_submit.time.sleep',side_effect=sleep):
                 result=submit_ready(browser,report,Path(tmp),job=job,run=run,ledger=ledger,
                     attempt_id='attempt',pause='never',confirmation_timeout=.03,poll_interval=.01)
-            self.assertEqual(solve.call_count,2)
+            # Capped at three total attempts per job, never unbounded.
+            self.assertEqual(solve.call_count,3)
             click.assert_called_once()
             self.assertEqual(result['status'],'submission_uncertain')
             self.assertEqual(run.rows()[0][1]['stage'],'captcha_unresolved_after_submit')
             self.assertTrue(ledger.protected(job['url']))
-            self.assertLess(clock[0],3)
+            self.assertLess(clock[0],5)
 
     def test_intercepted_final_submit_falls_back_to_a_dom_click(self):
         """A footer overlaying Submit must not fail the whole application."""
