@@ -124,13 +124,16 @@ const fields=[...document.querySelectorAll('input,textarea,select')].map(e=>{
 });
 const buttons=[...document.querySelectorAll('button,input[type=submit]')].filter(e=>visible(e)&&!e.disabled).map(e=>({element:e,text:(e.textContent||e.value||'').trim(),type:e.type||'',id:e.id||''}));
 const headings=[...document.querySelectorAll('__JOBROBO_CONFIRMATION_SELECTOR__')].filter(visible).map(e=>e.textContent.trim());
+// Live-region errors only. Callers read state['alerts'], but nothing populated
+// it, so a portal refusal could never be seen.
+const alerts=[...document.querySelectorAll('[role=alert],[aria-live=assertive],.ashby-application-form-error-container')].filter(visible).map(e=>e.textContent.trim()).filter(Boolean);
 const challenge=[...document.querySelectorAll('iframe[title*=challenge],iframe[title*=Challenge],iframe[src*=hcaptcha],iframe[src*=recaptcha]')].some(e=>visible(e)&&e.getBoundingClientRect().height>100);
 const application_success=[...document.querySelectorAll('__JOBROBO_APPLICATION_SUCCESS_SELECTOR__')].filter(visible).map(e=>e.textContent.trim()).filter(Boolean);
 const REJECT=/couldn.t submit your application|flagged as possible spam|application was not submitted|try these steps/i;
 const rejection=[...document.querySelectorAll('__JOBROBO_CONFIRMATION_SELECTOR__')].filter(visible).map(e=>e.textContent.trim()).filter(t=>REJECT.test(t));
 // Sites that replace the file input on upload (Greenhouse) show the name in a card instead.
 const attached_files=[...document.querySelectorAll('.file-upload__filename,[class*=uploaded][class*=file]')].filter(visible).map(e=>e.textContent.trim()).filter(Boolean);
-return {url:location.href,title:document.title,fields,buttons,headings,challenge,application_success,rejection,attached_files};
+return {url:location.href,title:document.title,fields,buttons,headings,alerts,challenge,application_success,rejection,attached_files};
 """.replace('__JOBROBO_CONFIRMATION_SELECTOR__', CONFIRMATION_SELECTOR).replace('__JOBROBO_APPLICATION_SUCCESS_SELECTOR__', APPLICATION_SUCCESS_SELECTOR)
 
 

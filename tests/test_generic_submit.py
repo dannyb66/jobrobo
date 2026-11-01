@@ -538,3 +538,22 @@ class SubmitBrowserTests(TestCase):
         self.assertEqual(result['counts'],{'applied':1,'pending':1})
         result=run_submissions(resume_dir=self.root/'run',services=self.services,driver_factory=self.factory,allow_local=True,confirmation_timeout=.7)
         self.assertEqual(result['counts'],{'applied':1,'pending':1});self.assertEqual(len(Handler.receipts),1)
+
+
+class PortalRejectionWordingTests(TestCase):
+    """A portal's own refusal must be recognised, not read as uncertain."""
+
+    def test_lever_verification_error_is_a_rejection(self):
+        from modules.submit_runner import explicit_portal_rejection
+        self.assertEqual(
+            explicit_portal_rejection({'alerts': ['There was an error verifying your application. Please try again.']}),
+            'Employer could not verify the submitted application')
+
+    def test_ashby_spam_refusal_still_matches(self):
+        from modules.submit_runner import explicit_portal_rejection
+        text = "We couldn't submit your application. Flagged as possible spam."
+        self.assertIn('spam', explicit_portal_rejection({'headings': [text]}))
+
+    def test_a_success_heading_is_not_a_rejection(self):
+        from modules.submit_runner import explicit_portal_rejection
+        self.assertEqual(explicit_portal_rejection({'headings': ['Thanks for applying', 'Location']}), '')

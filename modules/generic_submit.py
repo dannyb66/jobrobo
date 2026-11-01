@@ -316,6 +316,16 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                 run.update(job,status='submission_uncertain',stage='external_submission_pending',retryable=False,
                            external_submission_pending=True,reason=reason)
                 return {'status':'submission_uncertain','external_submission_pending':True,'blockers':[reason]}
+            if (claimed and possible_activation and scoped and not state.get('challenge')
+                    and any(re.search(r'error verifying your application', m, re.I) for m in fresh_messages)):
+                # Lever refused its own server-side verification. Nothing was
+                # accepted, so fail fast and retryable instead of waiting out
+                # the confirmation window as an uncertain outcome.
+                reason = 'Employer could not verify the submitted application'
+                ledger.reconcile(job['url'], attempt_id, applied=False, reason=reason)
+                run.update(job, status='failed_before_submit', stage='portal_rejected_verification', retryable=True,
+                           reason=reason, reconciliation={'source': 'retained_portal_message', 'at': now()})
+                return {'status': 'failed_before_submit', 'blockers': [reason], 'pre_submit_retryable': True}
             if claimed and possible_activation and scoped and not state.get('challenge') and portal_duplicate:
                 outcome.status='duplicate';outcome.reason='Portal reports an existing application'
                 ledger.record_aliases(outcome,aliases,job['id'])

@@ -36,6 +36,10 @@ def explicit_portal_rejection(state):
     if (re.search(r"we couldn['’]t submit your application", text, re.I) and
         re.search(r'flagged as possible spam', text, re.I)):
         return 'Employer explicitly rejected the application as possible spam'
+    # Lever answers a failed server-side verification with this instead of a
+    # receipt. The application is not accepted, so it is safe to retry.
+    if re.search(r'error verifying your application', text, re.I):
+        return 'Employer could not verify the submitted application'
     return ''
 
 
