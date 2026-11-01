@@ -1249,6 +1249,49 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertNotEqual(manifest.query(search.query_id)["status"], "complete")
         self.assertEqual(manifest.data["stop_reason"], "application_limit_reached")
 
+    def test_unlimited_search_passes_ten_and_stops_at_overall_cap(self):
+        from modules.application_budget import ApplicationBudget
+        search = spec('unlimited', None)
+        manifest = self.manifest([search], {'unlimited': [[str(i) for i in range(1, 15)]]})
+        budget = ApplicationBudget(12)
+        self.execute(manifest, budget)
+        self.assertEqual(manifest.query('unlimited')['applied_count'], 12)
+        self.assertFalse(manifest.quota_met(search))
+        self.assertEqual(len(self.visited), 12)
+        self.assertTrue(budget.reached)
+
+    def test_pagination_is_reacquired_after_processing_cards(self):
+        search = spec('late-footer', 3)
+        manifest = self.manifest([search], {'late-footer': [['1'], ['2']]})
+        calls = []
+        def footer():
+            calls.append(1)
+            return (None, 1) if len(calls) == 1 else self.browser.page_info()
+        self.namespace['get_page_info'] = footer
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1', '2'])
+        self.assertGreaterEqual(len(calls), 4)
+        self.assertEqual(manifest.query('late-footer')['stop_reason'], 'results_exhausted')
+
+    def test_ambiguous_pagination_keeps_query_pending_and_preserves_applied_job(self):
+        from modules.linkedin_search import SearchUIError
+        search = spec('unknown-footer', None)
+        manifest = self.manifest([search], {'unknown-footer': [['1']]})
+        self.namespace['get_page_info'] = lambda: (None, 1)
+        with patch('modules.linkedin_modern_search.extend_search_results',
+                   side_effect=SearchUIError('End not verified', stage='pagination')):
+            self.execute(manifest)
+        self.assertEqual(manifest.query(search.query_id)['status'], 'pending')
+        self.assertEqual(manifest.query(search.query_id)['stop_reason'], 'pagination_unverified')
+        self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'applied')
+
+    def test_unlimited_search_finishes_when_results_are_exhausted(self):
+        search = spec('unlimited', None)
+        manifest = self.manifest([search], {'unlimited': [['1', '2']]})
+        self.execute(manifest)
+        self.assertEqual(self.visited, ['1', '2'])
+        self.assertEqual(manifest.query('unlimited')['stop_reason'], 'results_exhausted')
+
     def test_reached_shared_budget_does_not_begin_another_query(self):
         from modules.application_budget import ApplicationBudget
 
@@ -2086,11 +2129,34 @@ class LazyResultTests(unittest.TestCase):
         from test_linkedin_modern_search import DOMBrowser
         from unittest.mock import Mock,patch
         from modules.linkedin_modern_search import extend_search_results
-        browser=DOMBrowser('<main></main>')
+        browser=DOMBrowser('<main><p>No more jobs</p></main>')
         browser.execute_script=Mock(return_value={'at_end':True})
         with patch('modules.linkedin_search.get_search_cards',return_value=['1']), \
              patch('modules.linkedin_search.search_card_id',side_effect=lambda node:node):
             self.assertFalse(extend_search_results(browser,{'1'},timeout=.01))
+
+    def test_scroll_end_without_end_marker_remains_pending(self):
+        from test_linkedin_modern_search import DOMBrowser
+        from modules.linkedin_modern_search import extend_search_results
+        from modules.linkedin_search import SearchUIError
+        browser=DOMBrowser('<main></main>')
+        browser.execute_script=Mock(return_value={'at_end':True})
+        with patch('modules.linkedin_search.get_search_cards',return_value=['1']), \
+             patch('modules.linkedin_search.search_card_id',side_effect=lambda node:node):
+            with self.assertRaisesRegex(SearchUIError, 'verified end-of-results'):
+                extend_search_results(browser,{'1'},timeout=.01)
+
+    def test_pagination_revealed_after_scroll_advances_instead_of_exhausting(self):
+        from test_linkedin_modern_search import DOMBrowser
+        from modules.linkedin_modern_search import extend_search_results
+        browser=DOMBrowser('<main></main>')
+        browser.execute_script=Mock(return_value={'at_end':True})
+        with patch('modules.linkedin_search.get_search_cards',return_value=['1']), \
+             patch('modules.linkedin_search.search_card_id',side_effect=lambda node:node), \
+             patch('modules.linkedin_modern_search.get_search_pagination',side_effect=[(None,1),(object(),1)]), \
+             patch('modules.linkedin_modern_search.next_search_page',return_value=True) as advance:
+            self.assertTrue(extend_search_results(browser,{'1'},timeout=.01))
+        advance.assert_called_once()
 
     def test_unknown_scroll_state_is_not_reported_as_exhausted(self):
         from test_linkedin_modern_search import DOMBrowser

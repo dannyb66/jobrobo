@@ -142,7 +142,7 @@ class SearchManifest:
 
     def quota_met(self, spec):
         row = self.query(spec.query_id)
-        return row["applied_count"] + row["collected_count"] >= spec.quota
+        return spec.quota is not None and row["applied_count"] + row["collected_count"] >= spec.quota
 
     def has_uncertain_submission(self, spec):
         return any(job["status"] == "submitting" for job in self.query(spec.query_id)["jobs"].values())

@@ -122,7 +122,7 @@ class SearchSpec:
     profile_name: str
     profile_version: str
     filters_snapshot: dict
-    quota: int
+    quota: int | None
     classic_query: str
     pipeline_context: dict = field(default_factory=dict)
 

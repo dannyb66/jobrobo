@@ -2292,7 +2292,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
     def query_has_capacity(spec):
         row = manifest.query(spec.query_id)
         held = sum(job['status'] == 'submitting' for job in row['jobs'].values())
-        return row['applied_count'] + row['collected_count'] + held < spec.quota
+        return spec.quota is None or row['applied_count'] + row['collected_count'] + held < spec.quota
 
     if prepare_only:
         from pathlib import Path
@@ -2838,6 +2838,10 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                 if not query_has_capacity(spec):
                     break
                 # Switching to next page
+                # Application dialogs and lazy loading can replace the footer.
+                # Never use the pagination element cached before processing jobs.
+                if selected_jobs is None:
+                    pagination_element, current_page = get_page_info()
                 if pagination_element == None:
                     if selected_jobs is None:
                         from modules.linkedin_modern_search import extend_search_results
@@ -2931,6 +2935,9 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
             continue
         except Exception as e:
             from modules.linkedin_search import LocationSelectionError
+            if getattr(e, 'stage', None) == 'pagination':
+                capture_job_failure('search', spec, 'pagination', e)
+                manifest.query(spec.query_id)['stop_reason'] = 'pagination_unverified'
             diagnostics = getattr(e, "diagnostics", None)
             if diagnostics is not None:
                 manifest.record_mode(spec, spec.mode, warnings=[str(e)],
@@ -2947,10 +2954,10 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
             if empty:
                 manifest.finish_query(spec, "results_exhausted")
             else:
-                if active_job_id:
+                if active_job_id and getattr(e, 'stage', None) != 'pagination':
                     checkpoint_job(active_job_id, "failed", f"Query interrupted ({type(e).__name__})")
                 row = manifest.query(spec.query_id)
-                row["status"], row["stop_reason"] = "pending", f"search_error:{type(e).__name__}"
+                row["status"], row["stop_reason"] = "pending", ('pagination_unverified' if getattr(e, 'stage', None) == 'pagination' else f"search_error:{type(e).__name__}")
                 manifest.save()
                 print_lg(f"Search interrupted ({type(e).__name__}); incomplete query will resume next run")
                 if type(e).__name__ == 'TimeoutException':
@@ -2991,6 +2998,9 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
     print_lg('Preparing configured search plan...')
     deterministic = prepared_specs if prepared_specs is not None else build_search_plan(dict(profile, ai_query_refinement_enabled=False), config, warn=print_lg)
     configuration_id = plan_fingerprint(deterministic, profile)
+    single_search = globals().get('single_search_run')
+    if single_search:
+        configuration_id += f':single-search:{single_search}:no-query-quota'
     if prepare_only:
         configuration_id += ':prepare-only:' + str(preparation_limit)
     if selected_jobs is not None:
@@ -3014,6 +3024,11 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
                     shuffle(group)
                     ordered.extend(group)
                 specs = ordered
+            if single_search:
+                from dataclasses import replace
+                if single_search > len(specs):
+                    raise ValueError(f'--single-search {single_search} is out of range; this plan has {len(specs)} prompts')
+                specs = [replace(specs[single_search - 1], quota=None)]
             manifest = SearchManifest.create(profile["search_state_dir"], specs, configuration_id)
         active_manifest = manifest
         active_result_sink = result_sink
@@ -3025,6 +3040,8 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
                 manifest.data["invocation_applied_count"] = application_budget.count
                 manifest.save()
             print_lg(f"Search run: {manifest.data['run_id']} ({manifest.path})")
+            if single_search:
+                print_lg(f'Single-search mode: prompt #{single_search} only; no per-search quota. Overall application cap still applies.')
             if selected_jobs is None and result_sink is None and job_limit is None and application_budget is None and not prepare_only:
                 execute_search_plan(manifest)
             else:
@@ -3422,6 +3439,8 @@ def cli_main(argv=None):
                         help="Search and apply directly from config files; no verified_roles/linkedin_jobs inputs required")
     parser.add_argument("--fresh", action="store_true",
                         help="With --configured-search-and-apply, start a new search manifest while preserving application history")
+    parser.add_argument('--single-search', nargs='?', const=1, default=None, type=_positive, metavar='N',
+                        help='With --configured-search-and-apply, use only prompt N (1-based; default 1) without a per-search quota; overall application cap still applies')
     parser.add_argument('--prepare-only', action='store_true',
                         help='With --configured-search-and-apply, test forms up to enabled Submit without submitting; --limit defaults to 10')
     parser.add_argument("--mode", choices=("search", "apply", "search-and-apply"), default="search")
@@ -3439,10 +3458,12 @@ def cli_main(argv=None):
         if not args.prepare_only:
             incompatible.add('--limit')
         if any(argument.partition("=")[0] in incompatible for argument in argv):
-            parser.error("--configured-search-and-apply accepts --fresh and --prepare-only [--limit N]; use config/search.py for application limits and filters")
+            parser.error("--configured-search-and-apply accepts --fresh, --single-search and --prepare-only [--limit N]; use config/search.py for application limits and filters")
         previous_resume = search_profile.resume_search_enabled
         previous_preparation = globals().get('prepare_only_run', False), globals().get('preparation_limit', 10)
+        previous_single_search = globals().get('single_search_run', False)
         try:
+            globals()['single_search_run'] = args.single_search
             globals()['prepare_only_run'] = args.prepare_only
             globals()['preparation_limit'] = args.limit or 10
             if args.fresh:
@@ -3451,7 +3472,10 @@ def cli_main(argv=None):
         finally:
             search_profile.resume_search_enabled = previous_resume
             globals()['prepare_only_run'], globals()['preparation_limit'] = previous_preparation
+            globals()['single_search_run'] = previous_single_search
         return 0
+    if args.single_search:
+        parser.error('--single-search requires --configured-search-and-apply')
     if args.prepare_only:
         parser.error('--prepare-only requires --configured-search-and-apply')
     if args.fresh:

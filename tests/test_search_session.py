@@ -103,6 +103,45 @@ class SearchSessionTests(unittest.TestCase):
         self.assertIsNone(self.namespace["active_manifest"])
         self.assertIsNone(self.namespace["active_search"])
 
+    def test_single_search_picks_number_and_removes_only_its_quota(self):
+        self.namespace['single_search_run'] = 2
+        self.apply_to_jobs(['Principal Backend Engineer'])
+        rows = self.manifests[0].data['queries']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['spec']['classic_query'], 'Principal Backend Engineer')
+        self.assertIsNone(rows[0]['spec']['quota'])
+
+    def test_single_search_does_not_resume_a_normal_or_different_number_run(self):
+        self.namespace['execute_search_plan'] = Mock(side_effect=KeyboardInterrupt)
+        for selection in (None, 1, 2):
+            self.namespace['single_search_run'] = selection
+            with self.assertRaises(KeyboardInterrupt):
+                self.apply_to_jobs(['Principal Backend Engineer'])
+        self.assertEqual(len(self.persisted()), 3)
+
+    def test_single_search_resumes_same_prompt_with_unlimited_quota(self):
+        self.namespace['single_search_run'] = 2
+        def interrupt(manifest):
+            search = manifest.queries()[0]
+            manifest.record_job(search, '123', 'applied')
+            raise KeyboardInterrupt
+        self.namespace['execute_search_plan'] = interrupt
+        with self.assertRaises(KeyboardInterrupt):
+            self.apply_to_jobs(['Principal Backend Engineer'])
+        run_id = self.persisted()[0]['run_id']
+        self.namespace['execute_search_plan'] = self.complete
+        self.apply_to_jobs(['Principal Backend Engineer'])
+        self.assertEqual(self.manifests[-1].data['run_id'], run_id)
+        self.assertIsNone(self.manifests[-1].data['queries'][0]['spec']['quota'])
+        self.assertEqual(self.manifests[-1].data['queries'][0]['applied_count'], 1)
+
+    def test_single_search_out_of_range_fails_before_execution(self):
+        self.namespace['single_search_run'] = 99
+        self.namespace['execute_search_plan'] = Mock()
+        with self.assertRaisesRegex(ValueError, 'out of range'):
+            self.apply_to_jobs([])
+        self.namespace['execute_search_plan'].assert_not_called()
+
     def test_refinement_runs_independently_of_general_ai_and_resume_ai(self):
         self.refiner_factory.return_value = self.refinement
         self.apply_to_jobs([])

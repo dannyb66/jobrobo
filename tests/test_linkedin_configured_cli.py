@@ -65,6 +65,27 @@ class ConfiguredCliTests(unittest.TestCase):
         self.assertEqual(error.exception.code, 0)
         self.run.assert_not_called()
 
+    def test_single_search_defaults_to_first_and_accepts_number_then_restores(self):
+        for flags, expected in ((['--single-search'], 1), (['--single-search', '3'], 3)):
+            self.run.side_effect = lambda: self.assertEqual(self.namespace['single_search_run'], expected)
+            self.assertEqual(self.invoke(['--configured-search-and-apply', '--fresh', *flags]), 0)
+            self.assertFalse(self.namespace['single_search_run'])
+
+    def test_single_search_restores_runtime_setting_after_failure(self):
+        self.namespace['single_search_run'] = 2
+        self.run.side_effect = RuntimeError('fixture')
+        with self.assertRaises(RuntimeError):
+            self.invoke(['--configured-search-and-apply', '--single-search', '3'])
+        self.assertEqual(self.namespace['single_search_run'], 2)
+
+    def test_single_search_requires_configured_entry_and_positive_index(self):
+        for args in (['--single-search'], ['--configured-search-and-apply', '--single-search', '0'],
+                     ['--configured-search-and-apply', '--single-search', '-1']):
+            with self.subTest(args=args), self.assertRaises(SystemExit) as error:
+                self.invoke(args)
+            self.assertEqual(error.exception.code, 2)
+        self.run.assert_not_called()
+
     def test_prepare_only_enables_non_submitting_run_and_restores_runtime_flags(self):
         def run():
             self.assertTrue(self.namespace['prepare_only_run'])

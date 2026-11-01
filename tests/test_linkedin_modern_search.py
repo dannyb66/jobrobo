@@ -1038,6 +1038,100 @@ class ModernUnmarkedReplayTests(unittest.TestCase):
 
 
 class ModernPaginationTests(unittest.TestCase):
+    def test_empty_page_after_native_offset_change_is_verified_terminal(self):
+        from modules.linkedin_modern_search import next_search_page
+        browser = DOMBrowser('<main><input id="jobs-search-box-keyword-fixture" value="Engineer">'
+            '<li data-occludable-job-id="321">Engineer</li><div aria-label="Pagination">'
+            '<button aria-label="Page 1" aria-current="page">1</button><button aria-label="Page 2">2</button></div></main>')
+        browser.current_url = 'https://www.linkedin.com/jobs/search/?keywords=Engineer'
+        def end_page(node):
+            browser.root.xpath('//li')[0].getparent().remove(browser.root.xpath('//li')[0])
+            footer = browser.root.xpath('//*[@aria-label="Pagination"]')[0]
+            footer.getparent().remove(footer)
+            browser.root.append(html.fromstring('<h3>No results found</h3>'))
+            browser.current_url += '&start=25'
+        browser.click = end_page
+        self.assertFalse(next_search_page(browser, 1, wait=immediate, timeout=.1))
+
+    def test_empty_page_without_offset_change_is_not_verified_terminal(self):
+        from modules.linkedin_modern_search import next_search_page
+        from modules.linkedin_search import SearchUIError
+        browser = self.browser()
+        def unchanged(node):
+            browser.root = html.fromstring('<main><h3>No results found</h3></main>')
+        browser.click = unchanged
+        with self.assertRaises(SearchUIError):
+            next_search_page(browser,1,wait=immediate,timeout=.1)
+
+    def test_observed_testid_footer_detected_and_next_page_commits(self):
+        from modules.linkedin_modern_search import get_search_pagination, next_search_page
+        browser = self.browser()
+        footer = browser.root.xpath("//*[@aria-label='Pagination']")[0]
+        footer.attrib.pop('aria-label')
+        for i, node in enumerate(footer):
+            node.set('data-testid', f'pagination-indicator-{i}')
+            node.set('aria-current', 'true' if i == 0 else 'false')
+        next_node = html.fromstring('<button data-testid="pagination-controls-next-button-visible">Next</button>')
+        footer.append(next_node)
+        self.assertEqual(get_search_pagination(browser)[1], 1)
+        def commit(predicate):
+            footer[0].set('aria-current', 'false')
+            footer[1].set('aria-current', 'true')
+            for _ in range(4):
+                result = predicate(None)
+                if result:
+                    return result
+            raise AssertionError('Observed footer did not settle')
+        self.assertTrue(next_search_page(browser, 1, wait=commit, timeout=.1))
+        self.assertEqual(get_search_pagination(browser)[1], 2)
+
+    def test_observed_last_page_disabled_next_is_terminal(self):
+        from modules.linkedin_modern_search import next_search_page, get_search_pagination
+        browser = self.browser()
+        footer = browser.root.xpath("//*[@aria-label='Pagination']")[0]
+        footer.attrib.pop('aria-label')
+        for i, node in enumerate(footer):
+            node.set('data-testid', f'pagination-indicator-{i}')
+            node.set('aria-current', 'true' if i == 1 else 'false')
+        footer.append(html.fromstring('<button data-testid="pagination-controls-next-button-visible" disabled="">Next</button>'))
+        self.assertEqual(get_search_pagination(browser)[1], 2)
+        self.assertFalse(next_search_page(browser, 2, timeout=.1))
+
+    def test_sticky_footer_interception_activates_exact_control_and_verifies_commit(self):
+        from selenium.common.exceptions import ElementClickInterceptedException
+        from modules.linkedin_modern_search import next_search_page
+        browser = self.browser()
+        original = browser.click
+        attempts = []
+        def click(node):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise ElementClickInterceptedException('Premium footer intercepts page control')
+            original(node)
+            browser.root.xpath("//*[@aria-label='Page 1']")[0].set('aria-current','false')
+            browser.root.xpath("//*[@aria-label='Page 2']")[0].set('aria-current','page')
+        browser.click = click
+        def settle(predicate):
+            for _ in range(4):
+                value = predicate(None)
+                if value:
+                    return value
+            raise AssertionError('Page did not commit')
+        self.assertTrue(next_search_page(browser, 1, wait=settle, timeout=.1))
+        self.assertEqual(len(attempts), 2)
+
+    def test_dialog_interception_does_not_click_through(self):
+        from selenium.common.exceptions import ElementClickInterceptedException
+        from modules.linkedin_modern_search import next_search_page
+        from modules.linkedin_search import SearchUIError
+        from unittest.mock import Mock
+        browser = self.browser()
+        browser.root.append(html.fromstring('<div role="dialog">Application draft</div>'))
+        browser.click = Mock(side_effect=ElementClickInterceptedException('dialog'))
+        with self.assertRaisesRegex(SearchUIError, 'Dialog blocks'):
+            next_search_page(browser,1)
+        self.assertEqual(browser.click.call_count,1)
+
     def browser(self):
         browser = DOMBrowser()
         browser.root.xpath("//*[@componentkey='semanticSearchBox']")[0].set("value", "old")

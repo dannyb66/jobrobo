@@ -198,12 +198,34 @@ Filters and the overall submission cap come from `config/search.py`:
 `search_location`, `date_posted`, `job_type`, `experience_level`, `on_site`,
 `application_mode`, `easy_apply_only`, and `max_applications_per_run` (currently `50`).
 `switch_number = 10` is the per-query quota; explicit search quotas take precedence.
+
+To stay on one numbered prompt without a per-search quota, add `--single-search N`:
+
+```bash
+python runAiBot.py --configured-search-and-apply --fresh --single-search 1
+```
+
+Prompt numbers are one-based in the final ordered search plan, after deduplication,
+AI refinement and any configured randomization. `--single-search` alone selects
+prompt 1 (currently the FDE manual search); `--single-search 3` selects prompt 3.
+This mode stops at results exhaustion or the overall application cap, rather than
+switching prompts after ten applications. Other safety stops still apply.
+Without `--fresh`, the same numbered mode resumes its saved prompt and progress;
+its manifest is separate from normal multi-search runs. AI refinement can change
+generated prompt wording/order in a fresh plan; the chosen prompt is logged.
+Omitting `--single-search` preserves the normal per-search quotas and switching.
+
+Result traversal recognizes LinkedIn's current numbered-page/Next footer and
+reacquires it after each application batch. Lazy loading checks again for a footer
+after scrolling. A scroll pause without pagination or an explicit end message
+keeps the search pending with diagnostics instead of marking it exhausted; resume
+restarts the prompt while skipping recorded jobs.
 These are different limits: an individual manual lane can still have `quota = 1`.
 Use the exact `San Francisco Bay Area` location when selecting that native
 suggestion. Remote/Hybrid intent and unavailable filter controls must be checked
 in the actual results; a requested filter is not proof it was applied.
-`application_mode` selects `external_only` (current configuration),
-`easy_apply_only`, or `both`. It overrides the legacy `easy_apply_only` flag;
+`application_mode` selects `external_only`,
+`easy_apply_only` (current configuration), or `both`. It overrides the legacy `easy_apply_only` flag;
 without the new setting the legacy flag keeps its previous behavior.
 External-only mode removes the Easy Apply-only search filter and skips Easy Apply
 results without opening their forms. The other search filters still apply.
@@ -592,7 +614,7 @@ See the [job pipeline guide](docs/job-pipeline.md) for input contracts, official
 | `config/search.py:search_location` | Location entered into LinkedIn search. | `'California, United States'` |
 | `config/search.py:switch_number` | Per-query application/external-link quota, unless a SearchSpec has its own quota. | Currently `10`; use `1` for a smoke test |
 | `config/search.py:max_applications_per_run` | Confirmed submissions across all queries/cycles in the command. | Currently `50`; use `1` for a smoke test; `None` disables the cap |
-| `config/search.py:application_mode` | Select Easy Apply, employer applications, or both; overrides the legacy flag. | Currently `"external_only"` |
+| `config/search.py:application_mode` | Select Easy Apply, employer applications, or both; overrides the legacy flag. | Currently `"easy_apply_only"` |
 | `config/settings.py:external_apply_captcha_solver` | Enable the direct-submit CAPTCHA solver for employer tabs; requires the solver setup and credentials. | Currently `True` |
 | `config/settings.py:external_apply_pause_before_submit` | Employer submission policy, independent of the Easy Apply pause. | Currently `"never"`; `"always"` or `"unknown"` retains review tabs |
 | `config/settings.py:run_in_background` | Whether Chrome is visible. | `False` while debugging |

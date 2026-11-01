@@ -22,9 +22,11 @@ LOCATION_PICKER_XPATH = "//*[@data-view-name='job-search-location-picker'] | //*
 LOCATION_EDITOR_XPATH = "//*[@role='textbox' and @contenteditable='true' and not(@componentkey='semanticSearchBox')] | //input[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'location')]"
 MENU_OPTION_XPATH = ".//*[@role='radio' or @role='checkbox' or @role='menuitemradio' or @role='menuitemcheckbox'][not(starts-with(@aria-label,'Filter by ')) and not(@data-view-name='search-filter-top-bar-select')]"
 MENU_SUBMIT_XPATH = "//*[@data-view-name='search-filter-top-bar-menu-submit'] | //a[normalize-space(.)='Show results' and contains(@href,'/jobs/search-results/')]"
-EMPTY_XPATH = "//main//*[self::p or self::h1 or self::h2 or @role='status'][contains(normalize-space(.),'No jobs found') or contains(normalize-space(.),'No matching jobs') or contains(normalize-space(.),'No results found') or normalize-space(.)='0 jobs'] | //*[contains(@class,'jobs-search-no-results')]"
+EMPTY_XPATH = "//main//*[self::p or self::h1 or self::h2 or self::h3 or @role='status'][contains(normalize-space(.),'No jobs found') or contains(normalize-space(.),'No matching jobs') or contains(normalize-space(.),'No results found') or normalize-space(.)='0 jobs'] | //*[contains(@class,'jobs-search-no-results')]"
 LOADING_XPATH = "//main//*[@aria-busy='true' or @role='progressbar'] | //*[@data-view-name='job-search-results-loading']"
-PAGINATION_XPATH = "//*[contains(@class,'jobs-search-pagination') or contains(@class,'artdeco-pagination') or @data-view-name='job-search-pagination' or @aria-label='Pagination']"
+PAGINATION_XPATH = ("//*[contains(@class,'jobs-search-pagination') or contains(@class,'artdeco-pagination') or @data-view-name='job-search-pagination' or @aria-label='Pagination']"
+    " | //*[@data-testid='pagination-controls-next-button-visible']/ancestor::*[.//*[starts-with(@data-testid,'pagination-indicator-')]][1]"
+    " | //*[starts-with(@data-testid,'pagination-indicator-')]/parent::*")
 _SESSION_RECIPES = {}
 
 FILTER_LABELS = {
@@ -823,13 +825,13 @@ def _active_page(pagination):
 
 
 def get_search_pagination(driver):
-    pagination = _first(_find(driver, PAGINATION_XPATH))
+    pagination = _first(node for node in _find(driver, PAGINATION_XPATH) if _visible(node))
     if pagination is None:
         return None, 1
     return pagination, _active_page(pagination) or 1
 
 
-def extend_search_results(driver, observed_ids, *, timeout=2, log=lambda _:None):
+def extend_search_results(driver, observed_ids, *, timeout=6, log=lambda _:None):
     """Discover lazy-loaded cards before treating missing pagination as the end."""
     from selenium.common.exceptions import TimeoutException
     from selenium.webdriver.support.ui import WebDriverWait
@@ -841,6 +843,9 @@ def extend_search_results(driver, observed_ids, *, timeout=2, log=lambda _:None)
                    for card in get_search_cards(driver) if search_card_id(card))
     if fresh(driver):
         return True
+    pagination, page = get_search_pagination(driver)
+    if pagination is not None:
+        return next_search_page(driver, page, timeout=max(30, timeout))
     more=[node for node in _find(driver,"//button | //*[@role='button']") if _visible(node)
           and _text(node).casefold() in {'show more results','load more jobs','show more jobs','load more results'}]
     if len(more)>1:
@@ -856,7 +861,9 @@ def extend_search_results(driver, observed_ids, *, timeout=2, log=lambda _:None)
     for _ in range(2):
         cards=get_search_cards(driver)
         if not cards:
-            return False
+            if search_results_ready(driver) == 'empty':
+                return False
+            raise SearchUIError('Result list disappeared during pagination; search remains pending', stage='pagination')
         state=driver.execute_script('''/* jobrobo-results-scroll */
             const card=arguments[0];let list=card.parentElement;
             while(list && !(list.scrollHeight>list.clientHeight+2 &&
@@ -874,7 +881,17 @@ def extend_search_results(driver, observed_ids, *, timeout=2, log=lambda _:None)
         except TimeoutException:
             if not state.get('at_end'):
                 raise SearchUIError('Job list scrolling did not reach a verified end',stage='pagination')
-    return False
+        # Pagination can hydrate only after the result list reaches its footer.
+        pagination, page = get_search_pagination(driver)
+        if pagination is not None:
+            return next_search_page(driver, page, timeout=max(30, timeout))
+    if search_results_ready(driver) == 'empty':
+        return False
+    end = _find(driver, "//main//*[self::p or self::h2 or @role='status'][contains(.,'No more jobs') or contains(.,'No more results') or contains(.,\"You've viewed all\") or contains(.,\"You've seen all\")]")
+    if any(_visible(node) for node in end):
+        return False
+    raise SearchUIError('No pagination or verified end-of-results signal; search remains pending', stage='pagination',
+                        details={'observed_job_count':len(observed_ids)})
 
 
 def next_search_page(driver, page, *, timeout=30, wait=None):
@@ -885,18 +902,44 @@ def next_search_page(driver, page, *, timeout=30, wait=None):
     options = _find(pagination, ".//button | .//a | .//*[@role='button']")
     next_button = next((item for item in options if _visible(item) and (
         _attribute(item, "aria-label") == label or _text(item) == str(page + 1)
-        or _attribute(item, "aria-label").casefold() in {"next", "next page", "view next page"})), None)
-    if next_button is None or _attribute(next_button, "aria-disabled") == "true":
+        or _attribute(item, "aria-label").casefold() in {"next", "next page", "view next page"}
+        or _attribute(item, 'data-testid') == 'pagination-controls-next-button-visible'
+        or _text(item).casefold() == 'next')), None)
+    if next_button is None or _attribute(next_button, "aria-disabled") == "true" or _attribute(next_button, 'disabled'):
         return False
     before = parse_qs(urlparse(_url(driver)).query)
-    next_button.click()
+    from selenium.common.exceptions import ElementClickInterceptedException
+    try:
+        driver.execute_script("arguments[0].scrollIntoView({block:'center',inline:'nearest'});", next_button)
+        try:
+            next_button.click()
+        except ElementClickInterceptedException:
+            if any(_visible(node) for node in _find(driver, "//*[@role='dialog' or @aria-modal='true']")):
+                raise SearchUIError('Dialog blocks result pagination; search remains pending', stage='pagination')
+            # The current footer can sit beneath a sticky job-alert/premium card.
+            # Activate only this recognized page control, then verify the commit.
+            driver.execute_script('arguments[0].click();', next_button)
+    except SearchUIError:
+        raise
+    except Exception as error:
+        raise SearchUIError('Could not activate result pagination', stage='pagination',
+                            details={'requested_page':page+1,'error_type':type(error).__name__}) from error
+    terminal_empty = False
     def committed(*_):
+        nonlocal terminal_empty
         check_access(driver)
         current_pagination, _ = get_search_pagination(driver)
+        query = parse_qs(urlparse(_url(driver)).query)
+        offset_moved = any((before.get(key) or ['0'])[0].isdigit()
+                          and (query.get(key) or ['0'])[0].isdigit()
+                          and int((query.get(key) or ['0'])[0]) > int((before.get(key) or ['0'])[0])
+                          for key in ('start', 'page', 'pageNum'))
         if current_pagination is None:
+            if offset_moved and search_results_ready(driver) == 'empty':
+                terminal_empty = True
+                return True
             return False
         selected = _active_page(current_pagination)
-        query = parse_qs(urlparse(_url(driver)).query)
         if selected is not None:
             moved = selected == page + 1
         else:
@@ -917,4 +960,4 @@ def next_search_page(driver, page, *, timeout=30, wait=None):
         raise
     except Exception as error:
         raise SearchUIError("LinkedIn next page did not commit", stage="pagination", details={"requested_page": page + 1, "error_type": type(error).__name__}) from error
-    return True
+    return not terminal_empty

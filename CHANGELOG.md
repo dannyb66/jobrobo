@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.8.0] - 2026-11-01
+
+### Added
+
+- Select one numbered LinkedIn prompt with `--single-search [N]` and continue without a per-search quota while retaining the overall application cap and separate resumable progress.
+
+### Fixed
+
+- Traverse the current LinkedIn numbered-page and Next controls, reacquiring the footer after each batch and recovering clicks intercepted by sticky promotional cards.
+- Finish cleanly when a native page transition returns an explicit empty result; retain ambiguous pagination as pending with diagnostics instead of prematurely completing the search.
+
+### Changed
+
+- Configure the next search runs for Easy Apply-only results; ordinary multi-search runs retain their existing per-search quotas and automatic switching.
+
 ## [0.1.7.0] - 2026-10-30
 
 ### Fixed
