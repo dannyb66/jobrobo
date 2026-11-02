@@ -987,6 +987,15 @@ def settle_resume_autofill(browser, *, timeout=10):
     return False
 
 
+def _populated_fields(browser):
+    try:
+        return sum(1 for f in browser.read().get('fields', [])
+                   if (f.get('value') or '').strip()
+                   and f.get('type') not in {'hidden', 'submit', 'button', 'file'})
+    except Exception:
+        return -1
+
+
 def fill_fields(browser, state, resolver, provider, attempted):
     """Fill independently; one unknown/failed field must not prevent others."""
     metadata = []
@@ -1336,10 +1345,21 @@ def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_p
                 report['job_location_context'] = top.get('location', '')
             if resolver is not None and not callable(getattr(browser, 'reprepare', None)):
                 def _reprepare(_b=browser, _r=resolver, _prov=(active_identity.provider if active_identity else 'generic')):
-                    """Re-run preparation on a reset form (submit-side refill)."""
+                    """Re-run preparation on a reset form (submit-side refill).
+
+                    Bounded: stop when a pass fills nothing new, or a reset form
+                    would be re-scanned four times with no progress.
+                    """
+                    # Break on attempted-count, exactly as the main fill loop
+                    # does: populated-count does not move once a field is set, so
+                    # it re-scanned the whole form four times.
                     for _ in range(4):
+                        count = len(attempted)
                         fill_fields(_b, _b.read(), _r, _prov, attempted)
+                        if len(attempted) == count:
+                            break
                 browser.reprepare = _reprepare
+                report['reprepare'] = _reprepare
             if upload and not attached:
                 checkpoint('attaching_resume')
                 report['attachment'] = attach_resume(browser, upload, binding, root, candidate=candidate, job=job,form_url=state['url'])
