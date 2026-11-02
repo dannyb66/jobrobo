@@ -149,6 +149,26 @@ def complete_email_verification(browser, *, timeout=120, wait=time.sleep):
 SOLVE_ATTEMPT_LIMIT = 3
 
 
+def _refresh_submit(browser, report, run, job):
+    """Re-acquire Submit after a cleared challenge and press it again.
+
+    A token is attached to the form only once the widget is solved, so the
+    click that raised the challenge carried nothing and the form never left.
+    """
+    try:
+        _, button, _ = validate_final(browser, report)
+    except Exception:
+        button = None
+    if not button:
+        return False
+    try:
+        _activate(driver=browser.driver, element=button['element'])
+    except Exception:
+        return False
+    run.update(job, status='submitting', stage='waiting_for_confirmation')
+    return True
+
+
 def _activate(*, driver, element):
     """Click the final Submit, falling back to a DOM click.
 
@@ -254,6 +274,7 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
     solved_after_submit = False
     solver_attempted_after_submit = False
     solve_attempts = 0
+    resubmit_count = 0
     expected_urls = [report['resolved_url'], browser.read()['url']]
     aliases = list(dict.fromkeys([report['url'], *expected_urls]))
     top_identity, form_identity = identify_ats(expected_urls[0]), identify_ats(expected_urls[1])
@@ -374,6 +395,21 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     run.update(job, captcha_event=captcha_solver.describe(outcome_record))
                     if captcha_solver.cleared(outcome_record):
                         solved_after_submit = True
+                        # The token is only attached once the widget is solved, so
+                        # the click that raised the challenge did not carry it.
+                        # Press Submit again or the application never leaves.
+                        _accept_cookie_banner(browser)
+                        fresh_state = browser.read()
+                        tokens = [f for f in fresh_state.get('fields', [])
+                                  if f.get('name') in {'g-recaptcha-response', 'h-captcha-response',
+                                                       'cf-turnstile-response'} and (f.get('value') or '').strip()]
+                        if not tokens:
+                            run.update(job, stage='captcha_cleared_without_token')
+                        if tokens and not resubmit_count:
+                            resubmit_count += 1
+                            browser.actions.append({'action': 'submit', 'source': 'after_captcha_clear', 'at': now()})
+                            run.update(job, stage='resubmitting_after_captcha')
+                            _refresh_submit(browser, report, run, job)
                         continue
             if scoped and email_verification_required(state):
                 if complete_email_verification(browser):

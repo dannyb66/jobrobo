@@ -557,3 +557,49 @@ class PortalRejectionWordingTests(TestCase):
     def test_a_success_heading_is_not_a_rejection(self):
         from modules.submit_runner import explicit_portal_rejection
         self.assertEqual(explicit_portal_rejection({'headings': ['Thanks for applying', 'Location']}), '')
+
+
+class ResubmitAfterClearTests(TestCase):
+    """A token only lands after the solve, so Submit must be pressed again."""
+
+    def test_cleared_challenge_triggers_a_second_submit(self):
+        from types import SimpleNamespace
+        from modules.generic_submit import submit_ready
+        with TemporaryDirectory() as tmp:
+            job=load_jobs(url='https://example.test/jobs/late-token')[0]
+            run=SubmitRun(Path(tmp)/'run',jobs=[job]); self.addCleanup(run.close)
+            ledger=ExternalApplicationLedger(Path(tmp)/'ledger.json')
+            activated=[False];clock=[0.0]; clears=[0]
+            driver=Mock(current_url=job['url'],browser_backend='local')
+            def script(source,*a):
+                if 'documentId' in source: return 'document'
+                if 'finalActivated' in source: return {'activated':activated[0],'document':'document'}
+                return True
+            driver.execute_script.side_effect=script
+            driver.capabilities={'goog:chromeOptions':{'debuggerAddress':'127.0.0.1:1'}}
+            solved=[False]
+            def read():
+                # A solved widget leaves a token; an unsolved one does not.
+                fields=[{'name':'g-recaptcha-response','value':'tok'}] if solved[0] else []
+                return {'url':job['url'],'headings':[],'alerts':[],'fields':fields,'challenge':activated[0] and not solved[0]}
+            browser=SimpleNamespace(driver=driver,allow_local=False,read=read,actions=[])
+            report={'url':job['url'],'resolved_url':job['url'],'resume':{'pdf_sha256':'h'},
+                    'attachment':{'name':'r.pdf'},'questions':[],'review_binding_sha256':'b'}
+            def solve(*a,**k):
+                clears[0]+=1; solved[0]=True
+                return {'status':'cleared','responses':1,'token_length':12,'levels':['challenge_cleared']}
+            clicks=[]; _gref=[None]
+            with patch('modules.generic_submit.validate_final',return_value=(read(),{'element':Mock()},'')), \
+                 patch('modules.generic_submit._activate',side_effect=lambda **kw: (activated.__setitem__(0,True), clicks.append(1))), \
+                 patch('modules.generic_submit._accept_cookie_banner'), patch('modules.generic_submit._await_painted_challenge'), \
+                 patch('modules.kernel_challenges.wait_for_challenge',return_value=True), \
+                 patch('modules.captcha_solver.enabled',return_value=True), \
+                 patch('modules.captcha_solver.solve',side_effect=solve), \
+                 patch('modules.generic_submit.time.sleep',side_effect=lambda s: None):
+                submit_ready(browser,report,Path(tmp),job=job,run=run,ledger=ledger,
+                    attempt_id='a',pause='never',confirmation_timeout=.5,poll_interval=.01)
+            self.assertEqual(clears[0],1)
+            # The re-submit is recorded and issued; the second click goes through
+            # _refresh_submit rather than the review activation.
+            self.assertTrue(any(a['source']=='after_captcha_clear' for a in browser.actions),
+            f"actions={browser.actions} solves={clears[0]}")
