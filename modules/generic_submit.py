@@ -181,19 +181,30 @@ return {fields, hcaptcha:own, active:[...document.querySelectorAll('iframe[src*=
 """
 
 
-def _form_is_empty(browser):
-    """A reset form has no user-entered values left."""
+def _populated(browser):
     try:
         fields = browser.read().get('fields', [])
     except Exception:
+        return -1
+    return sum(1 for f in fields
+               if (f.get('value') or '').strip()
+               and f.get('type') not in {'hidden', 'submit', 'button', 'file'})
+
+
+def _form_reset(browser, baseline):
+    """A refusal can wipe the form while leaving one field behind.
+
+    Comparing against the pre-submit count is sturdier than demanding zero.
+    """
+    now = _populated(browser)
+    if now < 0 or baseline is None or baseline <= 0:
         return False
-    return not any((f.get('value') or '').strip() for f in fields
-                   if f.get('type') not in {'hidden', 'submit', 'button', 'file'})
+    return now <= max(1, baseline // 3)
 
 
 def _refill_after_reset(browser, report, run, job):
     """Re-run preparation so a reset form is populated before re-submitting."""
-    prepare = report.get('reprepare')
+    prepare = getattr(browser, 'reprepare', None)
     if prepare is None:
         return False
     try:
@@ -333,6 +344,7 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
     solver_attempted_after_submit = False
     solve_attempts = 0
     resubmit_count = 0
+    populated_baseline = None
     expected_urls = [report['resolved_url'], browser.read()['url']]
     aliases = list(dict.fromkeys([report['url'], *expected_urls]))
     top_identity, form_identity = identify_ats(expected_urls[0]), identify_ats(expected_urls[1])
@@ -451,7 +463,11 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                         started += time.monotonic() - solved_from
                     report['challenge'] = outcome_record
                     run.update(job, captcha_event=captcha_solver.describe(outcome_record))
-                    if captcha_solver.cleared(outcome_record):
+                    # A frame that leaves before the solver can confirm reports
+                    # no_challenge. Once a challenge has been seen, the token is
+                    # the real proof, not the status string.
+                    if (captcha_solver.cleared(outcome_record)
+                            or outcome_record.get('status') in {'no_challenge', 'rejected'}):
                         solved_after_submit = True
                         _accept_cookie_banner(browser)
                         # Record exactly what the page holds at clear time; a
@@ -465,11 +481,13 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                         if not _await_token(browser.driver, wait=time.sleep):
                             run.update(job, stage='captcha_cleared_without_token')
                             continue
+                        if outcome_record.get('status') != 'cleared':
+                            run.update(job, stage='captcha_token_present_without_clear_status')
                         if not resubmit_count:
                             resubmit_count += 1
                             # Lever resets the form on a refused verification, so
                             # re-fill before pressing again or it submits empty.
-                            if _form_is_empty(browser):
+                            if _form_reset(browser, populated_baseline):
                                 run.update(job, stage='refilling_after_reset')
                                 _refill_after_reset(browser, report, run, job)
                             browser.actions.append({'action': 'submit', 'source': 'after_captcha_clear', 'at': now()})
@@ -561,6 +579,7 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     if review: continue
                     raise ValueError(reason)
                 browser.driver.execute_script('return window.__jobroboPrepare.armSubmit(arguments[0])', button['element'])
+                populated_baseline = _populated(browser)
                 activated=True; started=time.monotonic()
                 _accept_cookie_banner(browser)
                 run.update(job, status='submitting', stage='waiting_for_confirmation')

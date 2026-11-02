@@ -1313,12 +1313,12 @@ def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_p
                     cover=question_config.get('cover_enabled', True), descriptive=question_config.get('descriptive_enabled', True),
                     job_country=target_country(job.get('location') or top.get('location', '')))
                 report['job_location_context'] = top.get('location', '')
-            if resolver is not None and report.get('reprepare') is None:
+            if resolver is not None and not callable(getattr(browser, 'reprepare', None)):
                 def _reprepare(_b=browser, _r=resolver, _prov=(active_identity.provider if active_identity else 'generic')):
                     """Re-run preparation on a reset form (submit-side refill)."""
                     for _ in range(4):
                         fill_fields(_b, _b.read(), _r, _prov, attempted)
-                report['reprepare'] = _reprepare
+                browser.reprepare = _reprepare
             if upload and not attached:
                 checkpoint('attaching_resume')
                 report['attachment'] = attach_resume(browser, upload, binding, root, candidate=candidate, job=job,form_url=state['url'])

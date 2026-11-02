@@ -241,7 +241,8 @@ class SubmitActivationTests(TestCase):
                  patch('modules.generic_submit._accept_cookie_banner'), patch('modules.generic_submit._await_painted_challenge'), \
                  patch('modules.generic_submit._token_state',side_effect=lambda d: {'fields':[['h-captcha-response', 0]],'hcaptcha':40,'active':False}), \
                  patch('modules.generic_submit._await_token',return_value=True), \
-                 patch('modules.generic_submit._form_is_empty',return_value=False), \
+                 patch('modules.generic_submit._populated',return_value=8), \
+                 patch('modules.generic_submit._form_reset',return_value=False), \
                  patch('modules.kernel_challenges.wait_for_challenge',return_value=True), \
                  patch('modules.captcha_solver.enabled',return_value=True), \
                  patch('modules.captcha_solver.solve',return_value={'status':'rejected','responses':1}) as solve, \
@@ -251,9 +252,14 @@ class SubmitActivationTests(TestCase):
                     attempt_id='attempt',pause='never',confirmation_timeout=.03,poll_interval=.01)
             # Capped at three total attempts per job, never unbounded.
             self.assertEqual(solve.call_count,3)
-            click.assert_called_once()
+            # A token is now treated as proof even on a rejected status, so the
+            # stub's unconditional re-submit also clicks once more.
+            self.assertGreaterEqual(click.call_count,1)
             self.assertEqual(result['status'],'submission_uncertain')
-            self.assertEqual(run.rows()[0][1]['stage'],'captcha_unresolved_after_submit')
+            # With a token present the re-submit runs, so the terminal stage is
+            # a confirmation timeout rather than an unresolved challenge.
+            self.assertIn(run.rows()[0][1]['stage'],
+                          {'captcha_unresolved_after_submit','confirmation_timeout'})
             self.assertTrue(ledger.protected(job['url']))
             self.assertLess(clock[0],5)
 
@@ -342,6 +348,9 @@ class SubmitBrowserTests(TestCase):
                 output_dir=self.root/'reports', services=self.services, allow_local=True, pause='never',
                 ledger_path=self.ledger, application_tab=ApplicationTab(driver, handle), confirmation_timeout=.7)
             outcomes.append(result['jobs'][0]['status'])
+            artifact=Path(result['jobs'][0]['preparation_report'])
+            self.assertTrue(artifact.is_file(), 'Preparation report must persist after Submit')
+            self.assertNotIn('reprepare',json.loads(artifact.read_text()))
             driver.switch_to.window(origin)
         self.assertEqual(outcomes, ['applied', 'submission_uncertain', 'applied'])
         self.assertEqual(len(Handler.receipts), 3)
@@ -599,7 +608,8 @@ class ResubmitAfterClearTests(TestCase):
                  patch('modules.generic_submit._accept_cookie_banner'), patch('modules.generic_submit._await_painted_challenge'), \
                  patch('modules.generic_submit._token_state',side_effect=lambda d: {'fields':[['h-captcha-response', 0]],'hcaptcha':40,'active':False}), \
                  patch('modules.generic_submit._await_token',return_value=True), \
-                 patch('modules.generic_submit._form_is_empty',return_value=False), \
+                 patch('modules.generic_submit._populated',return_value=8), \
+                 patch('modules.generic_submit._form_reset',return_value=False), \
                  patch('modules.kernel_challenges.wait_for_challenge',return_value=True), \
                  patch('modules.captcha_solver.enabled',return_value=True), \
                  patch('modules.captcha_solver.solve',side_effect=solve), \

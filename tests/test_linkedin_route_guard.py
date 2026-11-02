@@ -78,6 +78,32 @@ class LinkedInRouteGuardTests(unittest.TestCase):
             namespace["driver"].current_url, "123", "Synthetic Engineer", "", "Example")
         namespace["driver"].switch_to.window.assert_called_with("linkedin")
 
+    def test_unsupported_company_destination_closes_tab_before_preparation(self):
+        namespace=self.namespace(False, hosted=True)
+        url='https://example.test/careers/one'
+        namespace['driver'].current_url=url
+        self.handoff.return_value=('external',url)
+        with patch('modules.linkedin_external_submit.settle_ats_destination',return_value=url), \
+             patch('modules.manual_tabs.close_browser_tab',return_value=True) as close:
+            result=self.run_route(namespace)
+        self.assertEqual(result.status,'skipped')
+        namespace['prepare_external_application'].assert_not_called()
+        close.assert_called_once_with(namespace['driver'],'external')
+        self.assertNotIn('external',namespace['retained_external_tabs'])
+        namespace['driver'].switch_to.window.assert_called_with('linkedin')
+
+    def test_confirmed_outcome_survives_lost_session_during_origin_restore(self):
+        from selenium.common.exceptions import InvalidSessionIdException
+        from unittest.mock import PropertyMock
+        namespace=self.namespace(False,hosted=True)
+        namespace['prepare_external_application'].return_value=ExternalApplicationResult(
+            'applied',namespace['driver'].current_url,submitted_at='2026-11-02T00:32:27+00:00')
+        with patch.object(type(namespace['driver']),'window_handles',new_callable=PropertyMock,create=True) as handles:
+            handles.side_effect=[['linkedin','external'],['linkedin','external'],InvalidSessionIdException('lost after receipt')]
+            result=self.run_route(namespace)
+        self.assertEqual(result.status,'applied')
+        self.assertNotIn('external',namespace['retained_external_tabs'])
+
     def test_handoff_is_bound_to_selected_job_and_retains_unresolved_tab(self):
         namespace = self.namespace(False, hosted=True)
         result = self.run_route(namespace)

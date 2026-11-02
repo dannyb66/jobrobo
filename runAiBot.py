@@ -1744,8 +1744,11 @@ def external_apply(pagination_element, job_id, job_link, resume, date_listed, ap
             active_manifest.save()
         raise  # The search loop captures diagnostics and retains this job for retry.
     finally:
-        if origin in driver.window_handles:
-            driver.switch_to.window(origin)
+        try:
+            if origin in driver.window_handles:
+                driver.switch_to.window(origin)
+        except Exception as cleanup_error:
+            print_lg(f'External handoff outcome preserved; LinkedIn tab restore failed ({type(cleanup_error).__name__})')
 
 
 
