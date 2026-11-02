@@ -469,11 +469,16 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     # no_challenge, and a "cleared" verdict can be false: hCaptcha
                     # sometimes closes the widget without ever issuing a token.
                     # The token — not the status string — is the proof.
-                    _accept_cookie_banner(browser)
+                    # Read the token BEFORE touching the page: accepting consent
+                    # re-renders Lever's form and can wipe the hidden field we
+                    # just received.
                     token_state = _token_state(browser.driver)
                     report['captcha_token_state'] = token_state
                     run.update(job, captcha_token_state=token_state)
-                    has_token = _await_token(browser.driver, wait=time.sleep)
+                    has_token = _token_length(token_state) > 0 or _await_token(browser.driver, wait=time.sleep)
+                    if not has_token:
+                        _accept_cookie_banner(browser)
+                        has_token = _await_token(browser.driver, timeout=2, wait=time.sleep)
                     if not has_token:
                         if solve_attempts < SOLVE_ATTEMPT_LIMIT:
                             # Re-deal: keep solving while the budget allows
