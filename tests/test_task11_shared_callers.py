@@ -26,12 +26,12 @@ class SharedCallerTests(unittest.TestCase):
             'checkpoint_job':Mock(),'run_resume_optimization':Mock(),
             'external_apply_pause_before_submit':'never','external_apply_captcha_solver':True}
         extract_functions(ns,'prepare_external_application')
-        outcome=ExternalApplicationResult('failed','https://example.test/apply',
+        outcome=ExternalApplicationResult('failed','https://jobs.lever.co/example/11111111-1111-4111-8111-111111111111/apply',
             reason='No verified optimized resume available',direct_status='blocked')
         with patch('modules.linkedin_external_submit.submit_employer_tab',return_value=outcome) as submit, patch('modules.external_apply.apply_hosted_application') as legacy:
-            result=ns['prepare_external_application']('https://example.test/apply','123','Engineer','Exact JD','Example')
+            result=ns['prepare_external_application']('https://jobs.lever.co/example/11111111-1111-4111-8111-111111111111/apply','123','Engineer','Exact JD','Example')
         self.assertIs(result,outcome)
-        self.assertEqual(submit.call_args.args,(ns['driver'],'employer','https://example.test/apply'))
+        self.assertEqual(submit.call_args.args,(ns['driver'],'employer','https://jobs.lever.co/example/11111111-1111-4111-8111-111111111111/apply'))
         self.assertEqual(submit.call_args.kwargs['description'],'Exact JD')
         self.assertEqual(submit.call_args.kwargs['pause'],'never')
         self.assertTrue(submit.call_args.kwargs['captcha_solver'])

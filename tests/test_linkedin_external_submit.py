@@ -124,7 +124,7 @@ class BorrowedSubmissionTests(TestCase):
     def test_adapter_uses_exact_shared_engine_options_and_profile_loader(self):
         result={'run_id':'direct-run','run_dir':str(self.root),'jobs':[{'status':'failed_before_submit','reason':'fixture','retryable':True}]}
         with patch('modules.submit_runner.run_submissions',return_value=result) as runner:
-            outcome=submit_employer_tab(self.driver,'employer','https://example.test/jobs/1',job_id='123',title='FDE',company='Example',description='Build systems',
+            outcome=submit_employer_tab(self.driver,'employer','https://jobs.lever.co/example/11111111-1111-4111-8111-111111111111',job_id='123',title='FDE',company='Example',description='Build systems',
                 state_dir=self.root/'search_runs',provenance={'Search Run ID':'search-run'},checkpoint=Mock())
         args=runner.call_args
         self.assertEqual(args.kwargs['pause'],'never');self.assertTrue(args.kwargs['captcha_solver'])
@@ -216,3 +216,54 @@ class ExternalHandoffTests(TestCase):
             handle,url=open_employer_tab(driver,'123',timeout=.1)
         self.assertEqual(handle,'copied-employer');self.assertEqual(driver.current_window_handle,handle)
         driver.switch_to.window('linkedin');self.assertEqual(driver.current_url,original)
+
+
+class ATSPolicyTests(TestCase):
+    lever='https://jobs.lever.co/example/11111111-1111-4111-8111-111111111111'
+
+    def test_known_job_urls_admitted_and_company_or_board_urls_skipped(self):
+        from modules.linkedin_external_submit import ats_admission
+        for url in [self.lever,self.lever+'/apply',self.lever.replace('jobs.lever.co','jobs.eu.lever.co'),
+                    self.lever.replace('jobs.lever.co','jobs.ashbyhq.com'),
+                    'https://job-boards.greenhouse.io/example/jobs/12345',
+                    'https://job-boards.eu.greenhouse.io/example/jobs/12345']:
+            with self.subTest(url=url):self.assertIsNone(ats_admission(url))
+        for url in ['https://example.com/careers/1','https://jobs.lever.co/example',
+                    'https://jobs.lever.co.evil.test/example/11111111-1111-4111-8111-111111111111',
+                    'https://jobs.smartrecruiters.com/example/1','https://example.myworkdayjobs.com/jobs/1']:
+            with self.subTest(url=url):
+                result=ats_admission(url)
+                self.assertEqual(result.status,'skipped');self.assertFalse(result.retryable)
+
+    def test_config_subset_and_optional_disable(self):
+        from modules.linkedin_external_submit import ats_admission,ats_policy
+        self.assertEqual(ats_admission(self.lever,{'external_apply_allowed_providers':['greenhouse']}).status,'skipped')
+        self.assertIsNone(ats_admission('https://example.test/jobs/1',{'external_apply_ats_only':False}))
+        for values in ({'external_apply_ats_only':'true'}, {'external_apply_allowed_providers':[]},
+                       {'external_apply_allowed_providers':['workday']},{'external_apply_allowed_providers':[{}]}):
+            with self.subTest(values=values),self.assertRaises(ValueError):ats_policy(values)
+
+    def test_rejected_adapter_does_not_start_direct_engine(self):
+        from modules.linkedin_external_submit import submit_employer_tab
+        with patch('modules.submit_runner.run_submissions') as engine:
+            result=submit_employer_tab(Mock(),'employer','https://example.test/careers',job_id='1',title='FDE',
+                company='Example',description='Build',state_dir='/unused',provenance={},checkpoint=Mock())
+        self.assertEqual(result.status,'skipped');engine.assert_not_called()
+
+    def test_redirect_guard_protects_reads_navigation_and_job_identity(self):
+        from modules.linkedin_external_submit import ats_url_guard
+        from modules.generic_prepare import PreparationBrowser
+        guard=ats_url_guard(self.lever)
+        guard(self.lever+'/apply');guard(self.lever+'/thanks')
+        for url in ['https://example.test/careers',self.lever.replace('11111111','22222222',1)]:
+            with self.assertRaises(ValueError):guard(url)
+        driver=Mock(current_url=self.lever)
+        browser=PreparationBrowser(driver);browser.url_guard=guard
+        browser.dismiss_consent=Mock()
+        driver.get.side_effect=lambda _:setattr(driver,'current_url','https://example.test/careers')
+        with patch('modules.generic_prepare.time.sleep'),self.assertRaisesRegex(ValueError,'unsupported_ats'):
+            browser.navigate(self.lever)
+        browser.dismiss_consent.assert_not_called()
+        driver.execute_script.reset_mock()
+        with self.assertRaises(ValueError):browser.read()
+        driver.execute_script.assert_not_called()

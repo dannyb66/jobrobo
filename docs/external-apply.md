@@ -6,8 +6,8 @@ reuses configured profiles, AI drafting and per-job résumé generation, and
 records preparation evidence without entering the submission workflow.
 
 The configured LinkedIn runner now uses the shared `direct_apply.py submit`
-engine for employer links. Set `application_mode` to `external_only`,
-`easy_apply_only` (current), or `both` in `config/search.py`; it overrides the legacy
+engine for employer links. Set `application_mode` to `external_only` (current),
+`easy_apply_only`, or `both` in `config/search.py`; it overrides the legacy
 `easy_apply_only` setting. `external_apply_enabled = True`,
 `external_apply_captcha_solver = True`, and
 `external_apply_pause_before_submit = "never"` control automatic employer

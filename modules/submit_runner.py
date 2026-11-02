@@ -27,6 +27,7 @@ class ApplicationTab:
     driver: object
     handle: str
     on_update: object = None
+    url_guard: object = None
 
 
 def explicit_portal_rejection(state):
@@ -795,6 +796,7 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     def cached_resume(job_context, _report_resume_dir):
                         return svc['resume_provider'](job_context,Path(options['output_dir'])/fingerprint(job['url'])[:20]/'resume')
                     report = preparer(job['url'], driver=driver, output_dir=options['preparation_dir'],
+                        **({'url_guard':application_tab.url_guard} if application_tab is not None and application_tab.url_guard else {}),
                         candidate=candidate, question_config=question_config,
                         resume_provider=cached_resume, drafting_factory=svc.get('drafting_factory'),
                         question_mapper=svc.get('question_mapper'), ledger=ledger, job_hint=job_hint(job),

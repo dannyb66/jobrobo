@@ -1704,6 +1704,16 @@ def external_apply(pagination_element, job_id, job_link, resume, date_listed, ap
         retained.add(handle)  # Keep evidence even if preparation raises/interruption occurs.
         tabs_count = len(driver.window_handles)
         print_lg(f'External application [{job_id}]: {application_link}')
+        from modules.linkedin_external_submit import ats_policy, ats_admission, settle_ats_destination
+        if ats_policy()[0]:
+            application_link = settle_ats_destination(driver)
+            rejected = ats_admission(application_link)
+            if rejected:
+                from modules.manual_tabs import close_browser_tab
+                if close_browser_tab(driver, handle):
+                    retained.discard(handle)
+                print_lg(f'External application [{job_id}]: skipped unsupported ATS destination')
+                return rejected
         if globals().get('external_apply_enabled', False):
             outcome = (prepare_external_application(application_link, job_id, job_title, job_description, company, prepare_only=True)
                        if prepare_only else prepare_external_application(application_link, job_id, job_title, job_description, company))
@@ -1741,7 +1751,7 @@ def external_apply(pagination_element, job_id, job_link, resume, date_listed, ap
 
 def checkpoint_external_application(job_id, outcome):
     """Persist hosted outcome details without treating drafts as confirmed submissions."""
-    status = outcome.status if outcome.status in {"applied", "submitting", "failed"} else "skipped" if outcome.status in {"discarded", "duplicate"} else "collected"
+    status = outcome.status if outcome.status in {"applied", "submitting", "failed", "skipped"} else "skipped" if outcome.status in {"discarded", "duplicate"} else "collected"
     if outcome.direct_status and outcome.status == 'manual_handoff':
         status = 'failed'  # A retained employer page is not a collected-link quota success.
     checkpoint_job(job_id, status, outcome.reason)
@@ -1753,11 +1763,17 @@ def checkpoint_external_application(job_id, outcome):
 
 def prepare_external_application(application_link, job_id, job_title, job_description, company, *, prepare_only=False):
     """Fill supported company forms and preserve existing tracking/budget boundaries."""
+    from modules.linkedin_external_submit import ats_admission
+    rejected = ats_admission(application_link)
+    if rejected:
+        return rejected
     if prepare_only or globals().get('prepare_only_run', False):
         from modules.generic_prepare import run_preparations
         from modules.external_apply import ExternalApplicationResult
+        from modules.linkedin_external_submit import ats_url_guard
         from pathlib import Path
         results = run_preparations([application_link],
+            url_guard=ats_url_guard(application_link),
             output_dir=Path(search_profile.search_state_dir).parent / 'url_preparations',
             job_hint={'title': job_title, 'company': company, 'description': job_description})
         report = results[0]
@@ -2704,6 +2720,8 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                             external_result = external_apply(pagination_element, job_id, job_link, resume, date_listed, application_link, screenshot_name, **external_options)
                             if hasattr(external_result, "status"):
                                 checkpoint_external_application(job_id, external_result)
+                                if external_result.status == 'skipped':
+                                    continue  # Unsupported ATS targets are audit skips, not failures/retry work.
                                 if prepare_only and preparation_report is not None:
                                     preparation_report.record(dict(job_id=job_id, status='ready' if external_result.status == 'prepared' else 'failed',
                                         reason=external_result.reason, external_application=external_result.to_dict()))

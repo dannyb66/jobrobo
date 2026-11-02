@@ -10,7 +10,7 @@ from test_search_runner import extract_functions
 class LinkedInRouteGuardTests(unittest.TestCase):
     def namespace(self, easy_only, hosted=False):
         handoff = patch('modules.linkedin_external_submit.open_employer_tab',
-                        return_value=('external', 'https://jobs.lever.co/example/synthetic/apply'))
+                        return_value=('external', 'https://jobs.lever.co/example/11111111-1111-4111-8111-111111111111/apply'))
         self.handoff = handoff.start()
         self.addCleanup(handoff.stop)
         capture = patch('modules.linkedin_failure_recovery.capture_failure', return_value={})
@@ -18,7 +18,7 @@ class LinkedInRouteGuardTests(unittest.TestCase):
         self.addCleanup(capture.stop)
         driver = Mock()
         driver.find_element.return_value.text = "No warning"
-        driver.current_url = "https://jobs.lever.co/example/synthetic/apply"
+        driver.current_url = "https://jobs.lever.co/example/11111111-1111-4111-8111-111111111111/apply"
         driver.current_window_handle = "linkedin"
         driver.window_handles = ["linkedin", "external"]
         namespace = {

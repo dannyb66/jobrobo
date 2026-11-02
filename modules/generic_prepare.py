@@ -107,6 +107,9 @@ class PreparationBrowser:
         self.guard()
 
     def guard(self):
+        url_guard = getattr(self, 'url_guard', None)
+        if url_guard:
+            url_guard(self.driver.current_url)
         self.driver.execute_script(self.guard_script)
 
     def top(self):
@@ -182,6 +185,7 @@ class PreparationBrowser:
             self.driver.execute_script('window.stop()')
         time.sleep(self.settle)
         self.actions.append({'action': 'navigate', 'url': target, 'at': stamp()})
+        self.guard()
         self.dismiss_consent()
         self.guard()
         deadline = time.monotonic() + 15
@@ -1184,7 +1188,7 @@ def _wait_resume_attachment(browser, selected, expected_hash, *, timeout, proces
 
 def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_provider, drafting_factory=None,
                 job_hint=None, allow_local=False, max_steps=15, settle=0.6, ledger=None, question_mapper=None,
-                browser_class=PreparationBrowser, on_ready=None, on_stage=None, input_metadata=None):
+                browser_class=PreparationBrowser, on_ready=None, on_stage=None, input_metadata=None, url_guard=None):
     """Prepare one URL; only the explicit submission browser supports on_ready."""
     input_url = url
     url = canonical_url(url, allow_local=allow_local)
@@ -1215,6 +1219,9 @@ def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_p
     try:
         checkpoint('navigating')
         browser = browser_class(driver, allow_local=allow_local, settle=settle, question_mapper=question_mapper)
+        if url_guard:
+            browser.url_guard = url_guard
+            browser.guard()
         browser.navigate(url)
         for step in range(max_steps):
             from .kernel_challenges import wait_for_challenge
@@ -1306,6 +1313,12 @@ def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_p
                     cover=question_config.get('cover_enabled', True), descriptive=question_config.get('descriptive_enabled', True),
                     job_country=target_country(job.get('location') or top.get('location', '')))
                 report['job_location_context'] = top.get('location', '')
+            if resolver is not None and report.get('reprepare') is None:
+                def _reprepare(_b=browser, _r=resolver, _prov=(active_identity.provider if active_identity else 'generic')):
+                    """Re-run preparation on a reset form (submit-side refill)."""
+                    for _ in range(4):
+                        fill_fields(_b, _b.read(), _r, _prov, attempted)
+                report['reprepare'] = _reprepare
             if upload and not attached:
                 checkpoint('attaching_resume')
                 report['attachment'] = attach_resume(browser, upload, binding, root, candidate=candidate, job=job,form_url=state['url'])
@@ -1506,7 +1519,7 @@ def preparation_services(*, config_dir='config', questions_path=None, grounded_r
 
 def run_preparations(urls, *, config_dir='config', output_dir='logs/url_preparations', chrome_profile=None,
                      questions_path=None, grounded_resume=False, browser_factory=None, driver=None, job_hint=None, discovery_source=None,
-                     leave_open=False,browser_backend=None,browser_config=None):
+                     leave_open=False,browser_backend=None,browser_config=None,url_guard=None):
     """CLI/LinkedIn entry. Same preparation engine, permanently without submit."""
     from .generic_inputs import job_hint as saved_job_hint
     output_dir, config_dir = Path(output_dir), Path(config_dir)
@@ -1565,6 +1578,7 @@ def run_preparations(urls, *, config_dir='config', output_dir='logs/url_preparat
                     job_candidate['application_source']=item['discovery_source']
                     job_config.setdefault('candidate',{})['application_source']=item['discovery_source']
                 report = prepare_url(url, driver=driver, output_dir=output_dir, candidate=job_candidate, question_config=job_config,
+                    **({'url_guard':url_guard} if url_guard else {}),
                     resume_provider=resume, drafting_factory=drafts, ledger=ledger, job_hint=(saved_job_hint(item) if isinstance(entry, dict) else job_hint), question_mapper=mapper,
                     input_metadata={'role_id':item.get('id'),'company_id':item.get('company_id'),
                                     'verification_run_id':item.get('verification_run_id'),'source':item.get('provenance',{})})

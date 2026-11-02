@@ -239,6 +239,9 @@ class SubmitActivationTests(TestCase):
             with patch('modules.generic_submit.validate_final',return_value=(state(),{'element':Mock()},'')), \
                  patch('modules.generic_submit._activate',side_effect=activate) as click, \
                  patch('modules.generic_submit._accept_cookie_banner'), patch('modules.generic_submit._await_painted_challenge'), \
+                 patch('modules.generic_submit._token_state',side_effect=lambda d: {'fields':[['h-captcha-response', 0]],'hcaptcha':40,'active':False}), \
+                 patch('modules.generic_submit._await_token',return_value=True), \
+                 patch('modules.generic_submit._form_is_empty',return_value=False), \
                  patch('modules.kernel_challenges.wait_for_challenge',return_value=True), \
                  patch('modules.captcha_solver.enabled',return_value=True), \
                  patch('modules.captcha_solver.solve',return_value={'status':'rejected','responses':1}) as solve, \
@@ -564,7 +567,7 @@ class ResubmitAfterClearTests(TestCase):
 
     def test_cleared_challenge_triggers_a_second_submit(self):
         from types import SimpleNamespace
-        from modules.generic_submit import submit_ready
+        from modules.generic_submit import submit_ready, TOKEN_JS
         with TemporaryDirectory() as tmp:
             job=load_jobs(url='https://example.test/jobs/late-token')[0]
             run=SubmitRun(Path(tmp)/'run',jobs=[job]); self.addCleanup(run.close)
@@ -572,6 +575,8 @@ class ResubmitAfterClearTests(TestCase):
             activated=[False];clock=[0.0]; clears=[0]
             driver=Mock(current_url=job['url'],browser_backend='local')
             def script(source,*a):
+                if source == TOKEN_JS:
+                    return {'fields': [('g-recaptcha-response', 3 if solved[0] else 0)], 'hcaptcha': None}
                 if 'documentId' in source: return 'document'
                 if 'finalActivated' in source: return {'activated':activated[0],'document':'document'}
                 return True
@@ -592,6 +597,9 @@ class ResubmitAfterClearTests(TestCase):
             with patch('modules.generic_submit.validate_final',return_value=(read(),{'element':Mock()},'')), \
                  patch('modules.generic_submit._activate',side_effect=lambda **kw: (activated.__setitem__(0,True), clicks.append(1))), \
                  patch('modules.generic_submit._accept_cookie_banner'), patch('modules.generic_submit._await_painted_challenge'), \
+                 patch('modules.generic_submit._token_state',side_effect=lambda d: {'fields':[['h-captcha-response', 0]],'hcaptcha':40,'active':False}), \
+                 patch('modules.generic_submit._await_token',return_value=True), \
+                 patch('modules.generic_submit._form_is_empty',return_value=False), \
                  patch('modules.kernel_challenges.wait_for_challenge',return_value=True), \
                  patch('modules.captcha_solver.enabled',return_value=True), \
                  patch('modules.captcha_solver.solve',side_effect=solve), \

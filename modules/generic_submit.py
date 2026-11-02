@@ -169,6 +169,64 @@ def _refresh_submit(browser, report, run, job):
     return True
 
 
+TOKEN_JS = r"""
+// The token may live in a hidden input or only in the vendor's own JS state;
+// read both, plus the widget's solved signal, so a clear is never assumed.
+const names=['g-recaptcha-response','h-captcha-response','cf-turnstile-response'];
+const fields=names.map(n=>{const e=document.querySelector(`[name="${n}"]`);return [n, e?(e.value||'').length:-1];});
+let own=null;
+try{ if(window.hcaptcha&&window.hcaptcha.getResponse) own=(window.hcaptcha.getResponse()||'').length; }catch(_){}
+return {fields, hcaptcha:own, active:[...document.querySelectorAll('iframe[src*=hcaptcha],iframe[src*=recaptcha],iframe[src*=turnstile]')]
+  .some(e=>e.getBoundingClientRect().height>150&&getComputedStyle(e).visibility!=='hidden')};
+"""
+
+
+def _form_is_empty(browser):
+    """A reset form has no user-entered values left."""
+    try:
+        fields = browser.read().get('fields', [])
+    except Exception:
+        return False
+    return not any((f.get('value') or '').strip() for f in fields
+                   if f.get('type') not in {'hidden', 'submit', 'button', 'file'})
+
+
+def _refill_after_reset(browser, report, run, job):
+    """Re-run preparation so a reset form is populated before re-submitting."""
+    prepare = report.get('reprepare')
+    if prepare is None:
+        return False
+    try:
+        prepare()
+        return True
+    except Exception:
+        return False
+
+
+def _token_state(driver):
+    try:
+        return driver.execute_script(TOKEN_JS) or {}
+    except Exception:
+        return {}
+
+
+def _token_length(state):
+    best = state.get('hcaptcha') or 0
+    for _, length in state.get('fields') or []:
+        best = max(best, length or 0)
+    return best
+
+
+def _await_token(driver, timeout=6.0, wait=time.sleep):
+    """Wait for the vendor to actually hand over a token after a clear."""
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if _token_length(_token_state(driver)) > 0:
+            return True
+        wait(0.25)
+    return False
+
+
 def _activate(*, driver, element):
     """Click the final Submit, falling back to a DOM click.
 
@@ -395,18 +453,25 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     run.update(job, captcha_event=captcha_solver.describe(outcome_record))
                     if captcha_solver.cleared(outcome_record):
                         solved_after_submit = True
-                        # The token is only attached once the widget is solved, so
-                        # the click that raised the challenge did not carry it.
-                        # Press Submit again or the application never leaves.
                         _accept_cookie_banner(browser)
-                        fresh_state = browser.read()
-                        tokens = [f for f in fresh_state.get('fields', [])
-                                  if f.get('name') in {'g-recaptcha-response', 'h-captcha-response',
-                                                       'cf-turnstile-response'} and (f.get('value') or '').strip()]
-                        if not tokens:
+                        # Record exactly what the page holds at clear time; a
+                        # rejected solve and a missing token look identical from
+                        # the vendor record alone.
+                        token_state = _token_state(browser.driver)
+                        report['captcha_token_state'] = token_state
+                        run.update(job, captcha_token_state=token_state)
+                        # The token is delivered after the widget solves, so wait
+                        # for it rather than clicking blind.
+                        if not _await_token(browser.driver, wait=time.sleep):
                             run.update(job, stage='captcha_cleared_without_token')
-                        if tokens and not resubmit_count:
+                            continue
+                        if not resubmit_count:
                             resubmit_count += 1
+                            # Lever resets the form on a refused verification, so
+                            # re-fill before pressing again or it submits empty.
+                            if _form_is_empty(browser):
+                                run.update(job, stage='refilling_after_reset')
+                                _refill_after_reset(browser, report, run, job)
                             browser.actions.append({'action': 'submit', 'source': 'after_captcha_clear', 'at': now()})
                             run.update(job, stage='resubmitting_after_captcha')
                             _refresh_submit(browser, report, run, job)

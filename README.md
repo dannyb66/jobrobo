@@ -224,11 +224,22 @@ These are different limits: an individual manual lane can still have `quota = 1`
 Use the exact `San Francisco Bay Area` location when selecting that native
 suggestion. Remote/Hybrid intent and unavailable filter controls must be checked
 in the actual results; a requested filter is not proof it was applied.
-`application_mode` selects `external_only`,
-`easy_apply_only` (current configuration), or `both`. It overrides the legacy `easy_apply_only` flag;
+`application_mode` selects `external_only` (current configuration),
+`easy_apply_only`, or `both`. It overrides the legacy `easy_apply_only` flag;
 without the new setting the legacy flag keeps its previous behavior.
 External-only mode removes the Easy Apply-only search filter and skips Easy Apply
 results without opening their forms. The other search filters still apply.
+
+LinkedIn external applications default to `external_apply_ats_only = True` in
+`config/settings.py`, with `external_apply_allowed_providers = ["lever", "greenhouse", "ashby"]`.
+Only recognized job-specific hosted URLs enter preparation. Automatic redirects
+may settle first; generic company pages and unsupported ATS destinations are
+recorded as `unsupported_ats` skips, closed, and excluded from application quotas
+and automatic retries. Redirects during preparation are checked against the admitted
+ATS posting, including its recognized confirmation routes. Setting ATS-only to
+False restores the broader LinkedIn handoff; standalone `direct_apply.py` retains
+its existing generic URL support.
+
 
 Employer Apply links use the same submission engine as:
 
@@ -614,7 +625,7 @@ See the [job pipeline guide](docs/job-pipeline.md) for input contracts, official
 | `config/search.py:search_location` | Location entered into LinkedIn search. | `'California, United States'` |
 | `config/search.py:switch_number` | Per-query application/external-link quota, unless a SearchSpec has its own quota. | Currently `10`; use `1` for a smoke test |
 | `config/search.py:max_applications_per_run` | Confirmed submissions across all queries/cycles in the command. | Currently `50`; use `1` for a smoke test; `None` disables the cap |
-| `config/search.py:application_mode` | Select Easy Apply, employer applications, or both; overrides the legacy flag. | Currently `"easy_apply_only"` |
+| `config/search.py:application_mode` | Select Easy Apply, employer applications, or both; overrides the legacy flag. | Currently `"external_only"` |
 | `config/settings.py:external_apply_captcha_solver` | Enable the direct-submit CAPTCHA solver for employer tabs; requires the solver setup and credentials. | Currently `True` |
 | `config/settings.py:external_apply_pause_before_submit` | Employer submission policy, independent of the Easy Apply pause. | Currently `"never"`; `"always"` or `"unknown"` retains review tabs |
 | `config/settings.py:run_in_background` | Whether Chrome is visible. | `False` while debugging |

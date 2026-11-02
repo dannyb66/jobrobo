@@ -135,8 +135,8 @@ are excluded, and repeated backfills deduplicate source events.
 
 ## Application scope and resume
 
-`application_mode` in `config/search.py` selects `external_only`,
-`easy_apply_only` (current), or `both`, overriding the legacy `easy_apply_only` flag.
+`application_mode` in `config/search.py` selects `external_only` (current),
+`easy_apply_only`, or `both`, overriding the legacy `easy_apply_only` flag.
 Without that setting, the legacy flag retains its previous behavior. External-only
 mode clears the Easy Apply-only filter and skips Easy Apply results.
 

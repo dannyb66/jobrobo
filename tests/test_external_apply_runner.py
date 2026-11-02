@@ -34,6 +34,19 @@ class HostedRunnerTests(unittest.TestCase):
         self.runner.execute(manifest, budget)
         return manifest, first, budget
 
+    def test_unsupported_ats_skips_without_quota_failed_csv_or_retry(self):
+        manifest, search, budget = self.execute('skipped', quota=1)
+        self.assertEqual(budget.count, 0)
+        self.assertEqual(self.runner.visited, ['1', '2', '3'])
+        self.assertEqual(self.namespace['failed_count'], 0)
+        self.assertTrue(all(job['status']=='skipped' for row in manifest.data['queries'] for job in row['jobs'].values()))
+        self.assertFalse((self.runner.directory/'applied.csv').exists())
+        self.assertFalse((self.runner.directory/'failed.csv').exists())
+        retries=self.runner.directory/'deferred_applications'/'retry_jobs.json'
+        if retries.exists():
+            import json
+            self.assertFalse(json.loads(retries.read_text()).get('jobs'))
+
     def test_captcha_solver_flag_enables_solver_and_fails_fast_when_unavailable(self):
         """The flag is explicit opt-in; a broken install must not run half-armed."""
         import os

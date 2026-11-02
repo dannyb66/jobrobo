@@ -130,7 +130,7 @@ class GenericPreparationTests(unittest.TestCase):
         extract_functions(ns, 'prepare_external_application')
         report = {'status': 'prepared', 'blockers': [], 'questions': [], 'resume': {'pdf': '/tmp/test.pdf', 'pdf_sha256': 'test'}}
         with patch('modules.generic_prepare.run_preparations', return_value=[report]) as prepare:
-            result = ns['prepare_external_application']('https://example.test/job', '123', 'Staff Engineer', 'JD', 'Test', prepare_only=True)
+            result = ns['prepare_external_application']('https://jobs.lever.co/example/11111111-1111-4111-8111-111111111111', '123', 'Staff Engineer', 'JD', 'Test', prepare_only=True)
         self.assertEqual(result.status, 'prepared')
         self.assertNotIn('grounded_resume', prepare.call_args.kwargs)
 

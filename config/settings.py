@@ -6,6 +6,8 @@
 # Use the shared direct_apply.py submit engine for employer application pages.
 # application_mode in search.py controls which LinkedIn results are processed.
 external_apply_enabled = True
+external_apply_ats_only = True
+external_apply_allowed_providers = ["lever", "greenhouse", "ashby"]
 external_apply_captcha_solver = True
 external_apply_pause_before_submit = "never" # always | unknown | never, as in direct_apply.py submit.
 # Private local JSON with typed custom answers and optional dedicated-key AI drafts.

@@ -6,10 +6,55 @@ from urllib.parse import urlparse
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
-from .external_apply import ExternalApplicationLedger, ExternalApplicationResult, identify_ats
+from .external_apply import ExternalApplicationLedger, ExternalApplicationResult, identify_ats, confirmation_identity
 from .generic_inputs import load_jobs
 from .search_history import file_lock
 from .direct_careers_apply import write_json
+
+
+def ats_policy(config=None):
+    if config is None:
+        from config import settings as config
+    get = config.get if isinstance(config, dict) else lambda key, default: getattr(config, key, default)
+    enabled = get('external_apply_ats_only', True)
+    providers = get('external_apply_allowed_providers', ['lever', 'greenhouse', 'ashby'])
+    if type(enabled) is not bool or not isinstance(providers, list) or not providers or any(
+            not isinstance(p, str) or p not in {'lever', 'greenhouse', 'ashby'} for p in providers):
+        raise ValueError('Invalid external ATS-only policy or provider list')
+    return enabled, set(providers)
+
+
+def ats_admission(url, config=None):
+    enabled, providers = ats_policy(config)
+    identity = identify_ats(url)
+    if enabled and (identity is None or identity.provider not in providers):
+        return ExternalApplicationResult('skipped', url, reason='unsupported_ats: destination is not an allowed ATS job URL',
+            direct_status='unsupported_ats', retryable=False)
+    return None
+
+
+def settle_ats_destination(driver, *, timeout=5):
+    """Allow automatic company/short-link redirects; never click a company page."""
+    from selenium.common.exceptions import TimeoutException
+    try:
+        WebDriverWait(driver, timeout, poll_frequency=.25).until(lambda browser: identify_ats(browser.current_url))
+    except TimeoutException:
+        pass
+    return driver.current_url
+
+
+def ats_url_guard(url, config=None):
+    enabled, providers = ats_policy(config)
+    expected = identify_ats(url)
+    if not enabled:
+        return None
+    if expected is None or expected.provider not in providers:
+        raise ValueError('unsupported_ats: destination is not an allowed ATS job URL')
+    def guard(current_url):
+        observed = confirmation_identity(current_url)
+        if observed is None or observed.provider not in providers or observed.key != expected.key:
+            raise ValueError('unsupported_ats: destination changed outside the allowed ATS posting')
+    return guard
 
 
 def employer_url(url):
@@ -91,6 +136,9 @@ def submit_employer_tab(driver, handle, url, *, job_id, title, company, descript
                         state_dir, provenance, checkpoint, pause='never', captcha_solver=True,
                         config_dir=None):
     from .submit_runner import ApplicationTab, run_submissions
+    rejected = ats_admission(url)
+    if rejected:
+        return rejected
     state_dir = Path(state_dir)
     ledger = state_dir/'external'/'applications.json'
     history = state_dir.parent/'direct_submit'
@@ -114,7 +162,7 @@ def submit_employer_tab(driver, handle, url, *, job_id, title, company, descript
     result = run_submissions([job], run_dir=history/('linkedin-'+str(job_id)),
         config_dir=config_dir, output_dir=state_dir.parent/'url_preparations',
         pause=pause, max_applications=1, workers=1, ledger_path=ledger,
-        captcha_solver=captcha_solver, application_tab=ApplicationTab(driver, handle, observe),
+        captcha_solver=captcha_solver, application_tab=ApplicationTab(driver, handle, observe, ats_url_guard(url)),
         set_name='linkedin-external-submissions')
     row = result['jobs'][0]
     report_path = row.get('preparation_report')

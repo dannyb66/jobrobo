@@ -1097,3 +1097,14 @@ Parent relay `01a171ff-e0ae-76b7-8b5d-b05664f4000d`: user asks “task 38 ... re
 Register30user-supplied remote-job source leads, retained in the task scope and source-leads.json. Investigate actual site availability/access and extraction paths, resolve real canonical job/apply URLs with provenance, deduplicate cross-board references, preserve snapshots and partial-source limits, then plan reuse of actual JobRobo verification, URL/TXT/strictJSON, preparation/submission and application-history contracts. No source or job opening is verified by this registration. The eventual automation objective does not authorize sending now: specific roles and final execution scope require confirmation. No application, employer contact, credentials, paid access, preparation, schedule or paused-task restart. Deliver completed work for Review unless owner explicitly directs otherwise.
 
 Parent relay `01a171ff-e0ae-76b7-8b5d-b05664f4000d`: user asks “add new task - to extract job urls from these n auto apply for all as well similar to the existing job url apply submit”.
+
+
+## 41. Combined fetch Phase 1 stats — Tasks 1, 26 and 33 — Review
+
+[Combined workbook](</Users/deepakbasavaraju/Documents/Codex/2026-11-01/task-3/outputs/combined-fetch-phase1-20261102/Combined_Fetch_Phase_1_Tasks_1_26_33.xlsx>) · [Stats and application-status note](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task41-combined-fetch-phase1/index.html>).
+
+Ready for Review: 4,649 task records (191 / 2,725 / 1,733), 4,532 distinct saved URLs after trailing-slash normalization, 117 overlapping URL groups, 199 separate unresolved Task 33 hints and 551 Task 1 attempt observations. Six filterable sheets, source IDs/URLs/dates and formula-based task/company totals.
+
+The owner notes that most Task 1 URLs have had submission work, including Lever and Ashby, with some pending. Saved evidence distinguishes labels and confirmations: 82 applied labels, 26 submission_uncertain, 22 pending and 61 other; seven jobs have an explicitly confirmed attempt. Lever: 22 pending, 13 uncertain, one interrupted. Ashby: 79 applied labels, 13 uncertain, 36 blocked, 19 failed before submit, one interrupted and one ready.
+
+Task 1 decisions are a reporting mapping of saved application exclusions; Tasks 26/33 preserve saved verifier decisions. Source freshness and partial coverage remain explicit. Existing Tasks 1, 26, 33 and 40 statuses and content are unchanged. No new fetch, preparation, application, message, schedule, push or deploy.
