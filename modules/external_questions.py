@@ -185,6 +185,9 @@ def _candidate_key(label):
            or (CANDIDATE_LABELS.get(normalized[5:]) if normalized.startswith('your ') else None))
     if key:
         return key
+    if (re.fullmatch(r'(?:what (?:are|is) )?(?:your )?(?:(?:annual|base) )?(?:salary|compensation|pay) (?:expectations?|requirements?)', normalized)
+            or re.fullmatch(r'(?:what is )?(?:your )?desired (?:annual )?salary', normalized)):
+        return 'desired_salary'
     if re.match(r"as experience and the ability to\b", normalized):
         return "years_of_experience"
     if re.fullmatch(r'(?:(?:please )?(?:state|enter|provide)|what is) (?:your )?(?:full )?legal name', normalized):

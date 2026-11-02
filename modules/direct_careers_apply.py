@@ -78,7 +78,8 @@ def local_candidate(config_dir):
              "desired_salary": "desired_salary", "notice_period": "notice_period", "current_employer": "recent_employer",
              "gender": "gender", "ethnicity": "ethnicity", "disability_status": "disability_status", "veteran_status": "veteran_status",
              "work_authorization": "work_authorization", "github": "github", "summary": "linkedin_summary", "cover_letter": "cover_letter",
-             "application_source": "application_source"}
+             "application_source": "application_source",
+             "hybrid_office_days_per_week": "hybrid_office_days_per_week", "hybrid_office_locations": "hybrid_office_locations"}
     candidate = {target: values[source] for target, source in names.items()
                  if values.get(source) not in (None, "", "Not Applicable")}
     candidate["full_name"] = " ".join(value for part in ("first_name", "middle_name", "last_name") if (value := str(values.get(part) or "").strip()))

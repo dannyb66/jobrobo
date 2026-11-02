@@ -574,6 +574,27 @@ class PreparationResolver:
                 answer.source = 'resume_profile:' + origin
         if answer.resolved or answer.reason.startswith(('Multiple configured', 'Configured answer')):
             return answer
+        # Explicit configured commute preference; never infer a different city,
+        # schedule, compensation acknowledgment or legal agreement from it.
+        text = question['label'].casefold()
+        days = [int(value) for value in re.findall(r'\b([1-7])\b', text)]
+        days += [number for word, number in [('twice', 2), ('two', 2), ('three', 3)] if re.search(r'\b'+word+r'\b', text)]
+        accepted = self.typed.candidate.get('hybrid_office_days_per_week', [])
+        locations = self.typed.candidate.get('hybrid_office_locations', [])
+        if (days and isinstance(accepted, list) and all(day in accepted for day in days) and isinstance(locations, list)
+                and any(isinstance(city, str) and city.casefold() in text for city in locations)
+                and re.search(r'commut\w*|in.office|office|on.site', text)
+                and re.search(r'are you|can you|would you|will you|willing|able|happy', text)
+                and not re.search(r'salary|compensation|sponsor|eligible|authorized|consent|agree|reviewed', text)
+                and question['kind'] in {'text', 'textarea', 'radio', 'select', 'checkbox'}):
+            value = True if question['kind'] == 'checkbox' else 'Yes'
+            if question['kind'] in {'radio', 'select'}:
+                yes = [option for option in question.get('options', []) if re.fullmatch(r'yes[.!]?', option.strip(), re.I)]
+                value = yes[0] if len(yes) == 1 else ''
+            try:
+                return Answer(validate_answer(question, value), 'candidate_config:hybrid_office_preference', '')
+            except ValueError:
+                pass
         if self.uses_completion_date(question):
             today = datetime.now().date()
             value = today.isoformat() if question['kind'] == 'date' else today.strftime('%m/%d/%Y')

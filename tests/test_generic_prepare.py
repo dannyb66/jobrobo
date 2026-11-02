@@ -360,5 +360,20 @@ class GenericPreparationTests(unittest.TestCase):
                 record_resume_review(report, 'wrong-hash')
 
 
+class ConfiguredPreferenceTests(unittest.TestCase):
+    def test_configured_salary_and_scoped_hybrid_days_resolve_without_ai(self):
+        resolver=PreparationResolver({'desired_salary':123456,'github':'https://github.com/dannyb66',
+            'hybrid_office_days_per_week':[2,3],'hybrid_office_locations':['San Francisco','Palo Alto']},{})
+        salary=resolver.resolve({'label':'What are your salary expectations?','name':'salary','kind':'text'},'ashby')
+        self.assertEqual(salary.value,'123456');self.assertEqual(salary.source,'candidate_config:desired_salary')
+        commute={'label':'Are you able to commute to our Palo Alto, CA office twice a week?','name':'commute','kind':'text'}
+        self.assertEqual(resolver.resolve(commute,'ashby').value,'Yes')
+        for label in ['Are you able to commute to our New York office twice a week?',
+                      'Are you able to commute to our Palo Alto office five days a week?',
+                      "Can you confirm you've reviewed the compensation band and are comfortable proceeding?"]:
+            self.assertFalse(resolver.resolve({**commute,'label':label},'ashby').resolved)
+        self.assertEqual(resolver.resolve({'label':'GitHub URL','name':'github','kind':'text'},'ashby').value,'https://github.com/dannyb66')
+
+
 if __name__ == '__main__':
     unittest.main()

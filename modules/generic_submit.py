@@ -449,8 +449,10 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     # Hard ceiling per job. The confirmation loop re-enters this
                     # branch on every pass, so without a cap a stubborn board was
                     # re-solved indefinitely (one job took eleven attempts).
+                    # Retry any unusable outcome, not just a rejection: a
+                    # tokenless "clear" is equally unsubmittable.
                     while (not captcha_solver.cleared(outcome_record) and solve_attempts < SOLVE_ATTEMPT_LIMIT
-                           and outcome_record.get('status') == 'rejected'):
+                           and outcome_record.get('status') in {'rejected', 'no_challenge'}):
                         solve_attempts += 1
                         wait_between = min(2.0, max(0.0, 2.0 - (time.monotonic() - solved_from)))
                         time.sleep(wait_between)
@@ -464,36 +466,38 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     report['challenge'] = outcome_record
                     run.update(job, captcha_event=captcha_solver.describe(outcome_record))
                     # A frame that leaves before the solver can confirm reports
-                    # no_challenge. Once a challenge has been seen, the token is
-                    # the real proof, not the status string.
-                    if (captcha_solver.cleared(outcome_record)
-                            or outcome_record.get('status') in {'no_challenge', 'rejected'}):
-                        solved_after_submit = True
-                        _accept_cookie_banner(browser)
-                        # Record exactly what the page holds at clear time; a
-                        # rejected solve and a missing token look identical from
-                        # the vendor record alone.
-                        token_state = _token_state(browser.driver)
-                        report['captcha_token_state'] = token_state
-                        run.update(job, captcha_token_state=token_state)
-                        # The token is delivered after the widget solves, so wait
-                        # for it rather than clicking blind.
-                        if not _await_token(browser.driver, wait=time.sleep):
+                    # no_challenge, and a "cleared" verdict can be false: hCaptcha
+                    # sometimes closes the widget without ever issuing a token.
+                    # The token — not the status string — is the proof.
+                    _accept_cookie_banner(browser)
+                    token_state = _token_state(browser.driver)
+                    report['captcha_token_state'] = token_state
+                    run.update(job, captcha_token_state=token_state)
+                    has_token = _await_token(browser.driver, wait=time.sleep)
+                    if not has_token:
+                        if solve_attempts < SOLVE_ATTEMPT_LIMIT:
+                            # Re-deal: keep solving while the budget allows
+                            # rather than accepting a tokenless clear.
                             run.update(job, stage='captcha_cleared_without_token')
+                            solver_attempted_after_submit = False
+                            solve_attempts -= 1
                             continue
-                        if outcome_record.get('status') != 'cleared':
-                            run.update(job, stage='captcha_token_present_without_clear_status')
-                        if not resubmit_count:
-                            resubmit_count += 1
-                            # Lever resets the form on a refused verification, so
-                            # re-fill before pressing again or it submits empty.
-                            if _form_reset(browser, populated_baseline):
-                                run.update(job, stage='refilling_after_reset')
-                                _refill_after_reset(browser, report, run, job)
-                            browser.actions.append({'action': 'submit', 'source': 'after_captcha_clear', 'at': now()})
-                            run.update(job, stage='resubmitting_after_captcha')
-                            _refresh_submit(browser, report, run, job)
+                        run.update(job, stage='captcha_token_never_arrived')
                         continue
+                    solved_after_submit = True
+                    if outcome_record.get('status') != 'cleared':
+                        run.update(job, stage='captcha_token_present_without_clear_status')
+                    if not resubmit_count:
+                        resubmit_count += 1
+                        # Lever resets the form on a refused verification, so
+                        # re-fill before pressing again or it submits empty.
+                        if _form_reset(browser, populated_baseline):
+                            run.update(job, stage='refilling_after_reset')
+                            _refill_after_reset(browser, report, run, job)
+                        browser.actions.append({'action': 'submit', 'source': 'after_captcha_clear', 'at': now()})
+                        run.update(job, stage='resubmitting_after_captcha')
+                        _refresh_submit(browser, report, run, job)
+                    continue
             if scoped and email_verification_required(state):
                 if complete_email_verification(browser):
                     # The code was entered; give the page a beat, then let the

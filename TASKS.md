@@ -1101,6 +1101,9 @@ Parent relay `01a171ff-e0ae-76b7-8b5d-b05664f4000d`: user asks “add new task -
 
 ## 41. Combined fetch Phase 1 stats — Tasks 1, 26 and 33 — Review
 
+**Filter-distribution extension — 2026-11-02; status preserved:** Filter distributions added at the same workbook path and Library identity: Task 1 source 1093 unique postings / 34 companies to 191 retained / 18; retained-list application diagnostics 191 to 38 review including 24 supported. Task 26 original 2725 to 518 review / 37 supported; corrected R6 2725 to 163 review / 36 supported. Task 33 1733 to 109 review / 63 supported. Three Filter Flow sheets plus shared Filter Audit retain 8467 scope-record memberships, exact attributed removals, separate metadata/control holds, overlapping reason counts, predicates, configuration and dates. Reconstructed order is not execution telemetry. Workbook link and Library identity are unchanged. [Filter QA](</Users/deepakbasavaraju/Documents/Codex/2026-11-01/task-3/outputs/combined-fetch-phase1-20261102/filter-qa-report.json>). No new source run or applications.
+
+
 [Combined workbook](</Users/deepakbasavaraju/Documents/Codex/2026-11-01/task-3/outputs/combined-fetch-phase1-20261102/Combined_Fetch_Phase_1_Tasks_1_26_33.xlsx>) · [Stats and application-status note](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task41-combined-fetch-phase1/index.html>).
 
 Ready for Review: 4,649 task records (191 / 2,725 / 1,733), 4,532 distinct saved URLs after trailing-slash normalization, 117 overlapping URL groups, 199 separate unresolved Task 33 hints and 551 Task 1 attempt observations. Six filterable sheets, source IDs/URLs/dates and formula-based task/company totals.

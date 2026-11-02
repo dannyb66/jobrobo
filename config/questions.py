@@ -24,6 +24,10 @@ website = "https://dannyb66.github.io/"  # Portfolio website used in future appl
 # GitHub profile URL used for GitHub-specific application fields.
 github = "https://github.com/dannyb66"
 
+# Explicit user preference for hybrid-commute questions in these locations.
+hybrid_office_days_per_week = [2, 3]
+hybrid_office_locations = ["San Francisco", "Palo Alto"]
+
 # Actual discovery source for directly supplied job URLs (e.g. "LinkedIn" or "Web search").
 # Leave empty when unknown; --discovery-source overrides this for a specific run.
 application_source = "Web"
