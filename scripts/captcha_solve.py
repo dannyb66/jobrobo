@@ -34,6 +34,7 @@ LEVELS = ("detected", "model_response", "token_present", "challenge_cleared")
 # block, which its grid replies do not, so counting that reported zero billed
 # calls for a solve that really made five. Count the requests themselves.
 RESPONSE_COUNT = {"n": 0}
+OWN_TOKEN: dict = {}
 
 TOKEN_SELECTORS = (
     '[name="g-recaptcha-response"]',
@@ -387,7 +388,22 @@ def main(argv=None) -> int:
             except Exception as error:
                 status, detail = "error", f"{type(error).__name__}: {error}"[-400:]
 
-        final_token = token_length(page)
+        # Read as many token carriers as exist, in the frame that owns them, so a
+        # caller can tell "no token" from "wrong field name".
+        try:
+            final_token = token_length(page)
+            frames_tok = {}
+            for fr in page.frames:
+                for sel in TOKEN_SELECTORS:
+                    try:
+                        n = fr.evaluate("(s)=>{const e=document.querySelector(s);return e?(e.value||'').length:-1}", sel)
+                    except Exception:
+                        continue
+                    if isinstance(n, int) and n > 0:
+                        frames_tok[sel] = n
+            OWN_TOKEN.update(frames_tok)
+        except Exception:
+            pass
         if args.screenshot:
             try:
                 Path(args.screenshot).parent.mkdir(parents=True, exist_ok=True)
@@ -405,6 +421,7 @@ def main(argv=None) -> int:
         "provider": provider,
         "levels": [name for name in LEVELS if levels.get(name)],
         "token_length": final_token,
+        "tokens": OWN_TOKEN,
         "responses": responses,
         "elapsed_ms": round((time.monotonic() - started) * 1000),
         "host": host,

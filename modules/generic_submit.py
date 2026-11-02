@@ -241,7 +241,7 @@ def _token_length(state):
     return best
 
 
-def _await_token(driver, timeout=6.0, wait=time.sleep):
+def _await_token(driver, timeout=15.0, wait=time.sleep):
     """Wait for the vendor to actually hand over a token after a clear."""
     end = time.monotonic() + timeout
     while time.monotonic() < end:
@@ -504,8 +504,9 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                             # Re-deal: keep solving while the budget allows
                             # rather than accepting a tokenless clear.
                             run.update(job, stage='captcha_cleared_without_token')
+                            # Do not decrement: the cap must still hold, and the
+                            # loop re-enters while solve_attempts < LIMIT.
                             solver_attempted_after_submit = False
-                            solve_attempts -= 1
                             continue
                         run.update(job, stage='captcha_token_never_arrived')
                         continue
