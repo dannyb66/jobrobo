@@ -248,6 +248,28 @@ def grid_solver_class():
     from captchakraken.page_solver import PageSolver
 
     class GridSolver(PageSolver):
+        def _solve_single(self, page, widget, retry_mode):
+            """Route hCaptcha grids through the tile-aware loop too.
+
+            ``_solve_single`` only takes the grid path for reCAPTCHA, so an
+            hCaptcha grid was answered by the *pixel* expert (raw click points)
+            instead of the grid expert. hCaptcha serves the same table of cells,
+            so reuse it when the board actually contains a lattice.
+            """
+            from captchakraken.kinds import Vendor
+            from captchakraken.page_solver import FrameRole
+            if (widget.vendor == Vendor.HCAPTCHA and widget.role == FrameRole.CHALLENGE
+                    and self._get_grid_boxes(widget.element)):
+                frame = widget.element.content_frame()
+                if frame is not None:
+                    with self._phase(__import__("captchakraken.page_solver", fromlist=["Phase"]).Phase.GRID_LOAD):
+                        self._wait_for_grid_cells_loaded(widget.element)
+                grid = self._get_grid_boxes(widget.element)
+                box = widget.element.bounding_box()
+                if grid and box:
+                    return self._solve_recaptcha_grid(page, widget.element, retry_mode, grid, box)
+            return super()._solve_single(page, widget, retry_mode)
+
         def _get_grid_boxes(self, element):
             grid, last = None, None
             for _ in range(8):

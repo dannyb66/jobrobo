@@ -36,6 +36,7 @@ from modules import resume_technology_dates as technology_dates
 LABEL = "local heuristic match estimate — not an employer ATS ranking, verified qualification or hiring probability"
 DEFAULTS = dict(rewrite_all_bullets=False, rewrite_experience_concurrency=2,
                 rewrite_bullet_min_fill_ratio=.90, rewrite_bullet_target_fill_ratio=.97,
+                rewrite_bullet_hard_min_fill_ratio=.80,
                 rewrite_source_fallback_enabled=False,
                 source_checks_enabled=True,
                 rewrite_bullets_per_request=12,
@@ -87,6 +88,8 @@ def validate_options(config, mode):
         raise ValueError('rewrite_token_estimation must be byte_upper_bound or tiktoken')
     if not .5 <= options['rewrite_bullet_min_fill_ratio'] <= options['rewrite_bullet_target_fill_ratio'] < 1:
         raise ValueError('Bullet fill ratios must satisfy 0.5 <= minimum <= target < 1')
+    if not .5 <= options['rewrite_bullet_hard_min_fill_ratio'] <= options['rewrite_bullet_min_fill_ratio']:
+        raise ValueError('Hard minimum must be between 0.5 and the soft minimum')
     return options
 
 
@@ -987,10 +990,13 @@ def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None
                     measure=getattr(fit_check,'measure',None)
                     if value['status']=='candidate' and callable(measure):
                         value['estimated_line_fill']=measure(value)['fill_ratio']
+                        hard=scheduler.options['rewrite_bullet_hard_min_fill_ratio']
                         if value['estimated_line_fill'] < minimum:
-                            revision=(f"Line fill {value['estimated_line_fill']:.1%} is below the soft minimum {minimum:.0%}; "
+                            floor='hard minimum' if value['estimated_line_fill'] < hard else 'soft minimum'
+                            revision=(f"Line fill {value['estimated_line_fill']:.1%} is below the {floor} "
+                                      f"{hard if floor.startswith('hard') else minimum:.0%}; "
                                       f"expand toward {target:.0%} of measured width with useful JD methods or responsibilities")
-                            if wave==0:
+                            if wave<2 or value['estimated_line_fill'] < hard:
                                 value.update(status='short_candidate',reason=revision,rejected_proposed_text=value['rewritten_text'])
                             else:
                                 value['reason']=None
@@ -1043,9 +1049,14 @@ def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None
         ordered.append(results.get(source['bullet_id'],dict(source,status='cancelled' if not scheduler.active() else 'blocked',
             reason=scheduler.reason or 'cancelled, deadline exhausted or unprocessed',rewritten_text=source['source_text'],
             requested=any(source['bullet_id'] in e['requested_bullet_ids'] for e in scheduler.events),response_received=False)))
-        if ordered[-1]['status']=='short_candidate':
+        if ordered[-1]['status']=='short_candidate' and (
+                ordered[-1].get('estimated_line_fill',1) >= scheduler.options['rewrite_bullet_hard_min_fill_ratio']):
             ordered[-1].update(status='candidate',reason=None)
-            ordered[-1].setdefault('metadata_warnings',[]).append('Soft line-fill target not reached; fitting rewrite retained within request budget')
+            ordered[-1].setdefault('metadata_warnings',[]).append(
+                'Soft line-fill target not reached; above hard minimum and retained within request budget')
+        elif ordered[-1]['status']=='short_candidate':
+            ordered[-1].update(status='blocked',
+                reason=ordered[-1].get('reason') or 'line fill below hard minimum')
     return ordered
 
 
@@ -1081,8 +1092,8 @@ def strict_density(source, output, inv, *, synthetic_jd_test=False):
     return dict(passed=comparable and not violations, comparable=comparable, violations=violations, source=source, output=output)
 
 
-def bullet_fullness(output, inv, minimum=.90, target=.97):
-    """Report actual rendered fullness; the lower target is advisory, never a gate."""
+def bullet_fullness(output, inv, minimum=.90, target=.97, hard_minimum=.80):
+    """Report actual rendered fullness; below the hard floor is a failure."""
     by_index={row['paragraph_index']:row for row in output}
     rows=[]
     for bullet in inv['bullets']:
@@ -1091,10 +1102,14 @@ def bullet_fullness(output, inv, minimum=.90, target=.97):
         ratio=(sum(line['x1']-line['x0'] for line in lines)/bullet['usable_line_width']
                if rendered.get('matched') and len(lines)==1 else None)
         rows.append(dict(bullet_id=bullet['bullet_id'],fill_ratio=ratio,
-                         below_soft_minimum=ratio is not None and ratio<minimum))
+                         below_soft_minimum=ratio is not None and ratio<minimum,
+                         below_hard_minimum=ratio is not None and ratio<hard_minimum))
     ratios=sorted(row['fill_ratio'] for row in rows if row['fill_ratio'] is not None)
-    return dict(minimum_fill_ratio=minimum,target_fill_ratio=target,soft_minimum=True,
+    return dict(minimum_fill_ratio=minimum,target_fill_ratio=target,hard_minimum_fill_ratio=hard_minimum,
+                soft_minimum=True,
                 measured=len(ratios),below_soft_minimum=sum(row['below_soft_minimum'] for row in rows),
+                below_hard_minimum=sum(row['below_hard_minimum'] for row in rows),
+                passed=bool(ratios) and not any(row['below_hard_minimum'] for row in rows),
                 median_fill_ratio=(ratios[len(ratios)//2] if ratios else None),bullets=rows)
 
 
@@ -1496,6 +1511,9 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
             doc.save(optimized_docx)
             optimizer.rewrite_all_bullets, optimizer.strict_inventory = True, inv
             optimizer.synthetic_jd_test = jd_experiment.is_jd_only(policy)
+            optimizer.rewrite_bullet_hard_min_fill_ratio = options['rewrite_bullet_hard_min_fill_ratio']
+            optimizer.source_fallback_ids = {
+                r['bullet_id'] for r in records if r['status'] == 'source_fallback'}
             # Provider dispatch/response deadlines are enforced by Scheduler.
             # Local conversion has its own bound; a timely last response must
             # not lose eligibility just because rendering crosses that deadline.
@@ -1536,7 +1554,8 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
             break
         report['format_verification'] = verification
         report['bullet_fullness']=bullet_fullness(verification.get('details',{}).get('density',{}).get('output',[]),inv,
-            options['rewrite_bullet_min_fill_ratio'],options['rewrite_bullet_target_fill_ratio'])
+            options['rewrite_bullet_min_fill_ratio'],options['rewrite_bullet_target_fill_ratio'],
+            options['rewrite_bullet_hard_min_fill_ratio'])
         notify('scoring')
         source_text, output_text = _read_pdf(source_pdf), _read_pdf(optimized_pdf)
         # Same extraction path for both actual artifacts; unavailable if DOCX/PDF diverge.

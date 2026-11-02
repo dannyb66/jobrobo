@@ -200,6 +200,48 @@ class FullPipelineLayoutGateTest(unittest.TestCase):
         self.assertFalse(first["checks"]["no_empty_bullets"])
         self.assertGreaterEqual(first["details"]["optimized_layout"]["empty_bullets"], 1)
 
+    def test_bullet_below_hard_fill_fails_final_verification(self):
+        source = self.runner.source
+        source_docx, source_pdf = self.runner.source, self.runner.source.with_suffix(".pdf")
+        text = "Built " + "a" * 50
+        output_docx, output_pdf = self._single_bullet_docx(90, text=text)
+        self.runner.optimizer.rewrite_all_bullets = True
+        self.runner.optimizer.strict_inventory = {"bullets": [{
+            "source_text": text, "usable_line_width": 540, "right_boundary": 612, "text_left": 72,
+            "paragraph_index": 0}]}
+        self.runner.optimizer.rewrite_bullet_hard_min_fill_ratio = .80
+        result = self.runner.optimizer.verify_format(
+            str(source_docx), str(output_docx), str(source_pdf), str(output_pdf), 1)
+        self.assertFalse(result["checks"]["bullet_fullness"])
+        self.assertLess(result["details"]["bullet_fullness_shortages"][0]["fill_ratio"], .60)
+
+    def test_bullet_below_eighty_percent_fails_and_exactly_eighty_passes(self):
+        for width, expected in ((79.9, False), (80.0, True)):
+            with self.subTest(width=width):
+                docx, pdf = self._single_bullet_docx(width)
+                import pdfplumber
+                with pdfplumber.open(pdf) as document:
+                    words = document.pages[0].extract_words()
+                    used = max(w["x1"] for w in words) - min(w["x0"] for w in words)
+                self.runner.optimizer.strict_inventory = {"bullets": [{
+                    "source_text": "Built APIs", "usable_line_width": used * 100 / width,
+                    "right_boundary": 612, "text_left": 72, "paragraph_index": 0}]}
+                self.runner.optimizer.rewrite_bullet_hard_min_fill_ratio = .80
+                result = self.runner.optimizer.verify_format(
+                    str(docx), str(docx), str(pdf), str(pdf), 1)
+                self.assertEqual(result["checks"]["bullet_fullness"], expected)
+
+    def _single_bullet_docx(self, width, text="Built APIs"):
+        docx, pdf = self.runner.root / f"f{width}.docx", self.runner.root / f"f{width}.pdf"
+        doc = Document()
+        doc.add_paragraph(text, style="List Paragraph")
+        doc.save(docx)
+        writer = canvas.Canvas(str(pdf), pagesize=letter)
+        writer.setFont("Helvetica", 10)
+        writer.drawString(72, 730, text)
+        writer.showPage(); writer.save()
+        return docx, pdf
+
 
 if __name__ == "__main__":
     unittest.main()

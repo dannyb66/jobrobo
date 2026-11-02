@@ -139,10 +139,13 @@ class AllBulletsTest(unittest.TestCase):
                 provider,self.measured_fit(),alignment_keywords=['Python','API'])
             self.assertEqual(len(calls),2)
             self.assertEqual(calls[1]['requested_bullets'][0]['previous_candidate'],'Built '+('a'*54))
-            self.assertIn('soft minimum',calls[1]['retry_reasons']['0'])
-            self.assertEqual(records[0]['status'],'candidate')
+            self.assertIn('minimum',calls[1]['retry_reasons']['0'])
+            self.assertEqual(records[0]['status'],'candidate' if retry in ('improved','failure') else 'blocked')
             self.assertEqual(len(records[0]['rewritten_text']),{'improved':96,'still_short':75}.get(retry,60))
-            if retry!='improved':self.assertTrue(records[0]['metadata_warnings'])
+            warnings_=records[0].get('metadata_warnings') or []
+            self.assertFalse(any('Fullness revision failed' in x for x in warnings_) and retry=='improved')
+            if retry=='failure':self.assertTrue(any('revision failed' in x for x in warnings_))
+            if retry not in ('improved','failure'):self.assertIn('minimum',records[0]['reason'])
 
     def test_short_candidate_survives_budget_exhaustion_without_extra_request(self):
         source=inv(1,1)

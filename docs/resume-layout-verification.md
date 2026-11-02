@@ -26,6 +26,7 @@ fix:
 - a page number-only page passed `all_pages_have_text`;
 - two trailing empty DOCX paragraphs were invisible;
 - a rewritten one-line bullet forced onto two rendered lines passed formatting.
+- short rewritten lines were counted as diagnostics but never failed the run.
 
 The full-pipeline tests also confirmed that the rejection retries and ultimately
 returns no accepted resume, rather than silently publishing the overflowed file.
@@ -39,6 +40,12 @@ In `modules/ai/resume_optimizer.py`:
 - `no_empty_bullets` counts empty `List Paragraph` items and is required.
 - `bullet_lines` requires every rendered bullet to occupy exactly one line and is
   now required in the generic verifier, not just the strict path.
+- `bullet_fullness` hard-fails any rewritten bullet below **80%** of its usable
+  width. The 90% threshold remains retry guidance; 97% remains the drafting target.
+- A below-80% retry stays pending instead of being accepted; one final wave is
+  available only to a bullet corrected for a late technology.
+- Preserved Academic Distinctions and exact source-fallback lines are exempt
+  from the rewritten-line floor.
 - The layout report records `empty_bullets`, `empty_trailing_paragraphs` and the
   line count per bullet.
 
@@ -53,6 +60,9 @@ explicitly.
   2 pages, zero empty bullets, zero trailing empty paragraphs, zero wraps, all
   pages meaningful, no clipping.
 - New focused suite: **9 passed**.
+- The previously accepted two-page run with 19 sub-90% lines now fails with
+  **10 bullets below 80%** (lowest 42.2%). The expanded related suite passes
+  **154 tests**.
 - Related fit, density, pipeline and preserved-section suite: **97 passed** in
   130.30 seconds, zero failures.
 

@@ -1475,10 +1475,14 @@ class ResumeOptimizer:
                     horizontal &= float(word["x0"]) >= -0.5 and float(word["x1"]) <= float(page.width) + 0.5
                     vertical &= float(word["top"]) >= -0.5 and float(word["bottom"]) <= float(page.height) + 0.5
                     if not lines or abs(float(word["top"]) - lines[-1]["top"]) > 3:
-                        lines.append({"top": float(word["top"]), "bottom": float(word["bottom"]), "text": word["text"]})
+                        lines.append({"top": float(word["top"]), "bottom": float(word["bottom"]),
+                                      "x0": float(word["x0"]), "x1": float(word["x1"]),
+                                      "text": word["text"]})
                     else:
                         lines[-1]["text"] += " " + word["text"]
                         lines[-1]["bottom"] = max(lines[-1]["bottom"], float(word["bottom"]))
+                        lines[-1]["x0"] = min(lines[-1]["x0"], float(word["x0"]))
+                        lines[-1]["x1"] = max(lines[-1]["x1"], float(word["x1"]))
                 # Character bounds catch text fragments that the word extractor omits.
                 for character in page.chars:
                     if not character.get("text", "").strip():
@@ -1501,8 +1505,8 @@ class ResumeOptimizer:
         if docx_path and Path(docx_path).exists():
             document = Document(docx_path)
             for paragraph in document.paragraphs:
-                if paragraph.style.name != "List Paragraph" or not paragraph.text.strip():
-                    if paragraph.style.name == "List Paragraph":
+                if paragraph.style.name not in ("List Paragraph", "List Bullet") or not paragraph.text.strip():
+                    if paragraph.style.name in ("List Paragraph", "List Bullet"):
                         empty_bullets += 1
                     continue
                 bullet = normalize(paragraph.text)
@@ -1516,12 +1520,15 @@ class ResumeOptimizer:
                     if position < 0:
                         continue
                     offset, line_count = 0, 0
+                    occupied = 0.0
                     for line in page["lines"]:
                         line_text = normalize(line["text"])
                         if offset < position + len(bullet) and offset + len(line_text) > position:
                             line_count += 1
+                            occupied += max(0.0, float(line.get("x1", 0)) - float(line.get("x0", 0)))
                         offset += len(line_text) + 1
-                    matches.append({"page": page_number + 1, "lines": line_count})
+                    matches.append({"page": page_number + 1, "lines": line_count,
+                                    "width": occupied})
                 wrapping.append({"text": paragraph.text, "matches": matches,
                                  "line_count": sum(match["lines"] for match in matches)})
             for paragraph in reversed(document.paragraphs):
@@ -1621,6 +1628,36 @@ class ResumeOptimizer:
                 details["density"] = density
                 checks["rendered_density_preserved"] = density["passed"]
             details.update({"source_layout": source_layout, "optimized_layout": layout})
+            # Hard rendered fullness floor. Geometry decides; estimates never do.
+            hard=float(getattr(self,"rewrite_bullet_hard_min_fill_ratio",.80))
+            shortages=[]
+            preserved={b["bullet_id"] for b in
+                (getattr(self,"strict_inventory",{}) or {}).get("preserved_bullets",[])}
+            for bullet in (getattr(self,"strict_inventory",{}) or {}).get("bullets",[]):
+                if bullet.get("bullet_id") in preserved or bullet.get("bullet_id") in getattr(
+                        self, "source_fallback_ids", set()):
+                    continue
+                row=next((x for x in layout.get("bullet_wrapping",[]) if x["text"] in
+                    (bullet["source_text"], bullet.get("rewritten_text"))),None)
+                if row is None:
+                    # Optimizer output can differ from the source line; fall back
+                    # to the optimized paragraph's own measured width.
+                    records=paragraph_density(optimized_pdf,optimized_docx,
+                        self._find_skills_section(Document(optimized_docx)))
+                    output_line=next((r for r in records
+                        if r.get("paragraph_index")==bullet.get("paragraph_index")),None)
+                    row={"matches":(output_line or {}).get("lines",[])}
+                if not row or len(row.get("matches",[]))!=1:
+                    continue
+                match=row["matches"][0]
+                width=match.get("width")
+                if width is None:
+                    continue
+                ratio=width/bullet["usable_line_width"]
+                if ratio + 1e-9 < hard:
+                    shortages.append({"text":bullet["source_text"],"fill_ratio":round(ratio,4)})
+            checks["bullet_fullness"]=not shortages
+            details["bullet_fullness_shortages"]=shortages
             links = hyperlink_report(source_docx, optimized_docx, source_pdf, optimized_pdf)
             checks["hyperlinks_preserved"] = links["passed"]
             details["hyperlinks"] = links
@@ -1635,7 +1672,7 @@ class ResumeOptimizer:
         required = ("page_count", "all_pages_have_text", "no_horizontal_clipping", "no_vertical_clipping",
                     "bullets_fit_page", "section_order_preserved", "section_count_stable", "bullet_count_stable",
                     "margins_similar", "font_sizes_similar", "no_empty_rendered_pages", "no_empty_bullets",
-                    "bullet_lines", "rendered_headings_present",
+                    "bullet_lines", "bullet_fullness", "rendered_headings_present",
                     "no_new_orphaned_headings", "docx_pdf_content_consistent", "rendered_section_order_preserved",
                     "hyperlinks_preserved", "rendered_density_preserved", "academic_distinctions_preserved")
         passed = all(checks.get(name, False) for name in required)

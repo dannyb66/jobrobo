@@ -72,7 +72,7 @@ class ConfiguredRewriteTest(unittest.TestCase):
                 if stage=='keywords':data={'keywords':['Rust','AG-UI','MCP']}
                 else:data={'experience_id':payload['experience_id'],'results':[
                     {'bullet_id':b['bullet_id'],'source_text_hash':b['source_text_hash'],'status':'rewritten',
-                     'rewritten_text':'Built Rust agents for 100 clients.' if b['ordinal']==0 else 'Shipped AG-UI tools with MCP.',
+                     'rewritten_text':('Built reliable Rust agents with AG-UI and MCP tooling for 100 clients, cutting latency.' if b['ordinal']==0 else 'Shipped AG-UI tools with MCP for reliable client integrations and production observability.'),
                      'matched_jd_spans':[],'preserved_fact_anchors':[],
                      'change_reason':'Mock provider JD rewrite','blocked_reason':None} for b in payload['requested_bullets']]}
                 return SimpleNamespace(id='unit-test-provider-response',

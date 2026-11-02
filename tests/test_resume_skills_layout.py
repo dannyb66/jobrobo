@@ -105,7 +105,8 @@ class ExpandedSkillsTest(unittest.TestCase):
                 else:
                     data={'experience_id':payload['experience_id'],'results':[
                         dict(bullet_id=b['bullet_id'],source_text_hash=b['source_text_hash'],status='rewritten',
-                             rewritten_text='Built reliable Python backend APIs for 100 clients.',matched_jd_spans=[],
+                             rewritten_text='Built reliable Python backend APIs with distributed systems and observability for 100 clients.',
+                             matched_jd_spans=[],
                              preserved_fact_anchors=[],change_reason='Fixture rewrite',blocked_reason=None)
                         for b in payload['requested_bullets']]}
                 return SimpleNamespace(id='fixture-provider',usage=SimpleNamespace(model_dump=lambda:

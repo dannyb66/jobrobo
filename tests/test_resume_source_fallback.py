@@ -37,7 +37,7 @@ class SourceFallbackTest(unittest.TestCase):
                 fail=bullet['ordinal']==1 or mode=='all_failed'
                 if fail and mode=='cancel':cancel.set()
                 if fail and mode!='width':raise TimeoutError('fixture timeout')
-                text='Built reliable backend APIs using Python and AWS.' if not fail else 'Overlong candidate '*100
+                text=('Built reliable production Python APIs on AWS for 100 enterprise clients with automated tests.' if not fail else 'Overlong candidate '*100)
                 data={'experience_id':payload['experience_id'],'results':[{
                     'bullet_id':bullet['bullet_id'],'source_text_hash':bullet['source_text_hash'],
                     'status':'rewritten','rewritten_text':text,'alternative_texts':[],
