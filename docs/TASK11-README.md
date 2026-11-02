@@ -2,6 +2,11 @@
 
 Updated **21 October 2026** against the current working tree. This documentation-only publication does not include or release the uncommitted implementation; use its implementation branch/local working tree for the newer commands. This is the current operating guide; the dated experiments and original plan are retained in [Historical reference](#historical-reference-through-18-october-2026). Older statements there about upload eligibility, models, caps and mandatory complete rewriting describe those earlier revisions.
 
+Known limitation: rewrites do not yet check whether a named technology existed
+during the role. See the [technology/date audit](resume-technology-timeline-audit.md)
+for the Kiro, MCP and OpenTelemetry failures found in the 30 October submission
+and the proposed evidence grades and regression gates.
+
 ## Choose a workflow
 
 | Goal | Entry point | Submission behavior |

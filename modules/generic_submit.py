@@ -221,6 +221,19 @@ def _token_state(driver):
         return {}
 
 
+def _token_state_top(browser):
+    """Read the token from the top document.
+
+    The sidecar attaches over CDP and can leave this driver parked inside the
+    challenge frame, where the form's hidden response field does not exist.
+    """
+    try:
+        browser.top()
+    except Exception:
+        pass
+    return _token_state(browser.driver)
+
+
 def _token_length(state):
     best = state.get('hcaptcha') or 0
     for _, length in state.get('fields') or []:
@@ -457,7 +470,7 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     while (not captcha_solver.cleared(outcome_record)
                            and solve_attempts < SOLVE_ATTEMPT_LIMIT
                            and outcome_record.get('status') in {'rejected', 'no_challenge'}
-                           and _token_length(_token_state(browser.driver)) == 0):
+                           and _token_length(_token_state_top(browser)) == 0):
                         solve_attempts += 1
                         wait_between = min(2.0, max(0.0, 2.0 - (time.monotonic() - solved_from)))
                         time.sleep(wait_between)
@@ -477,13 +490,15 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     # Read the token BEFORE touching the page: accepting consent
                     # re-renders Lever's form and can wipe the hidden field we
                     # just received.
-                    token_state = _token_state(browser.driver)
+                    token_state = _token_state_top(browser)
                     report['captcha_token_state'] = token_state
                     run.update(job, captcha_token_state=token_state)
                     has_token = _token_length(token_state) > 0 or _await_token(browser.driver, wait=time.sleep)
                     if not has_token:
                         _accept_cookie_banner(browser)
                         has_token = _await_token(browser.driver, timeout=2, wait=time.sleep)
+                        if not has_token:
+                            has_token = _token_length(_token_state_top(browser)) > 0
                     if not has_token:
                         if solve_attempts < SOLVE_ATTEMPT_LIMIT:
                             # Re-deal: keep solving while the budget allows
