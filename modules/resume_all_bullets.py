@@ -30,6 +30,7 @@ from modules.resume_layout import paragraph_density, compare_density
 from modules import resume_jd_experiment as jd_experiment
 from modules.resume_sections import exclude_academic_inventory
 from modules.resume_company_context import bind_company_context, add_company_context
+from modules.resume_technology_dates import late_technologies, role_period
 
 LABEL = "local heuristic match estimate — not an employer ATS ranking, verified qualification or hiring probability"
 DEFAULTS = dict(rewrite_all_bullets=False, rewrite_experience_concurrency=2,
@@ -609,6 +610,10 @@ def validate_response(response, group, requested, *, fit_check=None, ranking_key
                 reason = _source_fact_issue(source['source_text'], text) or source_claim_issue(
                     source['source_text'], text,technology_context=technology_context,
                     allow_paraphrase=content_policy=='review_draft')
+                late=[item['technology'] for item in late_technologies(text, role_period(group))]
+                if late:
+                    reason='; '.join(filter(None,[reason,
+                        'technology predates role end: '+', '.join(late)]))
                 if not reason and forbidden_keywords:
                     from modules.resume_scoring import score_keywords
                     added={term for term in forbidden_keywords if literal_keyword_mention(text,term)
@@ -623,6 +628,7 @@ def validate_response(response, group, requested, *, fit_check=None, ranking_key
         safe_spans = spans if isinstance(spans,list) and all(isinstance(span,str) for span in spans) else []
         validated[identity] = dict(source, rewritten_text=source['source_text'] if reason else item['rewritten_text'],
                                    status='blocked' if reason else 'candidate', reason=reason,
+                                   late_technologies=late if item is not None else [],
                                    requested=True, response_received=item is not None,
                                    change_reason=item.get('change_reason') if item else None,
                                    matched_jd_spans=safe_spans,
@@ -857,7 +863,7 @@ def _fit_guided_payload(payload, retry_reasons, minimum=.90, target=.97):
     return payload
 
 
-def compact_payload(inv,jd,role,policy,group,pending,retry_reasons=None,previous_candidates=None,*,alignment=None, minimum_fill=.90, target_fill=.97):
+def compact_payload(inv,jd,role,policy,group,pending,retry_reasons=None,previous_candidates=None,*,alignment=None, minimum_fill=.90, target_fill=.97, forbidden_technologies=None):
     """Keep every original fact/context; omit duplicated rendered-glyph bookkeeping."""
     if jd_experiment.is_jd_only(policy):
         return _fit_guided_payload(add_company_context(jd_experiment.payload(inv,jd,role,group,pending,retry_reasons,previous_candidates,
@@ -867,11 +873,16 @@ def compact_payload(inv,jd,role,policy,group,pending,retry_reasons=None,previous
     source_group['bullets']=[{k:deepcopy(b[k]) for k in source_keys} for b in group['bullets']]
     alignment=alignment if alignment is not None else jd_alignment_targets(jd,group)
     requested=[]
+    period=role_period(group)
+    late=[item['technology'] for item in late_technologies(jd,period)]
     for b in pending:
         row={k:deepcopy(b[k]) for k in source_keys}
         if policy=='grounded':row['protected_source_terms']=source_retention_terms(b['source_text'])
+        forbidden=(forbidden_technologies or {}).get(b['bullet_id']) or []
+        if forbidden:row['forbidden_technologies']=forbidden
         row['jd_keyword_opportunities']=[target['keyword'] for target in alignment['supported_jd_targets']
-            if source_keyword_support(b['source_text'],target['keyword']) and not literal_keyword_mention(b['source_text'],target['keyword'])]
+            if source_keyword_support(b['source_text'],target['keyword']) and not literal_keyword_mention(b['source_text'],target['keyword'])
+            and not any(token.casefold() in target['keyword'].casefold() for token in forbidden)]
         for k in ('max_rendered_lines','usable_line_width','right_boundary','text_left','soft_character_estimate'):
             row[k]=b[k]
         row['font_runs']=list({json.dumps(f,sort_keys=True):f for f in b['font_runs']}.values())
@@ -879,9 +890,11 @@ def compact_payload(inv,jd,role,policy,group,pending,retry_reasons=None,previous
         if previous_candidates and previous_candidates.get(b['bullet_id']):
             row['previous_candidate']=previous_candidates[b['bullet_id']]
         requested.append(row)
-    return _fit_guided_payload(add_company_context(dict(source_sha256=inv['source_sha256'],jd_sha256=sha(jd),job_description=jd,target_role=role,
+    payload=dict(source_sha256=inv['source_sha256'],jd_sha256=sha(jd),job_description=jd,target_role=role,
         **alignment,
         content_policy=policy,experience_id=group['experience_id'],source_experience=source_group,
+        technology_period={'start':period[0].isoformat(),'end':period[1].isoformat()} if period else None,
+        role_late_technologies=late,
         requested_bullet_ids=[b['bullet_id'] for b in pending],requested_bullets=requested,
         retry_reasons=retry_reasons or {},candidate_count=3,
         fact_policy={'content_policy':policy,'invented_claims_allowed':False,
@@ -890,7 +903,9 @@ def compact_payload(inv,jd,role,policy,group,pending,retry_reasons=None,previous
             'alternatives':'Return JD-first rewritten_text, then engineering-first and impact-first alternative_texts. Each must be truthful, substantially distinct and fit the measured line width.',
             'meaningful_edit':'Change action/context/outcome structure, or add a relevant supported JD capability from this bullet\'s jd_keyword_opportunities. Case, punctuation and a single verb substitution alone do not count.',
             'facts':('Prioritize relevant supported contributions. Condense peripheral source detail while keeping retained claims accurate; do not invent tools, numbers, outcomes or ownership. Human review is mandatory; no automatic attachment.' if policy=='review_draft' else 'Retain every protected_source_terms entry, numeric claim, unit, capability, scope, ownership, modality and metric subject. Change clause order, not material content. Unsupported paraphrases are blocked for review.'),
-            'fit':'One rendered line in the original font. The soft_character_estimate is guidance; actual glyph width decides fit. On retry, repair previous_candidate using measured failure diagnostics.'}),group), retry_reasons, minimum_fill, target_fill)
+            'fit':'One rendered line in the original font. The soft_character_estimate is guidance; actual glyph width decides fit. On retry, repair previous_candidate using measured failure diagnostics.',
+            'technology_dates':'A technology may only appear if it was publicly available by the role end date. row.forbidden_technologies lists terms to omit from that bullet; rewrite again without them and do not substitute another late tool.'})
+    return _fit_guided_payload(add_company_context(payload,group), retry_reasons, minimum_fill, target_fill)
 
 
 def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None, initial_records=None,*,alignment_keywords=None):
@@ -914,11 +929,13 @@ def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None
                 if outcomes.get(b['bullet_id'],{}).get('status') not in {'candidate','accepted'}
                 and sum(b['bullet_id'] in e['requested_bullet_ids'] for e in scheduler.events)<2]
             if not pending:continue
+            forbidden={b['bullet_id']:outcomes[b['bullet_id']]['late_technologies']
+                for b in pending if outcomes.get(b['bullet_id'],{}).get('late_technologies')}
             payload=compact_payload(inv,jd,role,policy,group,pending,
                 {b['bullet_id']:outcomes.get(b['bullet_id'],{}).get('reason') for b in pending},
                 {b['bullet_id']:outcomes.get(b['bullet_id'],{}).get('rejected_proposed_text') for b in pending},
                 alignment=alignment, minimum_fill=scheduler.options['rewrite_bullet_min_fill_ratio'],
-                target_fill=scheduler.options['rewrite_bullet_target_fill_ratio'])
+                target_fill=scheduler.options['rewrite_bullet_target_fill_ratio'],forbidden_technologies=forbidden)
             try:
                 if attempts>=scheduler.options['rewrite_experience_max_attempts']:
                     raise Stopped('per-experience attempt budget exhausted')

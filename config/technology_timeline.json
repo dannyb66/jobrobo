@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "research_date": "2026-11-02",
+  "purpose": "Earliest defensible public availability for catalogued technologies. Release dates are eligibility bounds, not proof that the candidate used the product.",
+  "technologies": [
+    {
+      "id": "kiro",
+      "names": ["Kiro", "AWS Kiro"],
+      "first_public": "2025-07-14",
+      "source": "https://kiro.dev/blog/introducing-kiro/"
+    },
+    {
+      "id": "mcp",
+      "names": ["Model Context Protocol", "Model Context Protocol (MCP)", "MCP"],
+      "first_public": "2024-11-25",
+      "source": "https://www.anthropic.com/news/model-context-protocol"
+    },
+    {
+      "id": "bedrock",
+      "names": ["Amazon Bedrock", "AWS Bedrock", "Bedrock"],
+      "first_public": "2023-04-13",
+      "source": "https://aws.amazon.com/blogs/aws/amazon-bedrock-is-now-generally-available-build-and-scale-generative-ai-applications-with-foundation-models/",
+      "note": "Announced in preview 2023-04-13; generally available 2023-09-28. The preview date is the earliest public bound."
+    },
+    {
+      "id": "opentelemetry",
+      "names": ["OpenTelemetry", "OpenTelemetry (OTel)", "OTel"],
+      "first_public": "2019-05-21",
+      "source": "https://www.cncf.io/blog/2019/05/21/a-brief-history-of-opentelemetry-so-far/"
+    },
+    {
+      "id": "langgraph",
+      "names": ["LangGraph"],
+      "first_public": "2024-01-17",
+      "source": "https://www.langchain.com/blog/langgraph"
+    },
+    {
+      "id": "autogen",
+      "names": ["AutoGen", "Microsoft AutoGen"],
+      "first_public": "2023-08-16",
+      "source": "https://arxiv.org/abs/2308.08155"
+    },
+    {
+      "id": "crewai",
+      "names": ["CrewAI"],
+      "first_public": "2023-11-14",
+      "source": "https://pypi.org/project/crewai/"
+    },
+    {
+      "id": "vllm",
+      "names": ["vLLM"],
+      "first_public": "2023-06-20",
+      "source": "https://vllm-project.github.io/2023/06/20/vllm.html"
+    },
+    {
+      "id": "tensorrt-llm",
+      "names": ["TensorRT-LLM", "TensorRT LLM", "TRT-LLM"],
+      "first_public": "2023-10-19",
+      "source": "https://developer.nvidia.com/blog/optimizing-inference-on-large-language-models-with-nvidia-tensorrt-llm-now-publicly-available/"
+    },
+    {
+      "id": "ray",
+      "names": ["Ray", "Ray Serve"],
+      "first_public": "2017-11-29",
+      "source": "https://github.com/ray-project/ray/releases/tag/ray-0.1.0"
+    },
+    {
+      "id": "kubernetes",
+      "names": ["Kubernetes", "K8s"],
+      "first_public": "2014-06-07",
+      "source": "https://kubernetes.io/blog/2014/06/07/kubernetes-is-now-available-in-beta/"
+    },
+    {
+      "id": "docker",
+      "names": ["Docker"],
+      "first_public": "2013-03-20",
+      "source": "https://www.docker.com/blog/dotcloud-docker-io-launch/"
+    },
+    {
+      "id": "terraform",
+      "names": ["Terraform"],
+      "first_public": "2014-07-28",
+      "source": "https://www.hashicorp.com/blog/terraform-0-1-preview"
+    },
+    {
+      "id": "cuda",
+      "names": ["CUDA", "NVIDIA CUDA"],
+      "first_public": "2007-02-16",
+      "source": "https://developer.nvidia.com/cuda-faq"
+    },
+    {
+      "id": "prometheus",
+      "names": ["Prometheus"],
+      "first_public": "2012-01-24",
+      "source": "https://prometheus.io/blog/2015/01/24/prometheus-0-1-0/"
+    }
+  ]
+}
