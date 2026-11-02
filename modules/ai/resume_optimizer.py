@@ -1451,7 +1451,7 @@ class ResumeOptimizer:
         }
 
     def _rendered_layout(self, path: str, headings: List[str], docx_path: str = "") -> Dict[str, object]:
-        """Inspect text bounds, rendered headings and bullet wrapping without image heuristics."""
+        """Inspect text bounds, meaningful page content, empty bullets and bullet wrapping."""
         pages, heading_pages, orphans, wrapping = [], {}, [], []
         normalize = lambda text: re.sub(r"\s+", " ", text).strip().upper()
         with pdfplumber.open(path) as pdf:
@@ -1474,7 +1474,10 @@ class ResumeOptimizer:
                     horizontal &= float(character["x0"]) >= -0.5 and float(character["x1"]) <= float(page.width) + 0.5
                     vertical &= float(character["top"]) >= -0.5 and float(character["bottom"]) <= float(page.height) + 0.5
                 text = normalize(page.extract_text() or "")
-                pages.append({"text": text, "lines": lines})
+                # A page containing only a period, bullet marker, page number, or
+                # similar decoration is visually blank. Count alphanumeric content.
+                meaningful = sum(character.isalnum() for character in text)
+                pages.append({"text": text, "lines": lines, "meaningful_characters": meaningful})
                 for heading in headings:
                     heading_text = normalize(heading)
                     for line_index, line in enumerate(lines):
@@ -1482,9 +1485,13 @@ class ResumeOptimizer:
                             heading_pages.setdefault(heading, []).append(page_number + 1)
                             if line_index == len(lines) - 1:
                                 orphans.append(heading)
+        empty_bullets, trailing_empty = 0, 0
         if docx_path and Path(docx_path).exists():
-            for paragraph in Document(docx_path).paragraphs:
+            document = Document(docx_path)
+            for paragraph in document.paragraphs:
                 if paragraph.style.name != "List Paragraph" or not paragraph.text.strip():
+                    if paragraph.style.name == "List Paragraph":
+                        empty_bullets += 1
                     continue
                 bullet = normalize(paragraph.text)
                 matches = []
@@ -1503,12 +1510,19 @@ class ResumeOptimizer:
                             line_count += 1
                         offset += len(line_text) + 1
                     matches.append({"page": page_number + 1, "lines": line_count})
-                wrapping.append({"text": paragraph.text, "matches": matches})
-        return {"page_count": len(pages), "all_pages_have_text": bool(pages) and all(page["text"] for page in pages),
+                wrapping.append({"text": paragraph.text, "matches": matches,
+                                 "line_count": sum(match["lines"] for match in matches)})
+            for paragraph in reversed(document.paragraphs):
+                if paragraph.text.strip():
+                    break
+                trailing_empty += 1
+        return {"page_count": len(pages),
+                "all_pages_have_text": bool(pages) and all(page["meaningful_characters"] >= 20 for page in pages),
                 "no_horizontal_clipping": bool(pages) and horizontal,
                 "no_vertical_clipping": bool(pages) and vertical,
                 "heading_pages": heading_pages, "orphaned_headings": orphans,
                 "bullet_wrapping": wrapping, "text": " ".join(page["text"] for page in pages),
+                "empty_bullets": empty_bullets, "empty_trailing_paragraphs": trailing_empty,
                 "max_bullet_lines": max((match["lines"] for bullet in wrapping for match in bullet["matches"]), default=0)}
 
     def verify_format(self, source_docx: str, optimized_docx: str, source_pdf: str,
@@ -1530,6 +1544,8 @@ class ResumeOptimizer:
                 "page_count_value": layout["page_count"], "expected_page_count": expected_pages,
                 "source_page_count": source_layout.get("page_count"),
                 "no_empty_rendered_pages": layout["all_pages_have_text"],
+                "no_empty_bullets": layout["empty_bullets"] == 0,
+                "bullet_lines": layout["max_bullet_lines"] <= 1,
                 "bullets_fit_page": layout["no_horizontal_clipping"] and layout["no_vertical_clipping"],
                 "section_order_preserved": not source or headings == optimized.get("headings", []),
                 "section_count_stable": not source or len(headings) == len(optimized.get("headings", [])),
@@ -1603,7 +1619,8 @@ class ResumeOptimizer:
             checks["verifier_error"] = str(exc)
         required = ("page_count", "all_pages_have_text", "no_horizontal_clipping", "no_vertical_clipping",
                     "bullets_fit_page", "section_order_preserved", "section_count_stable", "bullet_count_stable",
-                    "margins_similar", "font_sizes_similar", "no_empty_rendered_pages", "rendered_headings_present",
+                    "margins_similar", "font_sizes_similar", "no_empty_rendered_pages", "no_empty_bullets",
+                    "bullet_lines", "rendered_headings_present",
                     "no_new_orphaned_headings", "docx_pdf_content_consistent", "rendered_section_order_preserved",
                     "hyperlinks_preserved", "rendered_density_preserved", "academic_distinctions_preserved")
         passed = all(checks.get(name, False) for name in required)

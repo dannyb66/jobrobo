@@ -482,6 +482,8 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     if started is not None:
                         started += time.monotonic() - solved_from
                     report['challenge'] = outcome_record
+                    if outcome_record.get('debug'):
+                        report['captcha_debug'] = outcome_record['debug']
                     run.update(job, captcha_event=captcha_solver.describe(outcome_record))
                     # A frame that leaves before the solver can confirm reports
                     # no_challenge, and a "cleared" verdict can be false: hCaptcha

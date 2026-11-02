@@ -184,9 +184,13 @@ def solve(driver, *, expect_provider: str | None = None, timeout: int = DEFAULT_
     payload.setdefault("levels", [])
     payload.setdefault("token_length", -1)
     payload.setdefault("responses", 0)
-    if payload.get("status") != CLEARED and os.getenv("CAPTCHA_DEBUG") == "1":
-        # The sidecar's own log is otherwise unreachable once it exits.
-        payload["debug"] = (completed.stderr or "")[-4000:]
+    payload.setdefault("tokens", {})
+    # Dump the log for anything that is not a clean, token-bearing clear. A
+    # "cleared" with no token is the exact case that needs diagnosing, and it
+    # used to be excluded.
+    tokenless_clear = payload.get("status") == CLEARED and (payload.get("token_length") or -1) <= 0
+    if (payload.get("status") != CLEARED or tokenless_clear) and os.getenv("CAPTCHA_DEBUG") == "1":
+        payload["debug"] = (completed.stderr or "")[-8000:]
     # A status outside the known set is still reported, never coerced.
     return payload
 
