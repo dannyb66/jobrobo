@@ -451,8 +451,13 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                     # re-solved indefinitely (one job took eleven attempts).
                     # Retry any unusable outcome, not just a rejection: a
                     # tokenless "clear" is equally unsubmittable.
-                    while (not captcha_solver.cleared(outcome_record) and solve_attempts < SOLVE_ATTEMPT_LIMIT
-                           and outcome_record.get('status') in {'rejected', 'no_challenge'}):
+                    # Stop retrying as soon as a token exists: a fresh solve
+                    # re-deals the widget and wipes the token the previous one
+                    # just obtained.
+                    while (not captcha_solver.cleared(outcome_record)
+                           and solve_attempts < SOLVE_ATTEMPT_LIMIT
+                           and outcome_record.get('status') in {'rejected', 'no_challenge'}
+                           and _token_length(_token_state(browser.driver)) == 0):
                         solve_attempts += 1
                         wait_between = min(2.0, max(0.0, 2.0 - (time.monotonic() - solved_from)))
                         time.sleep(wait_between)
