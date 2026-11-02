@@ -31,6 +31,7 @@ from modules import resume_jd_experiment as jd_experiment
 from modules.resume_sections import exclude_academic_inventory
 from modules.resume_company_context import bind_company_context, add_company_context
 from modules.resume_technology_dates import late_technologies, role_period
+from modules import resume_technology_dates as technology_dates
 
 LABEL = "local heuristic match estimate — not an employer ATS ranking, verified qualification or hiring probability"
 DEFAULTS = dict(rewrite_all_bullets=False, rewrite_experience_concurrency=2,
@@ -579,7 +580,7 @@ def validate_response(response, group, requested, *, fit_check=None, ranking_key
     for source in requested:
         identity = source['bullet_id']
         item = keyed.get(identity)
-        reason = None
+        reason, late = None, []
         if item is None:
             reason = 'missing response ID'
         elif not {'bullet_id','source_text_hash','status','rewritten_text','matched_jd_spans','preserved_fact_anchors','change_reason','blocked_reason'}.issubset(item):
@@ -610,10 +611,6 @@ def validate_response(response, group, requested, *, fit_check=None, ranking_key
                 reason = _source_fact_issue(source['source_text'], text) or source_claim_issue(
                     source['source_text'], text,technology_context=technology_context,
                     allow_paraphrase=content_policy=='review_draft')
-                late=[item['technology'] for item in late_technologies(text, role_period(group))]
-                if late:
-                    reason='; '.join(filter(None,[reason,
-                        'technology predates role end: '+', '.join(late)]))
                 if not reason and forbidden_keywords:
                     from modules.resume_scoring import score_keywords
                     added={term for term in forbidden_keywords if literal_keyword_mention(text,term)
@@ -623,6 +620,10 @@ def validate_response(response, group, requested, *, fit_check=None, ranking_key
                     reason = 'source fact anchor omitted'
                 if not reason and (not item.get('change_reason') or not isinstance(item.get('matched_jd_spans'), list)):
                     reason = 'missing change evidence'
+            if not reason and isinstance(text, str):
+                late=[item['technology'] for item in late_technologies(text, role_period(group))]
+                if late:
+                    reason='technology predates role end: '+', '.join(late)
         proposed = item.get('rewritten_text') if item else None
         spans = item.get('matched_jd_spans') if item else []
         safe_spans = spans if isinstance(spans,list) and all(isinstance(span,str) for span in spans) else []
@@ -866,8 +867,19 @@ def _fit_guided_payload(payload, retry_reasons, minimum=.90, target=.97):
 def compact_payload(inv,jd,role,policy,group,pending,retry_reasons=None,previous_candidates=None,*,alignment=None, minimum_fill=.90, target_fill=.97, forbidden_technologies=None):
     """Keep every original fact/context; omit duplicated rendered-glyph bookkeeping."""
     if jd_experiment.is_jd_only(policy):
-        return _fit_guided_payload(add_company_context(jd_experiment.payload(inv,jd,role,group,pending,retry_reasons,previous_candidates,
-            alignment if alignment is not None else jd_experiment.alignment(jd,[]),policy),group), retry_reasons, minimum_fill, target_fill)
+        payload=jd_experiment.payload(inv,jd,role,group,pending,retry_reasons,previous_candidates,
+            alignment if alignment is not None else jd_experiment.alignment(jd,[]),policy)
+        period=role_period(group)
+        payload['technology_period']={'start':period[0].isoformat(),'end':period[1].isoformat()} if period else None
+        payload['role_late_technologies']=[item['technology'] for item in late_technologies(jd,period)]
+        payload.setdefault('acceptance_criteria',{})['technology_dates']=(
+            'A technology may only appear if it was publicly available by the role end date. '
+            'row.forbidden_technologies lists terms to omit from that bullet; rewrite again without them '
+            'and do not substitute another late tool.')
+        for row in payload['requested_bullets']:
+            forbidden=(forbidden_technologies or {}).get(row['bullet_id']) or []
+            if forbidden:row['forbidden_technologies']=forbidden
+        return _fit_guided_payload(add_company_context(payload,group), retry_reasons, minimum_fill, target_fill)
     source_keys=('bullet_id','ordinal','source_text','source_text_hash','fact_anchors')
     source_group={k:deepcopy(group[k]) for k in ('experience_id','section','context','company','historical_title_dates')}
     source_group['bullets']=[{k:deepcopy(b[k]) for k in source_keys} for b in group['bullets']]
@@ -927,7 +939,8 @@ def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None
         for offset in range(0,len(group['bullets']),batch_size):
             pending=[b for b in group['bullets'][offset:offset+batch_size]
                 if outcomes.get(b['bullet_id'],{}).get('status') not in {'candidate','accepted'}
-                and sum(b['bullet_id'] in e['requested_bullet_ids'] for e in scheduler.events)<2]
+                and sum(b['bullet_id'] in e['requested_bullet_ids'] for e in scheduler.events)
+                    < (3 if outcomes.get(b['bullet_id'],{}).get('late_technologies') else 2)]
             if not pending:continue
             forbidden={b['bullet_id']:outcomes[b['bullet_id']]['late_technologies']
                 for b in pending if outcomes.get(b['bullet_id'],{}).get('late_technologies')}
@@ -965,7 +978,7 @@ def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None
                     previous=outcomes.get(identity,{})
                     minimum=scheduler.options['rewrite_bullet_min_fill_ratio']
                     target=scheduler.options['rewrite_bullet_target_fill_ratio']
-                    if previous.get('status')=='short_candidate' and (
+                    if previous.get('status')=='short_candidate' and not value.get('late_technologies') and (
                             value['status']!='candidate' or candidate_quality(previous,ranking_keywords,policy,fit_check,minimum,target)
                             >= candidate_quality(value,ranking_keywords,policy,fit_check,minimum,target)):
                         value=deepcopy(previous)
@@ -999,7 +1012,9 @@ def rewrite_inventory(inv, jd, role, policy, scheduler, provider, fit_check=None
         return outcomes
 
     # First attempts for all experiences precede retries, avoiding early-failure starvation.
-    for wave in range(2):
+    # Two ordinary waves; one final wave is reserved only for a date correction
+    # that consumed the bullet's normal retry.
+    for wave in range(3):
         existing=deepcopy(results)
         executor=ThreadPoolExecutor(max_workers=scheduler.options['rewrite_experience_concurrency'])
         iterator=iter(inv['groups']);futures={}
@@ -1838,6 +1853,8 @@ def verify_strict_attachment(pdf_path, *, expected_jd=None, expected_job_id=None
             and report['ai_activity']['live_provider_response_observed'] is True
             and report['format_verification']['passed'] is True
             and report['format_verification'].get('checks',{}).get('academic_distinctions_preserved') is True
+            and not technology_date_conflicts(
+                manifest['source_docx'].get('path') or expected_source_docx, pdf.with_suffix('.docx'))
             and len(coverage['bullets'])==count
             and (not expected_source_checks_enabled or all(not missing_source_terms(r['source_text'],r['rewritten_text']) for r in coverage['bullets']))
             and (not expected_source_checks_enabled or all(not source_scope_issue(r['source_text'],r['rewritten_text']) for r in coverage['bullets']))
@@ -1846,3 +1863,15 @@ def verify_strict_attachment(pdf_path, *, expected_jd=None, expected_job_id=None
             and manifest['source_docx']['sha256']==report['source_sha256'])
     except (ValueError,KeyError,TypeError,OSError,IndexError):
         return False
+
+
+def technology_date_conflicts(source_docx, output_docx, rows=None):
+    if not source_docx or Path(source_docx).suffix.lower() != ".docx":
+        return []
+    if not Path(source_docx).is_file() or not Path(output_docx).is_file():
+        return []
+    try:
+        return technology_dates.audit_document(source_docx, output_docx, rows)
+    except Exception as exc:
+        # A failed audit must never make an attachment eligible.
+        return [{"audit_error": type(exc).__name__}]

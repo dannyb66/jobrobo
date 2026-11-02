@@ -106,6 +106,30 @@ def audit_inventory(inventory, rows=None):
     return report
 
 
+def audit_document(source_docx, output_docx, rows=None):
+    """Recheck final bullet text against the matching source company section."""
+    from docx import Document
+    source, output = Document(source_docx), Document(output_docx)
+    periods = {}
+    for index, paragraph in enumerate(source.paragraphs):
+        if paragraph.style.name != "Heading 2" or not paragraph.text.strip():
+            continue
+        following = [p.text for p in source.paragraphs[index + 1:index + 3] if p.text.strip()]
+        company = paragraph.text.split("\t")[0].strip().casefold()
+        periods[company] = role_period({"historical_title_dates": following})
+    conflicts, company = [], None
+    for paragraph in output.paragraphs:
+        if paragraph.style.name == "Heading 2" and paragraph.text.strip():
+            company = paragraph.text.split("\t")[0].strip().casefold()
+            continue
+        if paragraph.style.name != "List Paragraph" or not paragraph.text.strip():
+            continue
+        late = late_technologies(paragraph.text, periods.get(company), rows)
+        if late:
+            conflicts.append({"company": company, "output_text": paragraph.text, "late": late})
+    return conflicts
+
+
 def claim_issue(text, group, rows=None):
     period = role_period(group)
     if period is None:

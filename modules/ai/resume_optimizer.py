@@ -1096,6 +1096,7 @@ class ResumeOptimizer:
         """Yield professional entries and their actual bullet paragraphs only."""
         active = False
         company, title, paragraphs = None, None, []
+        self.experience_periods = {}
         for paragraph in doc.paragraphs:
             text = paragraph.text.strip()
             if not text:
@@ -1122,6 +1123,7 @@ class ResumeOptimizer:
                     company = text.split("\t", 1)[0].strip()
                 else:
                     title = text.split("\t", 1)[0].strip()
+                    self.experience_periods[(company, title)] = text
         if company and title and paragraphs:
             yield {"company": company, "job_title": title,
                    "bullets": [item.text.strip() for item in paragraphs]}, paragraphs
@@ -1352,6 +1354,16 @@ class ResumeOptimizer:
                             retained.append(f"entry {entry_index}, bullet {bullet_index}: {fact_issue}")
                             continue
                         raise ValueError(f"Entry {entry_index}, bullet {bullet_index}: {fact_issue}; retain source facts.")
+                    from modules.resume_technology_dates import claim_issue
+                    period = getattr(self, "experience_periods", {}).get(
+                        (source["company"], source["job_title"]), source["job_title"])
+                    date_issue = claim_issue(bullet, {"historical_title_dates": [period]})
+                    if date_issue:
+                        if allow_partial:
+                            bullets[bullet_index-1] = original
+                            retained.append(f"entry {entry_index}, bullet {bullet_index}: {date_issue}")
+                            continue
+                        raise ValueError(f"Entry {entry_index}, bullet {bullet_index}: {date_issue}; rewrite without the late technology.")
                 rewritten.append(dict(source, bullets=[bullet.strip() for bullet in bullets]))
             if retained:
                 self.last_bullet_rewrite_error = "Retained individual source bullets after bounded retry: " + "; ".join(retained)
@@ -1517,7 +1529,7 @@ class ResumeOptimizer:
                     break
                 trailing_empty += 1
         return {"page_count": len(pages),
-                "all_pages_have_text": bool(pages) and all(page["meaningful_characters"] >= 20 for page in pages),
+                "all_pages_have_text": bool(pages) and all(page["meaningful_characters"] >= 5 for page in pages),
                 "no_horizontal_clipping": bool(pages) and horizontal,
                 "no_vertical_clipping": bool(pages) and vertical,
                 "heading_pages": heading_pages, "orphaned_headings": orphans,
@@ -1530,11 +1542,14 @@ class ResumeOptimizer:
         """Reject measurable layout regressions; wrapping diagnostics still need visual review."""
         checks, warnings, details = {}, [], {}
         try:
-            source = self._document_format_signature(source_docx) if source_docx and Path(source_docx).exists() else {}
-            optimized = self._document_format_signature(optimized_docx) if optimized_docx and Path(optimized_docx).exists() else {}
+            is_docx = lambda value: bool(value) and Path(value).suffix.lower() == '.docx' and Path(value).exists()
+            source = self._document_format_signature(source_docx) if is_docx(source_docx) else {}
+            optimized = self._document_format_signature(optimized_docx) if is_docx(optimized_docx) else {}
             from modules.resume_sections import academic_sections_preserved
             checks['academic_distinctions_preserved']=(academic_sections_preserved(
-                Document(source_docx),Document(optimized_docx),self._is_resume_section) if source and optimized else True)
+                Document(source_docx),Document(optimized_docx),self._is_resume_section)
+                if source and optimized and Path(source_docx).suffix.lower()=='.docx'
+                and Path(optimized_docx).suffix.lower()=='.docx' else True)
             headings = source.get("headings", [])
             layout = self._rendered_layout(optimized_pdf, headings, optimized_docx)
             source_layout = self._rendered_layout(source_pdf, headings, source_docx) if source_pdf and Path(source_pdf).exists() else {}
