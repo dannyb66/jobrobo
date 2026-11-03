@@ -443,3 +443,18 @@ Time: 2026-10-15T01:34:07.469Z · Tasks: 1, 2, 3, 4, 5, 6, 7, 8
 Report progress
 All tasks
 ````
+
+
+## Task 43 — AI coding interview practice research
+
+Parent relay: 01a18d09-628b-7189-9a72-313a7658d038. Exact user text:
+
+````text
+add new task - research best ai coding interviews practice more real time scenario type questions according to new guidelines hiring shift away from leetcode, ideally free, ai as interviewer, a coding scenario live test to practice - bug resolution, class impl, etc. various types of such coding scenarios to practice on. post feedback n improvs to do better next time. research various market alternatives available for this. check diff git repos too
+````
+
+Follow-up:
+
+````text
+start on task
+````

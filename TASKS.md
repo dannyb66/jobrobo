@@ -45,10 +45,11 @@ All exact user requests and later steering: [PROMPTS.md](PROMPTS.md). Historical
 | 30 | Add task review status | Done — owner closed on25 October2026; prior delivery:  implementation and focused regression/browser verification delivered. Canonical Review column/filter/counts, persisted source transitions and explicit owner-provenance guard are active. [Report](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task30-review-status/README.md>) | Closed by explicit owner instruction; no further implementation. All 23 pre-existing Done records remain preserved. |
 | 34 | Compare long-term career scenarios | Done — owner closed on25 October2026; prior delivery:  private immigration update delivered; All/Tech/Business PhD filters show8/4/7 routes and dependency metric spans14 dimensions/11 paths. Same private report identities nowversion2,27 pages; workbook unchanged. [Private explorer](https://career-paths-explorer-oct26.freshcoot5.chatgpt.site) · [Delivery record](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task34-career-scenarios/README.md>) | Mac functional checks passed, finances unchanged, no overflow at1287×1005. MOBILE visual QA unverified. Dated current/upcoming and court-order caveats explicit; no individual eligibility assumed or filing authorized. |
 | 35 | US accent prep — Clear Voice | DONE — explicit owner instruction. Existing owner-private [Clear Voice · Engineering Practice](https://clear-voice-engineering.freshcoot5.chatgpt.site) filed under its own task and Saved Artifacts; 30 American-English speaking sessions. [Filing record](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task35-us-accent-prep/README.md>) | No Site or privacy changes. No practice-completion, automated grading or microphone-test claims. Preserve all unrelated work. |
-### IN PROGRESS (3 tasks)
+### IN PROGRESS (5 tasks)
 
 | # | Task | Current state / latest output | Next step / blocker |
 |---|---|---|---|
+| 43 | Research AI coding interview practice and realistic live scenarios | In Progress — November 3 documentation report delivered: five market alternatives, five GitHub projects, ten scenario drills and feedback/retry rubric. [Research report](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task43-ai-coding-interview-practice/ai-coding-interview-research-2026-11-03.md>) | Review recommendations; hands-on quality, precise free limits and setup remain untested. Existing task status preserved. |
 
 
 
@@ -1118,3 +1119,16 @@ Ready for Review: 4,649 task records (191 / 2,725 / 1,733), 4,532 distinct saved
 The owner notes that most Task 1 URLs have had submission work, including Lever and Ashby, with some pending. Saved evidence distinguishes labels and confirmations: 82 applied labels, 26 submission_uncertain, 22 pending and 61 other; seven jobs have an explicitly confirmed attempt. Lever: 22 pending, 13 uncertain, one interrupted. Ashby: 79 applied labels, 13 uncertain, 36 blocked, 19 failed before submit, one interrupted and one ready.
 
 Task 1 decisions are a reporting mapping of saved application exclusions; Tasks 26/33 preserve saved verifier decisions. Source freshness and partial coverage remain explicit. Existing Tasks 1, 26, 33 and 40 statuses and content are unchanged. No new fetch, preparation, application, message, schedule, push or deploy.
+
+
+## 43. Research AI coding interview practice and realistic live scenarios — In Progress
+
+**Research report delivered — November 3, 2026:** [Current report](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task43-ai-coding-interview-practice/ai-coding-interview-research-2026-11-03.md>). Five hosted candidates and five GitHub projects; practical debugging, class implementation and eight other scenario types; actionable six-dimension feedback and 48-hour variant retries. Public documentation checked, no hands-on tests. Free exercises, AI allowances and grading quotas are distinguished. Task remains In Progress. Earlier pending-findings notes below are registration history.
+
+Research current market alternatives and GitHub projects for realistic live coding interview practice with an AI interviewer: debugging and bug resolution, class implementation, feature work, refactoring, testing, API/integration work and other practical scenarios. Verify evidence for changing hiring formats and distinguish employer-specific AI rules from general claims.
+
+A source-backed comparison prioritizing genuinely free and low-cost options, scenario breadth, interactive AI interviewing, live coding/test execution, actionable post-session feedback and next-session improvements. Include repository health, license, setup effort and model/API costs, limitations, and a ranked shortlist with a practical practice plan.
+
+Research official product/pricing pages, employer interview guidance and relevant GitHub repositories; compare current evidence and recommend a varied practice routine. Research is authorized and in progress; findings are pending.
+
+[Research scope and exact request](</Users/deepakbasavaraju/Documents/Codex/2026-10-14/task/task-progress/task43-ai-coding-interview-practice/README.md>). Parent delegation: 01a18d09-628b-7189-9a72-313a7658d038.
