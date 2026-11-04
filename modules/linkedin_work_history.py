@@ -13,6 +13,37 @@ from modules.resume_experience_dates import best_experience_range, load_experien
 DATE_LABELS = ("From Month", "From Year", "To Month", "To Year")
 
 
+def repair_incomplete_work_history_summary(driver, modal, source_resume, questions, *, log=lambda _: None, timeout=5):
+    """Open only a saved experience card explicitly missing employment dates."""
+    result = driver.execute_script('''/* jobrobo-incomplete-work-summary */
+      const root=arguments[0];
+      for (const button of root.querySelectorAll('button[aria-label="Edit, Work Experience"]')) {
+        if (!button.getClientRects().length) continue;
+        for (let p=button.parentElement; p && p!==root; p=p.parentElement) {
+          if (p.querySelectorAll('button[aria-label="Edit, Work Experience"]').length>1) break;
+          const paragraphs=[...p.querySelectorAll('p')];
+          const at=paragraphs.findIndex(n=>n.textContent.trim()==='Dates of employment');
+          if(at>=0 && paragraphs[at+1] && /^(?:N\\/A|not provided|missing)$/i.test(paragraphs[at+1].textContent.trim()))
+            return {button};
+        }
+      }
+      return null;
+    ''', modal)
+    if not isinstance(result, dict) or result.get('button') is None:
+        return False
+    if not source_resume or not Path(source_resume).expanduser().is_file():
+        raise EasyApplyError('work history: source resume unavailable for incomplete saved entry')
+    button=result['button']
+    driver.execute_script('arguments[0].scrollIntoView({block:"center"});',button)
+    button.click()
+    try:
+        WebDriverWait(driver,timeout,poll_frequency=.1,
+                      ignored_exceptions=(StaleElementReferenceException,)).until(_date_editor)
+    except TimeoutException as error:
+        raise EasyApplyError('work history: incomplete entry editor did not open') from error
+    return repair_work_history_dates(driver,source_resume,questions,log=log,timeout=timeout)
+
+
 def _date_editor(driver):
     """Require the observed employment editor, never an unrelated application select."""
     found = []

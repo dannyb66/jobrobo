@@ -441,13 +441,21 @@ def _signature(modal, kind):
               const root = arguments[0];
               const text = e => (e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
               const pdf = e => e.matches('input[type="radio"]') && /\.(pdf|docx?)$/i.test(e.getAttribute('aria-label')||'');
+              const resumeRows = new Set();
+              for (const input of root.querySelectorAll('input[type="radio"]')) {
+                if (!pdf(input)) continue;
+                for (let p=input.parentElement; p && p!==root; p=p.parentElement) {
+                  if(p.querySelectorAll('input,textarea,select').length!==1 || p.querySelector('h1,h2,h3,footer,button')) break;
+                  resumeRows.add(p);
+                }
+              }
               const ignored = e => {
+                if (!e.getClientRects().length || getComputedStyle(e).visibility==='hidden') return true;
                 if(e.closest('[role="status"],[role="alert"]') || pdf(e)) return true;
                 // Exclude one resume option's filename/date, never the form or
                 // its page counter, headings, questions or navigation footer.
                 for(let p=e.parentElement;p && p!==root;p=p.parentElement) {
-                  const inputs=[...p.querySelectorAll('input,textarea,select')];
-                  if(inputs.length===1 && pdf(inputs[0]) && !p.querySelector('h1,h2,h3,footer,button')) return true;
+                  if(resumeRows.has(p)) return true;
                 }
                 return false;
               };
@@ -517,6 +525,7 @@ def _bound_state(driver, job_id, owner):
 
 def _settled_state(driver, timeout, job_id, owner):
     previous = None
+    observations = []
     def stable(browser):
         nonlocal previous
         try:
@@ -524,11 +533,18 @@ def _settled_state(driver, timeout, job_id, owner):
             signature = _signature(state[0], state[1]) if state else None
         except StaleElementReferenceException:
             previous = None
+            observations.append({'state': 'stale'})
             return False
         same = signature is not None and signature == previous
+        observations.append({'state': 'stable' if same else 'changing' if state else 'no_navigation',
+                             'action': state[1] if state else None})
         previous = signature
         return state if same else False
-    return _wait(driver, stable, timeout)
+    try:
+        return _wait(driver, stable, timeout)
+    except TimeoutException as error:
+        error.poll_diagnostics = observations[-6:]
+        raise
 
 
 def _navigation_snapshot(modal, action):
@@ -546,13 +562,15 @@ def _read_navigation_snapshot(modal, action):
           const root=arguments[0], action=arguments[1];
           const prompts=[...root.querySelectorAll('legend,label[for],input[aria-label],textarea[aria-label],select[aria-label]')]
             .slice(0,20).map(e=>(e.getAttribute('aria-label')||e.textContent||'').replace(/\s+/g,' ').trim().slice(0,240)).filter(Boolean);
-          const progress=(root.textContent||'').match(/\b\d+\s*\/\s*\d+\s+pages\b/i);
+          const progress=[...root.querySelectorAll('p,[role="progressbar"]')]
+            .filter(e=>e.getClientRects().length && getComputedStyle(e).visibility!=='hidden')
+            .map(e=>(e.textContent||'').trim()).find(t=>/^\d+\s*\/\s*\d+\s+pages$/i.test(t));
           const navigation=[...root.querySelectorAll('footer button,footer [role="button"],.jobs-easy-apply-footer button')]
             .slice(0,8).map(e=>{ const r=e.getBoundingClientRect();
               return {label:(e.getAttribute('aria-label')||e.textContent||'').trim().slice(0,80),
                 disabled:e.disabled||e.getAttribute('aria-disabled')==='true',
                 rect:{x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height)}}; });
-          return {action, page:progress ? progress[0] : null, questions:prompts, navigation};
+          return {action, page:progress || null, questions:prompts, navigation};
         ''', modal, action)
         if isinstance(result, dict) and isinstance(result.get('questions'), list):
             return result
@@ -581,6 +599,7 @@ def advance_to_review(driver, fill_step, *, timeout=10, max_steps=15, on_blocked
         except TimeoutException as error:
             raise EasyApplyError(f'step {step}: no Next, Review or Submit control in application dialog') from error
         modal, kind, button = state
+        before_fill_signature = _signature(modal, kind)
         before_fill = _navigation_snapshot(modal, kind)
         log(f'Easy Apply step {step}: {kind}')
         # Exceptions from answering/uploading must propagate without any final action.
@@ -594,10 +613,25 @@ def advance_to_review(driver, fill_step, *, timeout=10, max_steps=15, on_blocked
         try:
             modal, current_kind, button = _settled_state(driver, timeout, job_id, owner)
         except TimeoutException as error:
-            failure = EasyApplyError(f'step {step}: form controls disappeared after filling')
-            failure.navigation_evidence = [{'before': before_fill, 'after': _navigation_snapshot(modal, kind)}]
-            raise failure from error
-        if current_kind != kind:
+            # Uploading a new PDF may rerender a very long saved-resume list.
+            # One bounded retry is permitted only while this job/employer still owns it.
+            current = _bound_state(driver, job_id, owner)
+            if current:
+                log(f'Easy Apply step {step}: navigation present but not settled after filling; retrying once')
+                try:
+                    modal, current_kind, button = _settled_state(driver, timeout, job_id, owner)
+                except TimeoutException as retry_error:
+                    failure = EasyApplyError(f'step {step}: navigation present but application did not settle after filling')
+                    failure.navigation_evidence = [{'before': before_fill, 'after': _navigation_snapshot(current[0], current[1]),
+                        'polls': getattr(error, 'poll_diagnostics', []),
+                        'retry_polls': getattr(retry_error, 'poll_diagnostics', [])}]
+                    raise failure from retry_error
+            else:
+                failure = EasyApplyError(f'step {step}: no application navigation after filling')
+                failure.navigation_evidence = [{'before': before_fill, 'after': _navigation_snapshot(modal, kind),
+                                               'polls': getattr(error, 'poll_diagnostics', [])}]
+                raise failure from error
+        if current_kind != kind or _signature(modal, current_kind) != before_fill_signature:
             recoveries += 1
             after_fill = _navigation_snapshot(modal, current_kind)
             transitions.append({'before': before_fill, 'after': after_fill})

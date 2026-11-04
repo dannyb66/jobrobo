@@ -35,6 +35,10 @@ application_source = "Web"
 # For unanswered selection fields in direct preparation: "manual" or "first_option".
 unanswered_choice_policy = "first_option"
 
+# Optional exact question -> list of option captions for LinkedIn multi-selects.
+# Otherwise recognized language/tool questions use the original CV as evidence.
+application_multi_select_answers = {}
+
 # Exact LinkedIn job IDs whose employer privacy-notice checkbox you approve.
 # Applies only to the observed "I consent" / privacy-notice question.
 application_privacy_consent_job_ids = []
@@ -52,6 +56,16 @@ ai_education_answers_enabled = True
 # Names of relatives currently working at an employer, if applicable.
 # Empty means answer No to the corresponding employer-relative question.
 application_relative_employee_names = ""
+
+# Employer name -> screening answers. None/unset means ask instead of inventing
+# a referral, relationship, previous application or previous employment.
+# Example: {"Example Inc": {"employee_referral": False,
+#   "employee_relationships": False, "previous_application": False,
+#   "previous_employment": False}}
+application_employer_screening_answers = {}
+# Optional explicit immediate employment eligibility. Otherwise use only the
+# configured work-authorization statement plus explicit immediate availability.
+application_immediate_employment_eligible = None
 
 # DEI/demographic choices use an explicit opt-out instead of the first option.
 dei_choice_policy = "prefer_not_to_answer"

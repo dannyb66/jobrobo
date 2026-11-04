@@ -617,6 +617,10 @@ def upload_optimized_resume(modal: WebElement, resume_path: str, job_description
 
 # Function to answer common questions for Easy Apply
 def answer_common_questions(label: str, answer: str) -> str:
+    from modules.application_screening import employer_screening_answer
+    personal = employer_screening_answer(label, globals(), choice=True)
+    if personal is not None:
+        return personal
     if 'sponsorship' in label or 'visa' in label: answer = require_visa
     elif re.search(r'\brelatives\b.*\b(?:working|employed)\b', label, re.I):
         answer = 'Yes' if globals().get('application_relative_employee_names', '').strip() else 'No'
@@ -1115,6 +1119,8 @@ def _fill_resume_work_history_dates(modal, questions_list):
 
 def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None, *, draft_answer=None, job_id=None ) -> set:
     import re
+    from modules.linkedin_easy_apply import MissingApplicationAnswer
+    application_log = globals().get('print_lg', lambda *_args, **_kwargs: None)
     from modules.linkedin_form_fields import field_limit, invalid_text, fill_text, education_checkbox_answers, short_numeric_rejection, inapplicable_followup, checkbox_prompt, demographic_request, clear_optional_choice, is_privacy_notice_choice, country_checkbox_answers, availability_answer, sponsorship_question
     # LinkedIn can leave an outer dialog wrapper active after resume upload
     # while the current application form is a nested dialog. Choose the visible
@@ -1145,11 +1151,35 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
         import re
         return bool(re.search(r"\b(?:references|referees)\b|\b(?:your|professional|employment|personal)\s+reference\b|\breference(?:'s)?\s+(?:name|email|phone|contact)\b", label, re.I)
                     or re.fullmatch(r'\s*reference\s*#?\d*\s*[:*]?\s*', label, re.I))
+    from modules.application_screening import employer_screening_answer
+    screening_settings = dict(globals())
+    try:
+        from modules.linkedin_easy_apply import _application_owner
+        owner = _application_owner(modal)
+        if owner:
+            screening_settings['_application_employer'] = re.sub(r'^apply to\s+', '', owner, flags=re.I)
+    except Exception:
+        pass
+    def configured_common_answer(label, answer):
+        personal = employer_screening_answer(label, screening_settings, choice=True)
+        return personal if personal is not None else answer_common_questions(label, answer)
+    from modules.linkedin_work_history import repair_incomplete_work_history_summary
+    for _ in range(12):
+        if not repair_incomplete_work_history_summary(driver,modal,
+                globals().get('default_resume_docx_path'),questions_list,log=application_log):
+            break
+        modal = wait_for_application_modal(driver)
+    else:
+        raise MissingApplicationAnswer('Too many incomplete saved work-history entries')
     _fill_resume_work_history_dates(modal, questions_list)
-    from modules.linkedin_form_fields import fill_binary_checkbox_groups
+    from modules.linkedin_form_fields import fill_binary_checkbox_groups, fill_multi_select_groups
     handled_checkboxes, checkbox_groups = fill_binary_checkbox_groups(
-        modal, answer_common_questions,
+        modal, configured_common_answer,
         lambda control: actions.move_to_element(control).click().perform(), questions_list, globals())
+    multi_handled, multi_count = fill_multi_select_groups(
+        modal, lambda control: actions.move_to_element(control).click().perform(), questions_list, globals())
+    handled_checkboxes.update(multi_handled)
+    checkbox_groups += multi_count
     # Get all questions from the page
      
     all_questions = modal.find_elements(By.XPATH, ".//div[@data-test-form-element]")
@@ -1264,9 +1294,12 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     clear_optional_choice(driver, select_element)
                 questions_list.add((label_org, '', 'declined_optional', prev_answer))
                 return
-            if overwrite_previous_answers or dropdown_placeholder(selected_option) or disclosure or label == 'country' or relatives_question or sponsorship_question(label) or available is not None or application_location is not None:
+            personal_choice = employer_screening_answer(label_org, screening_settings, choice=True)
+            if overwrite_previous_answers or dropdown_placeholder(selected_option) or disclosure or label == 'country' or relatives_question or personal_choice is not None or sponsorship_question(label) or available is not None or application_location is not None:
                 requested = None
-                if sponsorship_question(label):
+                if personal_choice is not None:
+                    requested = personal_choice
+                elif sponsorship_question(label):
                     requested = globals().get('require_visa')
                 elif available is not None:
                     requested = available
@@ -1289,15 +1322,15 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 elif 'veteran' in label or 'protected' in label: requested = globals().get('veteran_status')
                 else:
                     from modules.linkedin_form_fields import experience_range_answer
-                    requested = answer_common_questions(label, None) or experience_range_answer(
+                    requested = configured_common_answer(label, None) or experience_range_answer(
                         label, choices, globals().get('years_of_experience'))
                 index, defaulted = choose_index(choices, requested)
-                if (sponsorship_question(label) or available is not None or application_location is not None) and defaulted:
+                if (sponsorship_question(label) or personal_choice is not None or available is not None or application_location is not None) and defaulted:
                     from modules.linkedin_easy_apply import MissingApplicationAnswer
                     raise MissingApplicationAnswer('Configured personal answer is not offered: ' + label_org)
                 select.select_by_index(index)
                 answer = select.first_selected_option.text
-                if (sponsorship_question(label) or available is not None or application_location is not None) and answer.strip() != choices[index]['text'].strip():
+                if (sponsorship_question(label) or personal_choice is not None or available is not None or application_location is not None) and answer.strip() != choices[index]['text'].strip():
                     from modules.linkedin_easy_apply import MissingApplicationAnswer
                     raise MissingApplicationAnswer('Configured personal dropdown selection did not persist: ' + label_org)
                 if defaulted:
@@ -1348,17 +1381,19 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     clear_optional_choice(driver, radio)
                 questions_list.add((label_org, '', 'declined_optional', prev_answer))
                 return
-            if overwrite_previous_answers or prev_answer is None or disclosure or sponsorship_question(label) or sum(option['selected'] for option in options) != 1:
+            personal_choice = employer_screening_answer(label_org, screening_settings, choice=True)
+            if overwrite_previous_answers or prev_answer is None or disclosure or personal_choice is not None or sponsorship_question(label) or sum(option['selected'] for option in options) != 1:
                 requested = None
-                if sponsorship_question(label): requested = globals().get('require_visa')
+                if personal_choice is not None: requested = personal_choice
+                elif sponsorship_question(label): requested = globals().get('require_visa')
                 elif disclosure: requested = disclosure_answer
                 elif 'gender' in label or 'sex' in label: requested = globals().get('gender')
                 elif 'citizenship' in label or 'employment eligibility' in label: requested = globals().get('us_citizenship')
                 elif 'veteran' in label or 'protected' in label: requested = globals().get('veteran_status')
                 elif 'disability' in label or 'handicapped' in label: requested = globals().get('disability_status')
-                else: requested = answer_common_questions(label, None)
+                else: requested = configured_common_answer(label, None)
                 index, defaulted = choose_index(choices, requested)
-                if sponsorship_question(label) and defaulted:
+                if (sponsorship_question(label) or personal_choice is not None) and defaulted:
                     from modules.linkedin_easy_apply import MissingApplicationAnswer
                     raise MissingApplicationAnswer('Configured sponsorship answer is not offered: ' + label_org)
                 actions.move_to_element(controls[index]).click().perform()
@@ -1413,8 +1448,11 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             configured_employer = globals().get('recent_employer', '')
             employer_override = (isinstance(configured_employer, str) and configured_employer.strip()
                                  and re.fullmatch(r'(?:(?:most\s+)?recent|current|present|latest|last)\s+(?:company|employer)(?:\s+name)?\s*\*?', label.strip()))
-            if not prev_answer or overwrite_previous_answers or preferred_override or employer_override or invalid_text(text, limit) or numeric_recovery:
-                if reference_field(label):
+            personal_answer = employer_screening_answer(label_org, screening_settings)
+            if not prev_answer or overwrite_previous_answers or preferred_override or employer_override or personal_answer is not None or invalid_text(text, limit) or numeric_recovery:
+                if personal_answer is not None:
+                    answer = personal_answer
+                elif reference_field(label):
                     answer = globals().get('references', '').strip()
                     if not answer and globals().get('prepare_only_run', False):
                         answer = globals().get('test_references', '').strip()
@@ -1473,7 +1511,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 elif 'state' in label or 'province' in label: answer = state
                 elif 'zip' in label or 'postal' in label or 'code' in label: answer = zipcode
                 elif 'country' in label: answer = country
-                else: answer = answer_common_questions(label,answer)
+                else: answer = configured_common_answer(label,answer)
                 ##> ------ Dheeraj Deshwal : dheeraj9811 Email:dheeraj20194@iiitd.ac.in/dheerajdeshwal9811@gmail.com - Feature ------
                 if answer == "" and not reference_field(label) and not empty_middle_name:
                     if draft_answer is not None and globals().get('ai_descriptive_answers_enabled', False):
@@ -1525,6 +1563,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             answer = ""
             prev_answer = text_area.get_attribute("value")
             limit = field_limit(driver, text_area, 1500)
+            personal_answer = employer_screening_answer(label_org, screening_settings)
             available = availability_answer(label_org, globals())
             if available is not None:
                 fill_text(driver, text_area, available, limit)
@@ -1550,8 +1589,10 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     print_lg(f'Skipping inapplicable optional question: {label_org}')
                     questions_list.add((label, '', 'textarea', prev_answer))
                     return
-            if not prev_answer or overwrite_previous_answers or invalid_text(text_area, limit):
-                if reference_field(label):
+            if not prev_answer or overwrite_previous_answers or personal_answer is not None or invalid_text(text_area, limit):
+                if personal_answer is not None:
+                    answer = personal_answer
+                elif reference_field(label):
                     answer = globals().get('references', '').strip()
                     if not answer and globals().get('prepare_only_run', False):
                         answer = globals().get('test_references', '').strip()
@@ -2088,13 +2129,14 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
         from modules.ai.application_drafting import create_drafting_client, make_drafting_provider
         from modules.linkedin_easy_apply import MissingApplicationAnswer
         try:
-            if not uploaded or not selected_resume_path:
-                raise DraftError('A verified selected resume must be attached before drafting')
+            from modules.application_screening import draft_evidence_path
+            evidence = draft_evidence_path(selected_resume_path, uploaded,
+                globals().get('default_resume_docx_path'), globals().get('default_resume_path'))
             if drafts is None:
                 draft_client = draft_client or create_drafting_client(
                     api_key=globals().get('llm_api_key', ''), base_url=globals().get('llm_api_url'))
-                source = Path(selected_resume_path)
-                paired_docx = source.with_suffix('.docx')
+                source = evidence
+                paired_docx = source if source.suffix.lower() == '.docx' else source.with_suffix('.docx')
                 drafts = ApplicationDrafts(
                     resume_path=source, source_docx=paired_docx,
                     job_id=job_id, job_title=title, company=company, jd=description,
@@ -2152,7 +2194,7 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
         # Next can reveal an invalid saved experience entry only after the
         # summary page was filled. Repair that newly opened editor, Save it,
         # then let navigation reacquire and retry Next on the summary page.
-        if 'form validation' in reason and work_history_recoveries < 12:
+        if ('form validation' in reason or 'did not advance' in reason) and work_history_recoveries < 12:
             from modules.linkedin_work_history import repair_work_history_dates
             if repair_work_history_dates(driver, globals().get('default_resume_docx_path'),
                                          questions, log=print_lg):
@@ -2692,7 +2734,8 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                                                requires_submission_check=manifest.query(spec.query_id)['jobs'].get(job_id, {}).get('status') == 'submitting')
                                 # print_lg(e)
                                 critical_error_log("Somewhere in Easy Apply process",e)
-                                failed_job(job_id, job_link, resume, date_listed, "Problem in Easy Applying", e, application_link, screenshot_name)
+                                failed_job(job_id, job_link, resume, date_listed,
+                                           f"Easy Apply: {type(e).__name__}: {str(e)[:500]}", e, application_link, screenshot_name)
                                 failed_count += 1
                                 if date_applied == "Pending":
                                     deferred_card_ids.add(job_id)

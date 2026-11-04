@@ -900,6 +900,10 @@ class ResumeOptimizer:
         padding it with spaces so the final line reaches up to max_line_length without overflowing.
         """
         try:
+            from modules.resume_titles import normalized_role_title
+            new_title = normalized_role_title(new_title)
+            if not new_title:
+                return
             is_in_experience_section = False
             job_title_with_dates_pattern = re.compile(r'^(.*?)(\s{2,}|\t+)?\(?[A-Za-z]+\s+\d{4}.*\)?$')
 
@@ -924,7 +928,9 @@ class ResumeOptimizer:
 
                         # Limit new title to fit within line length
                         allowed_title_length = max_line_length - len(rest_of_line)
-                        safe_new_title = new_title[:allowed_title_length].rstrip()
+                        safe_new_title = new_title
+                        if len(safe_new_title) > allowed_title_length:
+                            safe_new_title = safe_new_title[:allowed_title_length].rsplit(' ', 1)[0].rstrip()
 
                         # Clean up the title, no extra spaces, no special characters or numbers
                         safe_new_title = re.sub(r'[\x00-\x1f]', ' ', safe_new_title).strip()
@@ -1654,7 +1660,8 @@ class ResumeOptimizer:
                 if width is None:
                     continue
                 ratio=width/bullet["usable_line_width"]
-                if ratio + 1e-9 < hard:
+                # Sub-point glyph measurement differences must not reject a PDF.
+                if ratio + .0005 < hard:
                     shortages.append({"text":bullet["source_text"],"fill_ratio":round(ratio,4)})
             checks["bullet_fullness"]=not shortages
             details["bullet_fullness_shortages"]=shortages

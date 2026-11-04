@@ -54,6 +54,7 @@ def _config_dependencies(config: dict, repo_root: Path) -> dict[str, str]:
                  if path.is_file())
     paths.update((repo_root / relative).resolve() for relative in (
         "modules/ai/resume_optimizer.py",
+        "modules/resume_titles.py",
         "config/prompts/resume_bullets.txt",
     ) if (repo_root / relative).is_file())
     result = {}

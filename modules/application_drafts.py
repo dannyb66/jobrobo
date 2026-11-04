@@ -36,7 +36,9 @@ PROTECTED = re.compile(
     r"religion|sexual|marital|criminal|convict\w*|felon\w*|arrest\w*|salary|compensation|notice period|"
     r"available to start|start date|date of birth|birth date|age|relocat\w*)\b|"
     r"\breference(?:'s)?\s+(?:name|phone|email|contact)\b|"
-    r"\byour\s+(?:legal name|first name|last name|email|phone|address|citizenship)\b", re.I)
+    r"\byour\s+(?:legal name|first name|last name|email|phone|address|citizenship)\b|"
+    r"\b(?:relatives|personal relationships|previously applied|previously employed|ever been employed)\b|"
+    r"\b(?:referred|referral|referrer)\b.*\b(?:employee|name|relationship)\b", re.I)
 
 
 def _sha(value):

@@ -216,7 +216,7 @@ class FullPipelineLayoutGateTest(unittest.TestCase):
         self.assertLess(result["details"]["bullet_fullness_shortages"][0]["fill_ratio"], .60)
 
     def test_bullet_below_eighty_percent_fails_and_exactly_eighty_passes(self):
-        for width, expected in ((79.9, False), (80.0, True)):
+        for width, expected in ((79.9, False), (79.96, True), (80.0, True)):
             with self.subTest(width=width):
                 docx, pdf = self._single_bullet_docx(width)
                 import pdfplumber
@@ -230,6 +230,15 @@ class FullPipelineLayoutGateTest(unittest.TestCase):
                 result = self.runner.optimizer.verify_format(
                     str(docx), str(docx), str(pdf), str(pdf), 1)
                 self.assertEqual(result["checks"]["bullet_fullness"], expected)
+
+    def test_unchanged_source_fallback_is_exempt_from_new_fullness_floor(self):
+        docx, pdf = self._single_bullet_docx(60)
+        self.runner.optimizer.strict_inventory = {"bullets": [{
+            "bullet_id": "retained", "source_text": "Built APIs", "usable_line_width": 540,
+            "right_boundary": 612, "text_left": 72, "paragraph_index": 0}]}
+        self.runner.optimizer.source_fallback_ids = {"retained"}
+        result = self.runner.optimizer.verify_format(str(docx),str(docx),str(pdf),str(pdf),1)
+        self.assertTrue(result['checks']['bullet_fullness'])
 
     def _single_bullet_docx(self, width, text="Built APIs"):
         docx, pdf = self.runner.root / f"f{width}.docx", self.runner.root / f"f{width}.pdf"

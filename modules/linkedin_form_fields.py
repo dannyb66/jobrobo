@@ -226,6 +226,82 @@ def fill_binary_checkbox_groups(modal, answer_for, click, questions, settings=No
     return handled, count
 
 
+def multi_select_values(prompt, options, source_text, configured=None):
+    """Resolve qualifications from explicit mappings or the original CV only."""
+    key = ' '.join(prompt.casefold().split()).rstrip('*').strip()
+    explicit = {' '.join(k.casefold().split()).rstrip('*').strip(): v
+                for k, v in (configured or {}).items()}
+    if key in explicit:
+        values = explicit[key]
+        if not isinstance(values, list) or any(not isinstance(v, str) for v in values):
+            raise ValueError('Multi-select answers must be lists of option captions')
+        unknown = set(values) - set(options)
+        if unknown:
+            raise ValueError('Configured multi-select option is unavailable')
+        return values
+    if re.search(r'programming languages?', key):
+        terms = ['Python', 'JavaScript', 'TypeScript', 'Java', 'Go', 'Golang', 'Rust', 'C++', 'C#', 'Ruby', 'PHP', 'Scala', 'Kotlin', 'Swift']
+    elif re.search(r'(?:ai tools|coding).*?(?:coding|assistance)|coding assistance', key):
+        terms = ['Claude Code', 'GitHub Copilot', 'Codex', 'Cursor', 'ChatGPT', 'Gemini', 'Claude', 'CodeWhisperer', 'Devin']
+    else:
+        return []
+    def mentions(text, term):
+        return re.search(r'(?<!\w)' + re.escape(term) + r'(?!\w)', text, re.I) is not None
+    selected = []
+    for caption in options:
+        if re.search(r'none of|something else|^other\b', caption, re.I):
+            continue
+        # A mention of Claude does not establish use of Claude Code.
+        option = caption
+        if not mentions(source_text, 'Claude Code'):
+            option = re.sub(r'Claude Code', '', option, flags=re.I)
+        if any(mentions(source_text, term) and mentions(option, term) for term in terms):
+            selected.append(caption)
+    return selected
+
+
+def fill_multi_select_groups(modal, click, questions, settings=None):
+    """Read SDUI fieldset headings outside empty labels; select and verify a set."""
+    from modules.linkedin_easy_apply import MissingApplicationAnswer
+    settings = settings or {}
+    source_text = ''
+    try:
+        from docx import Document
+        from pathlib import Path
+        source = settings.get('default_resume_docx_path')
+        if isinstance(source, (str, Path)) and Path(source).expanduser().is_file():
+            source_text = '\n'.join(p.text for p in Document(Path(source).expanduser()).paragraphs)
+    except Exception:
+        pass
+    handled, count = set(), 0
+    for group in _found(modal, By.XPATH, './/fieldset[.//input[@type="checkbox"] or .//*[@role="checkbox"]]'):
+        headings = _found(group, By.XPATH, './legend | ./preceding-sibling::p[1]')
+        prompt = group.get_attribute('aria-label') or ' '.join(p.text for p in headings)
+        if not re.search(r'select all|check all|choose all', prompt, re.I):
+            continue
+        parsed = _choice_options(group, 'checkbox')
+        if not parsed:
+            raise MissingApplicationAnswer('Multi-select options unavailable: ' + prompt)
+        captions = [p['text'] for p in parsed]
+        chosen = multi_select_values(prompt, captions, source_text,
+                                     settings.get('application_multi_select_answers', {}))
+        if not chosen and ('*' in prompt or group.get_attribute('aria-required') == 'true'):
+            raise MissingApplicationAnswer('Required multi-select needs a configured or source-backed answer: ' + prompt)
+        for item in parsed:
+            requested = item['text'] in chosen
+            if item['selected'] != requested:
+                if not item['enabled']:
+                    raise MissingApplicationAnswer('Multi-select option is disabled: ' + prompt)
+                click(item['control'])
+        current = _choice_options(group, 'checkbox')
+        if {p['text'] for p in current if p['selected']} != set(chosen):
+            raise MissingApplicationAnswer('Multi-select selections did not persist: ' + prompt)
+        handled.update(node.id for item in current for node in (item['input'], item['control']))
+        questions.add((prompt, tuple(chosen), 'multi_select', None))
+        count += 1
+    return handled, count
+
+
 def validation_messages(root):
     """Describe rejected questions without recording their entered answers."""
     messages = []
