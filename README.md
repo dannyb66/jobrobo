@@ -400,6 +400,19 @@ submissions. Every job’s worker, tab, and status are checkpointed in the run,
 so `--resume` can reconnect unresolved worker sessions. The configured
 application cap still applies across all workers.
 
+To run one firm at a time, add `--company "Air Space Intelligence"`. It matches
+the job's `company` field exactly, ignoring case and surrounding whitespace,
+intersects with `--role`, and filters before `--limit`. Jobs without a company
+name are excluded. A blank name or no matches fails before a run starts.
+`--resume` retains its saved selection and cannot be combined with `--company`.
+Application caps still apply to the selected company.
+
+```bash
+python3 direct_apply.py submit --urls-file /path/to/jobs-phase1.json \
+  --company "Air Space Intelligence" \
+  --captcha-solver --pause-before-submit never --workers 1
+```
+
 ### Kernel cloud browser and CAPTCHA handling
 
 Install the optional dependencies and configure `KERNEL_API_KEY` in the ignored

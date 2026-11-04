@@ -42,6 +42,7 @@ def parser():
     submit.add_argument('--run-dir', help='Optional destination; an existing path gets a unique sibling. Omit for an automatic fresh run')
     submit.add_argument('--pause-before-submit', choices=('always','unknown','never'), default=None, help='Default always: fill separate tabs for manual Submit; resume keeps saved policy')
     submit.add_argument('--role', action='append', default=[])
+    submit.add_argument('--company', help='Exact company name, ignoring case and surrounding whitespace; applied before --limit')
     submit.add_argument('--limit', type=positive)
     submit.add_argument('--max-applications', type=positive)
     submit.add_argument('--workers', type=positive, help='Parallel isolated browser workers (1-4; >1 requires --browser kernel; default 1)')
@@ -169,12 +170,12 @@ def main(argv=None):
         elif args.command == 'submit':
             from modules.generic_inputs import load_jobs
             from modules.submit_runner import run_submissions
-            if args.resume_dir and (args.role or args.limit):
-                raise ValueError('Resume uses its saved selection; start a new run to change input roles/limit')
+            if args.resume_dir and (args.role or args.limit or args.company is not None):
+                raise ValueError('Resume uses its saved selection; start a new run to change input roles/limit/company')
             if args.retry_failed and not args.resume_dir:
                 raise ValueError('--retry-failed requires --resume RUN_DIR')
             jobs = None if args.resume_dir else load_jobs(args.inputs or ([args.urls_file] if args.urls_file else []),
-                url=args.url, db_path=args.db, selected_roles=args.role, limit=args.limit)
+                url=args.url, db_path=args.db, selected_roles=args.role, limit=args.limit, company=args.company)
             result = run_submissions(jobs,run_dir=args.run_dir,resume_dir=args.resume_dir,config_dir=args.config_dir,
                 output_dir=args.output_dir,chrome_profile=args.chrome_profile,questions_path=args.questions,
                 discovery_source=args.discovery_source,pause=args.pause_before_submit,max_applications=args.max_applications,

@@ -94,8 +94,12 @@ def _payload(data, provenance):
     return result
 
 
-def load_jobs(inputs=(), *, url=None, db_path=None, selected_roles=(), limit=None, allow_local=False):
+def load_jobs(inputs=(), *, url=None, db_path=None, selected_roles=(), limit=None, allow_local=False, company=None):
     """Validate the complete input before browser, credentials or durable mutation."""
+    if company is not None:
+        if not isinstance(company, str) or not company.strip():
+            raise ValueError('Company filter must be a nonempty name')
+        company = company.strip().casefold()
     jobs = []
     if url:
         jobs.extend(_payload([url], {'source': 'explicit_url'}))
@@ -150,6 +154,10 @@ def load_jobs(inputs=(), *, url=None, db_path=None, selected_roles=(), limit=Non
     if selected - ids:
         raise ValueError('Selected role IDs are absent from the input')
     jobs = [j for j in merged.values() if not selected or selected.intersection([j['id'], *j.get('aliases', [])])]
+    if company is not None:
+        jobs = [j for j in jobs if isinstance(j.get('company'), str) and j['company'].strip().casefold() == company]
+        if not jobs:
+            raise ValueError('No jobs match company ' + repr(company) + ' within the selected input roles')
     return jobs[:limit] if limit else jobs
 
 
