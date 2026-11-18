@@ -145,11 +145,63 @@ class PlanningTests(unittest.TestCase):
                 self.assertEqual(specs[0].quota, 10)
                 self.assertEqual(specs[1].classic_query, "Principal Software Engineer")
 
+    def test_configured_broad_ai_lane_is_second_without_reordering_existing_lanes(self):
+        from config import search, search_profile
+
+        specs = build_search_plan(search_profile, search)
+        self.assertEqual([spec.classic_query for spec in specs[:7]], [
+            "Forward Deployed Engineer", "AI Engineer", "Senior Software Engineer",
+            "Staff Software Engineer", "Principal Software Engineer",
+            "Staff AI Engineer", "Principal AI Engineer",
+        ])
+        broad = specs[1]
+        self.assertEqual(broad.query_id, "manual:ai-engineer")
+        self.assertEqual(broad.quota, search.switch_number)
+        for title in ("Applied AI Engineer", "Generative AI Engineer", "LLM Engineer",
+                      "AI/ML Engineer", "Agentic AI Engineer", "AI Agent Engineer"):
+            self.assertIn(title, broad.query_text)
+        # Removing the added lanes must reproduce the previous plan in full.
+        settings = dict(vars(search_profile))
+        settings["manual_searches"] = [item for item in search_profile.manual_searches
+                                      if item["id"] not in {"ai-engineer", "senior-engineer"}]
+        previous = build_search_plan(settings, search)
+        added = {broad.query_id, "manual:senior-engineer"}
+        self.assertEqual([s.query_id for s in specs if s.query_id not in added],
+                         [s.query_id for s in previous])
+
     def test_legacy_only_runs_when_dynamic_search_is_disabled(self):
         specs = build_search_plan(profile(dynamic_search_enabled=False, role_lanes=[]),
                                   search_config(search_terms=["Software Engineer", "Backend Engineer"]))
         self.assertEqual([spec.source for spec in specs], ["legacy", "legacy"])
         self.assertEqual([spec.classic_query for spec in specs], ["Software Engineer", "Backend Engineer"])
+
+    def test_senior_software_engineer_sits_third_behind_the_pinned_lanes(self):
+        settings = profile(manual_searches=[
+            {"id": "fde", "query": "Forward Deployed Engineer", "enabled": True},
+            {"id": "ai", "query": "AI Engineer", "enabled": True},
+            {"id": "senior", "query": "Find Senior Software Engineer roles",
+             "role_label": "Senior Software Engineer", "enabled": True},
+        ], dynamic_search_enabled=False)
+        specs = build_search_plan(settings, search_config(
+            search_terms=["Staff Software Engineer", "Principal Software Engineer"],
+            switch_number=10))
+        self.assertEqual([spec.classic_query for spec in specs], [
+            "Forward Deployed Engineer", "AI Engineer", "Senior Software Engineer",
+            "Staff Software Engineer", "Principal Software Engineer",
+        ])
+        # Senior stays below the pinned lanes but ahead of staff/principal titles.
+        self.assertEqual([spec.quota for spec in specs], [10] * 5)
+
+    def test_configured_senior_lane_carries_variants_and_inherits_quota(self):
+        from config import search, search_profile
+
+        specs = build_search_plan(search_profile, search)
+        senior = specs[2]
+        self.assertEqual(senior.query_id, "manual:senior-engineer")
+        self.assertEqual(senior.quota, search.switch_number)
+        for title in ("Senior Backend Engineer", "Senior Platform Engineer",
+                      "Senior AI Engineer", "Senior MLOps Engineer", "Senior LLM Engineer"):
+            self.assertIn(title, senior.query_text)
 
     def test_normalized_deduplication_across_manual_legacy_and_generated(self):
         settings = profile(manual_searches=[{"id": "preferred", "query": " STAFF   AI PLATFORM ENGINEER "}])

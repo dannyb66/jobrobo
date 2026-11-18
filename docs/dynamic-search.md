@@ -63,6 +63,10 @@ Unknown fields, duplicate IDs, empty queries, or invalid quotas fail validation.
 
 The existing preferences are preserved: San Francisco Bay Area, full-time, remote or hybrid, jobs posted within the past month, Easy Apply, and most-recent ordering when available. Legacy `search_terms` retain Staff and Principal Software Engineer and AI Engineer searches, Staff Machine Learning Engineer, AI Platform Engineer, Staff Backend Engineer, and Founding Engineer. Change those values in `config/search.py`; the profile does not copy them.
 
+The senior band is a profile lane, not a legacy term. `manual:senior-engineer` carries Senior variants across software, backend, platform, infrastructure, SRE and applied-AI titles, and is deliberately positioned third.
+
+Effective order is not list order: `role_priority` pins Forward Deployed Engineer first and the AI Engineer lane second, and places the Senior band third, ahead of the Staff/Principal band. So `--single-search 3` selects Senior Software Engineer, `4` selects Staff Software Engineer, `5` Principal Software Engineer, and the configured list order continues after that.
+
 The planner snapshots these values from `config/search.py`:
 
 | Purpose | Settings |

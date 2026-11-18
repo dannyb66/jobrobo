@@ -32,6 +32,10 @@ def stable_id(source, text):
 
 def role_priority(title):
     if re.search(r"\bfde\b|\bforward[\s-]+deployed\b", title, re.I):
+        return -2
+    if normalize_query(title) == "ai engineer":
+        return -1
+    if normalize_query(title) == "senior software engineer":
         return -1
     if re.search(r"\bfounding\b", title, re.I):
         return 2
@@ -125,9 +129,13 @@ class SearchSpec:
     quota: int | None
     classic_query: str
     pipeline_context: dict = field(default_factory=dict)
+    company_scope: dict = field(default_factory=dict)
 
     def to_dict(self):
-        return asdict(self)
+        data = asdict(self)
+        if not self.company_scope:
+            data.pop("company_scope")
+        return data
 
 
 def render_query(role, profile, config):
