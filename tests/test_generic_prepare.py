@@ -280,6 +280,22 @@ class GenericPreparationTests(unittest.TestCase):
             result = generated_resume(job, root, source, pdf, config, {}, generate=generate)
             generate.assert_called_once(); self.assertNotEqual(result['pdf'], str(old_pdf))
 
+    def test_active_prompt_edit_regenerates_direct_resume_without_changing_config(self):
+        with TemporaryDirectory() as tmp, patch('modules.generic_prepare.verify_resume', return_value={'passed': True}):
+            source = Path(tmp)/'resume.docx'; source.write_bytes(b'source')
+            pdf = source.with_suffix('.pdf'); pdf.write_bytes(b'pdf')
+            prompt = Path(tmp)/'venice.txt'; prompt.write_text('venice prompt v1')
+            config = {'rewrite_provider':'venice', 'rewrite_venice_prompt_path':str(prompt)}
+            generate = Mock(side_effect=self.accepted_generator(source))
+            args = ({'title':'Engineer', 'description':'JD'}, Path(tmp)/'out', source, pdf, config, {})
+            first = generated_resume(*args, generate=generate)
+            self.assertEqual(generated_resume(*args, generate=generate), first)
+            self.assertEqual(generate.call_count, 1)
+            prompt.write_text('venice prompt v2')
+            second = generated_resume(*args, generate=generate)
+            self.assertEqual(generate.call_count, 2)
+            self.assertNotEqual(first['input_hash'], second['input_hash'])
+
     def test_concurrent_generation_not_repeated(self):
         from modules.search_history import file_lock
         with TemporaryDirectory() as tmp:

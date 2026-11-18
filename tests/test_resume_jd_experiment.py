@@ -89,11 +89,11 @@ class SyntheticJDTest(unittest.TestCase):
             doc.add_heading('SKILLS',level=1);doc.add_paragraph('Python, AWS, React')
             doc.add_heading('PROFESSIONAL EXPERIENCE',level=1);doc.add_paragraph('Original company')
             doc.add_paragraph('Engineer\tJanuary 2020 - Present')
-            doc.add_paragraph('Built Python APIs with no public ingress for 20 customers',style='List Bullet')
+            doc.add_paragraph('Built Python APIs with no public ingress for 20 customers, delivering secure services',style='List Bullet')
             doc.add_heading('Academic Distinctions:',level=1)
             doc.add_paragraph('Earned a university award with a 3.9 GPA',style='List Bullet')
             doc.add_heading('PROJECTS',level=1);doc.add_paragraph('Original project')
-            doc.add_paragraph('Co-founder planning a launch within 2 months',style='List Bullet')
+            doc.add_paragraph('Co-founder planned product milestones and early rollout for launch within 2 months',style='List Bullet')
             doc.save(source);before=source.read_bytes()
             optimizer=ResumeOptimizer.__new__(ResumeOptimizer)
             self.assertTrue(optimizer.convert_docx_to_pdf(str(source),str(source.with_suffix('.pdf'))))
@@ -101,7 +101,8 @@ class SyntheticJDTest(unittest.TestCase):
                 if stage=='keywords':return {'keywords':['Rust','AG-UI','MCP']}
                 return {'experience_id':payload['experience_id'],'results':[
                     {'bullet_id':b['bullet_id'],'source_text_hash':b['source_text_hash'],'status':'rewritten',
-                     'rewritten_text':'Built Rust agents with AG-UI and MCP.' if b['ordinal']==0 else 'Shipped MCP tools through Rust services.',
+                     'rewritten_text':('Built Rust agents with AG-UI and MCP for 20 customers through private production APIs'
+                         if b['ordinal']==0 else 'Shipped MCP tools in Rust, organizing early rollout for launch within 2 months'),
                      'matched_jd_spans':[],'preserved_fact_anchors':[],'change_reason':'Synthetic JD example','blocked_reason':None}
                     for b in payload['requested_bullets']]}
             config=dict(m.DEFAULTS,rewrite_all_bullets=True,expected_page_count=1,

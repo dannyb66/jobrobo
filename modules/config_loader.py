@@ -112,12 +112,15 @@ def _load_runtime_config():
 def peek_runtime_config():
     """Read atomic config snapshots without provisioning files or taking a write lock."""
     defaults = _read_config(APP_BUNDLE_CONFIG_FILE)
-    return _merge_runtime_defaults(defaults, _read_config(RUNTIME_CONFIG_FILE)) if RUNTIME_CONFIG_FILE.exists() else defaults
+    config = _merge_runtime_defaults(defaults, _read_config(RUNTIME_CONFIG_FILE)) if RUNTIME_CONFIG_FILE.exists() else defaults
+    from .resume_provider import apply_overrides
+    return apply_overrides(config)
 
 
 def load_runtime_config():
     with _runtime_config_lock():
-        return _load_runtime_config()
+        from .resume_provider import apply_overrides
+        return apply_overrides(_load_runtime_config())
 
 
 def save_runtime_config(updated_config: dict):

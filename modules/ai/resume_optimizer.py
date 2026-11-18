@@ -519,6 +519,8 @@ class ResumeAIUnavailable(ValueError):
 def _provider_error_kind(error):
     status = getattr(error, "status_code", None)
     name = type(error).__name__
+    if status == 402:
+        return "billing_error"
     if status == 401 or name == "AuthenticationError":
         return "authentication_error"
     if status == 403 or name == "PermissionDeniedError":
@@ -532,7 +534,7 @@ def _provider_error_kind(error):
 
 def _safe_provider_error(error):
     if _provider_error_kind(error) == "authentication_error":
-        return "OpenAI authentication failed; check the privately configured replacement key and project access."
+        return "Resume API authentication failed; check the selected provider's local key and access."
     return re.sub(r"\bsk-[^\s'\",;]+", "[REDACTED]", str(error))[:500]
 
 
@@ -569,7 +571,11 @@ class ResumeOptimizer:
         events.append(event)
         self.ai_call_events = events
         try:
-            response = self.client.chat.completions.create(**kwargs)
+            if hasattr(self, 'provider_config'):
+                from modules.resume_provider import complete
+                response = complete(self.client, self.provider_config, **kwargs)
+            else:
+                response = self.client.chat.completions.create(**kwargs)
             event["response_received"] = True
             response_id = getattr(response, "id", None)
             event["response_id"] = response_id if isinstance(response_id, str) else None
@@ -1890,6 +1896,8 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
     if runtime_config_override is not None and not isinstance(runtime_config_override, dict):
         raise ValueError("runtime_config_override must be a dictionary")
     runtime_config = deepcopy(runtime_config_override) if runtime_config_override is not None else load_runtime_config()
+    from modules.resume_provider import apply_overrides
+    runtime_config = apply_overrides(runtime_config)
     from modules.resume_all_bullets import validate_options, run_all_bullets
     if rewrite_all_bullets is not None:
         runtime_config["rewrite_all_bullets"] = rewrite_all_bullets
@@ -1906,8 +1914,14 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
         strict_provider = None
         if optimizer_instance is not None:
             from modules.resume_all_bullets import generation_system, keyword_system, provider_response_format, completion_options
+            pinned_system = generation_system(
+                content_policy or runtime_config.get('content_policy'), runtime_config)
             def strict_provider(stage, payload, timeout):
-                system = generation_system(payload.get('content_policy')) if stage == 'bullets' else keyword_system(payload)
+                system = pinned_system if stage == 'bullets' else keyword_system(payload)
+                provider_config = getattr(optimizer_instance, 'provider_config', None)
+                if isinstance(provider_config, dict):
+                    from modules.resume_provider_prompts import stage_completion
+                    return stage_completion(optimizer_instance.client, provider_config, stage, payload, system, timeout)
                 return optimizer_instance.client.with_options(timeout=timeout, max_retries=0).chat.completions.create(
                     **completion_options(strict_options), response_format=provider_response_format(stage, payload),
                     messages=[{'role':'system','content':system}, {'role':'user','content':json.dumps(payload,ensure_ascii=False)}])
@@ -2063,13 +2077,27 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
         if ai_execution_kind not in {"provider", "offline_fixture", "saved_provider_response"}:
             raise ValueError("ai_execution_kind must be provider, offline_fixture or saved_provider_response")
         # A caller-owned client keeps credentials out of converter child environments.
+        provider_client = None
         api_key = None
         if optimizer_instance is None:
-            load_dotenv()
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                report["error_code"] = "missing_credentials"
-                raise ValueError("Please set the OPENAI_API_KEY environment variable.")
+            from modules.resume_provider import make_client, settings as provider_settings, _credentials
+            try:
+                selected_provider = provider_settings(runtime_config)
+                if selected_provider['provider'] == 'openai':
+                    if 'rewrite_provider' not in runtime_config:
+                        load_dotenv()
+                        api_key = os.getenv('OPENAI_API_KEY')
+                        if not api_key:
+                            raise ValueError('Missing local OPENAI_API_KEY; no resume API request made')
+                    else:
+                        api_key = _credentials(selected_provider)
+                else:
+                    provider_client = make_client(runtime_config)
+            except ValueError as error:
+                if str(error).startswith('Missing local '):
+                    report['error_code'] = 'missing_credentials'
+                raise
+            report['provider'] = provider_settings(runtime_config)
         bank = load_skill_bank(runtime_config.get("skill_bank_path") or None)
         project_banks = load_project_bullet_banks(runtime_config.get("project_bullet_banks"))
         legacy_bank = load_bullet_bank(runtime_config.get("bullet_bank_path") or None)
@@ -2079,7 +2107,13 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
             "bullet_bank_company": runtime_config.get("bullet_bank_company", legacy_bank.get("company", "Trek Health")),
             "project_bullet_banks": [{key: spec.get(key) for key in ("company", "path", "min_bullets", "max_bullets")} for spec in project_banks],
         })
-        optimizer = optimizer_instance if optimizer_instance is not None else ResumeOptimizer(api_key)
+        optimizer = optimizer_instance if optimizer_instance is not None else (
+            ResumeOptimizer.__new__(ResumeOptimizer) if provider_client is not None else ResumeOptimizer(api_key))
+        if provider_client is not None:
+            optimizer.client = provider_client
+            optimizer.provider_config = runtime_config
+        elif optimizer_instance is None and 'rewrite_provider' in runtime_config:
+            optimizer.provider_config = runtime_config
         optimizer.ai_call_events = []
         optimizer.ai_rewrite_pairs = []
         optimizer.content_policy = policy

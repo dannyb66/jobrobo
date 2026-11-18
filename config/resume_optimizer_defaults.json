@@ -1,4 +1,11 @@
 {
+    "rewrite_provider": "venice",
+    "rewrite_venice_model": "deepseek-v4-1-flash",
+    "rewrite_openai_prompt_path": "config/prompts/resume_bullets.txt",
+    "rewrite_venice_prompt_path": "config/prompts/resume_bullets_venice.txt",
+    "rewrite_model": "gpt-6-luna",
+    "rewrite_reasoning_effort": "none",
+    "rewrite_api_concurrency": 4,
     "rewrite_all_bullets": false,
     "source_checks_enabled": true,
     "company_context_enabled": false,

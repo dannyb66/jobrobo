@@ -136,7 +136,7 @@ Open the dashboard when you want to configure and run the optimizer interactivel
 python JobRobo.py
 ```
 
-DOCX optimization requires LibreOffice in addition to Python dependencies. The converter checks `LIBREOFFICE_PATH`, `soffice` / `libreoffice` on `PATH`, and the macOS application path. All optimizer modes require an OpenAI API key for JD keyword extraction.
+DOCX optimization requires LibreOffice in addition to Python dependencies. The converter checks `LIBREOFFICE_PATH`, `soffice` / `libreoffice` on `PATH`, and the macOS application path. JD keyword extraction and rewriting require the selected resume provider's API key.
 
 The optimizer can also be called from Python without opening the dashboard. Repository defaults fill missing fields in the saved user configuration at `~/Library/Application Support/jobrobo/config/resume_optimizer_defaults.json`; existing user choices remain authoritative:
 
@@ -156,6 +156,58 @@ print(output_path)
 ```
 
 Use `optimization_mode="skills"` to update Skills only, `"bullets"` to update Skills and bullets, or `"full"` to also replace recognized professional-experience titles with the target title. `full` does not rewrite the summary or validate title equivalence. Use a distinct local job ID and inspect the returned PDF and report before an application run.
+
+### Resume API provider and per-run overrides
+
+The shared optimizer defaults to `rewrite_provider: "venice"`,
+`rewrite_venice_model: "deepseek-v4-1-flash"`, and
+`rewrite_reasoning_effort: "none"`. It reads `VENICE_API_KEY` and
+`VENICE_BASE_URL=https://api.venice.ai/api/v1` from the local environment or
+repository `.env`. The OpenAI alternative retains `rewrite_model: "gpt-6-luna"`
+and uses `OPENAI_API_KEY`. Keys never belong in optimizer JSON or CLI arguments.
+
+Both configured LinkedIn runs and `direct_apply.py prepare/submit` accept:
+
+```bash
+python runAiBot.py --configured-search-and-apply --fresh --single-search 5 \
+  --resume-provider venice --resume-model deepseek-v4-1-flash --resume-reasoning none
+
+python3 direct_apply.py submit --urls-file jobs.txt --workers 4 \
+  --resume-provider openai --resume-model gpt-6-luna --resume-reasoning none
+```
+
+CLI overrides take precedence over saved JSON for that invocation. Direct-submit
+workers capture the same resolved settings, and resumed direct runs retain their
+explicit overrides unless replaced by new flags. Selecting only a provider uses
+that provider's saved model. Search refinement, cover letters, and question AI
+keep their separate settings. There is no automatic cross-provider fallback.
+
+Provider-specific bullet prompts are configurable in that same JSON:
+
+```json
+{
+  "rewrite_openai_prompt_path": "config/prompts/resume_bullets.txt",
+  "rewrite_venice_prompt_path": "config/prompts/resume_bullets_venice.txt"
+}
+```
+
+The existing OpenAI prompt and response contract are preserved. Venice selects
+its separate prompt automatically, with consistent 95%/90%/85% candidate-length
+guidance and request-local slot keys. The application binds each slot to its
+original bullet ID/hash and retains raw wire responses for audit. Invalid slots
+do not discard valid siblings. Existing factual-policy and PDF checks still
+decide acceptance. Prompt filenames/hashes appear in progress and reports;
+editing the active prompt invalidates matching LinkedIn and direct-apply resume
+caches. Restart a running CLI process to load these code/prompt changes.
+
+The runner checks resume API credentials before opening application forms.
+Venice model availability, JSON-schema support and reasoning effort are checked
+against its live model catalog. `rewrite_api_concurrency` defaults to four and
+shares resume request slots across local workers/processes; shared pacing also
+honors configured request/token limits. Provider/model appear in progress and
+artifact metadata and participate in resume cache identity. PDF layout,
+preserved sections, source fallback policy and attachment verification still
+apply to generated output.
 
 ## Resume optimization from one file
 

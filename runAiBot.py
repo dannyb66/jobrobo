@@ -3159,6 +3159,9 @@ linkedIn_tab = False
 
 def main() -> None:
     load_runtime()
+    if use_AI_for_resume:
+        from modules.resume_provider import check_configuration
+        check_configuration()
     application_budget = ApplicationBudget(globals().get("max_applications_per_run", 1))
     initialize_browser()
     try:
@@ -3499,6 +3502,8 @@ def cli_main(argv=None):
         run_bot()
         return 0
     parser = argparse.ArgumentParser(description="Legacy bot or the shared persisted LinkedIn pipeline.", allow_abbrev=False)
+    from modules.resume_provider import add_cli_arguments, cli_overrides, override_settings
+    add_cli_arguments(parser)
     parser.add_argument("--configured-search-and-apply", action="store_true",
                         help="Search and apply directly from config files; no verified_roles/linkedin_jobs inputs required")
     parser.add_argument("--fresh", action="store_true",
@@ -3532,7 +3537,8 @@ def cli_main(argv=None):
             globals()['preparation_limit'] = args.limit or 10
             if args.fresh:
                 search_profile.resume_search_enabled = False
-            run_bot()
+            with override_settings(cli_overrides(args)):
+                run_bot()
         finally:
             search_profile.resume_search_enabled = previous_resume
             globals()['prepare_only_run'], globals()['preparation_limit'] = previous_preparation
@@ -3540,6 +3546,8 @@ def cli_main(argv=None):
         return 0
     if args.single_search:
         parser.error('--single-search requires --configured-search-and-apply')
+    if cli_overrides(args):
+        parser.error('Resume provider flags require --configured-search-and-apply')
     if args.prepare_only:
         parser.error('--prepare-only requires --configured-search-and-apply')
     if args.fresh:

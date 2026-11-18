@@ -58,6 +58,8 @@ def parser():
     submit.add_argument('--set', dest='set_name')
     submit.add_argument('--output', dest='export_path', help='Applications StageResult JSON')
     for command in (prepare,submit):
+        from modules.resume_provider import add_cli_arguments
+        add_cli_arguments(command)
         command.add_argument('--browser',dest='browser_backend',choices=('local','kernel'),help='Browser backend; default local, resume retains its backend')
         command.add_argument('--browser-config',help='Optional browser_runtime.json configuration')
     reconcile = commands.add_parser('reconcile', help='Record an inspected uncertain outcome; never opens a browser')
@@ -147,6 +149,12 @@ def browser_factory(profile_path=None, *, debugger_address=None):
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    from modules.resume_provider import cli_overrides, override_settings
+    with override_settings(cli_overrides(args)):
+        return _main(args)
+
+
+def _main(args):
     from modules.direct_careers_apply import (export_applications, literal_config, load_queue, local_candidate,
                                                plan_queue, run_queue, summarize)
     try:

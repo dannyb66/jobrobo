@@ -378,7 +378,10 @@ def _generated_resume_locked(job, directory, source_docx, source_pdf, config, ca
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     source_hashes = {'docx': digest(source_docx), 'pdf': digest(source_pdf)}
-    key = fingerprint({'engine': 'shared-resume-optimizer-v2', 'job': job, **source_hashes, 'config': config})
+    from .resume_provider_prompts import prompt_info
+    selected_prompt = prompt_info(config)
+    key = fingerprint({'engine': 'shared-resume-optimizer-v2', 'job': job, **source_hashes, 'config': config,
+                       'bullet_prompt_sha256': selected_prompt['sha256']})
     binding_path = directory / 'binding.json'
     if binding_path.exists():
         binding = json.loads(binding_path.read_text())

@@ -48,7 +48,9 @@ class ResumeConsoleProgress:
     def __call__(self, event):
         kind = event.get('event')
         messages = {
-            'initializing': f"Preparing rewrite (policy: {event.get('policy', 'configured')}, model: {event.get('model', 'configured')})",
+            'initializing': f"Preparing rewrite (provider: {event.get('provider', 'configured')}, policy: {event.get('policy', 'configured')}, model: {event.get('model', 'configured')})",
+            'provider_check': f"Checking {event.get('provider', 'configured')} credentials and model capabilities",
+            'prompt_selected': f"Bullet prompt: {event.get('prompt_name', 'configured')} ({event.get('prompt_sha256', '')[:12]})",
             'inventory_started': 'Mapping source bullets and document layout',
             'inventory_ready': f"Inventoried {event.get('total', 0)} bullets across {event.get('groups', 0)} groups; Academic Distinctions preserved",
             'keywords_ready': f"Extracted {event.get('count', 0)} JD keywords; preparing Skills and bullet requests",
@@ -61,6 +63,8 @@ class ResumeConsoleProgress:
             'source_fallback': f"Keeping {event.get('retained', 0)} original bullets after rewrite failures; verifying the combined PDF",
             'scoring': 'Calculating JD match report',
             'saving': 'Saving artifacts, comparison and verification report',
+            'preview_rendering': 'Rendering PDF previews in an isolated process (maximum 4 concurrent)',
+            'finalizing': 'Finalizing comparison and verified artifact manifest',
             'generation_failed': f"Resume generation failed: {event.get('reason', 'unknown error')}",
             'finished': f"Optimization {event.get('status', 'finished')}: {event.get('accepted', 0)}/{event.get('total', 0)} bullets accepted; upload eligible: {bool(event.get('eligible'))}",
         }

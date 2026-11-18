@@ -265,12 +265,12 @@ class FullTailoringTest(unittest.TestCase):
             doc.styles['Normal'].font.name='Arial';doc.styles['Normal'].font.size=Pt(10)
             doc.add_heading('SKILLS',level=1);doc.add_paragraph('AWS, Kubernetes, Python')
             replacements=[
-                ('Built Python API services for customer workflows',
-                 'Delivered customer workflows through Python API service development'),
-                ('Designed AWS services for event processing',
-                 'Implemented event processing through AWS service design'),
-                ('Studied distributed systems through Python experiments',
-                 'Explored Python experiments to study distributed systems')]
+                ('Built Python API services for customer workflows and backend product integrations',
+                 'Implemented Python APIs for customer workflows and backend product integrations'),
+                ('Designed AWS services for event processing and distributed data movement',
+                 'Implemented distributed event processing with AWS for reliable data movement'),
+                ('Studied distributed systems using Python experiments to test service coordination',
+                 'Explored distributed systems with Python experiments testing service coordination')]
             for index,section in enumerate(('PROFESSIONAL EXPERIENCE','PROJECTS','EDUCATION')):
                 doc.add_heading(section,level=1);doc.add_paragraph('Example company' if index==0 else 'Example project')
                 if index==0:doc.add_paragraph('Software Engineer\tJanuary 2020 - Present')

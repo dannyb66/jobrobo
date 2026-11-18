@@ -47,7 +47,11 @@ def _config_dependencies(config: dict, repo_root: Path) -> dict[str, str]:
             except OSError:
                 pass
 
-    visit(config)
+    active_provider = config.get('rewrite_provider', 'openai')
+    visit({key: value for key, value in config.items()
+           if key not in {f'rewrite_{provider}_prompt_path' for provider in ('openai', 'venice') if provider != active_provider}})
+    from .resume_provider_prompts import prompt_path
+    paths.add(prompt_path(config, repo_root))
     # Every resume helper can change generation, layout or verification. Hash
     # the complete family so upgrades cannot silently reuse an older artifact.
     paths.update(path.resolve() for path in (repo_root / "modules").glob("resume_*.py")
@@ -55,7 +59,6 @@ def _config_dependencies(config: dict, repo_root: Path) -> dict[str, str]:
     paths.update((repo_root / relative).resolve() for relative in (
         "modules/ai/resume_optimizer.py",
         "modules/resume_titles.py",
-        "config/prompts/resume_bullets.txt",
     ) if (repo_root / relative).is_file())
     result = {}
     for path in sorted(paths):

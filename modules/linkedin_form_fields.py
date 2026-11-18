@@ -276,7 +276,10 @@ def fill_multi_select_groups(modal, click, questions, settings=None):
     handled, count = set(), 0
     for group in _found(modal, By.XPATH, './/fieldset[.//input[@type="checkbox"] or .//*[@role="checkbox"]]'):
         headings = _found(group, By.XPATH, './legend | ./preceding-sibling::p[1]')
-        prompt = group.get_attribute('aria-label') or ' '.join(p.text for p in headings)
+        aria_label = group.get_attribute('aria-label')
+        heading_text = ' '.join(text for heading in headings
+                                if isinstance((text := getattr(heading, 'text', None)), str))
+        prompt = (aria_label.strip() if isinstance(aria_label, str) else '') or heading_text
         if not re.search(r'select all|check all|choose all', prompt, re.I):
             continue
         parsed = _choice_options(group, 'checkbox')

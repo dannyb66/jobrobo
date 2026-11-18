@@ -4,12 +4,24 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import Mock
 
 from modules.linkedin_form_fields import multi_select_values, fill_multi_select_groups
 from modules.resume_titles import normalized_role_title
 
 
 class QualificationSelectionTests(unittest.TestCase):
+    def test_multiselect_group_with_missing_or_nontext_label_is_ignored_safely(self):
+        for label in (None, Mock()):
+            group = Mock()
+            group.get_attribute.return_value = label
+            group.find_elements.return_value = []
+            modal = Mock()
+            modal.find_elements.return_value = [group]
+            handled, count = fill_multi_select_groups(modal, lambda _control: None, set())
+            self.assertEqual(handled, set())
+            self.assertEqual(count, 0)
+
     def test_same_next_action_after_autofill_still_refills_new_page(self):
         from test_linkedin_easy_apply import Browser, form
         from modules.linkedin_easy_apply import advance_to_review

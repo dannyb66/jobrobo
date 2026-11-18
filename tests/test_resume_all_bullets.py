@@ -42,7 +42,7 @@ class KeywordRetryTests(unittest.TestCase):
 
     def test_permanent_errors_do_not_retry_and_transient_errors_stop_after_two(self):
         from unittest.mock import Mock
-        for kind, expected in [('authentication_error', 1), ('invalid_response', 1),
+        for kind, expected in [('authentication_error', 1), ('permission_error', 1), ('billing_error', 1), ('invalid_response', 2),
                                ('timeout', 2), ('connection_error', 2), ('server_error', 2)]:
             scheduler = Mock()
             scheduler.call.side_effect = m.ProviderFailure(kind)
