@@ -173,7 +173,8 @@ def read_modern_details(driver, expected_job_id=None):
     labels = root.find_elements("css selector", "[aria-label^='Company,']")
     if labels:
         company = re.sub(r"^Company,\s*|\.$", "", labels[0].get_attribute("aria-label")).strip()
-        anchors = labels[0].find_elements("xpath", "ancestor::a[1]")
+        # The label is on the company <a> itself (observed 2026-11-18) or on a child of it.
+        anchors = labels[0].find_elements("xpath", "ancestor-or-self::a[1]")
         company_url = anchors[0].get_attribute("href") if anchors else None
         company_key = anchors[0].get_attribute("componentkey") if anchors else None
         if not isinstance(company_key, str) or not company_key.endswith("-" + job_id):

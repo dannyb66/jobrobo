@@ -17,6 +17,7 @@ class ResumeDefaultPolicyTests(unittest.TestCase):
                 saved = config_loader.load_runtime_config()
             self.assertEqual(saved['optimization_mode'], 'full')
             self.assertIs(saved['replace_job_title'], True)
+            self.assertEqual(saved['replace_job_title_count'], 2)
             self.assertEqual(saved['max_skills'], 65)
             self.assertFalse(saved.get('auto_submission_authorized', False))
 

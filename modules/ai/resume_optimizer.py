@@ -900,20 +900,27 @@ class ResumeOptimizer:
             return None, []
         
     # Replace job titles in the Professional Experience section
-    def replace_job_titles(self, doc: Document, new_title: str, max_line_length: int = 150) -> None:
+    def replace_job_titles(self, doc: Document, new_title: str, max_line_length: int = 150,
+                           max_titles: Optional[int] = 2) -> None:
         """
-        Replace all job titles in the 'Professional Experience' section with the given new_title,
-        padding it with spaces so the final line reaches up to max_line_length without overflowing.
+        Replace up to max_titles job titles in work experience with new_title.
+        None means no title-count limit. Project titles and later work titles are retained.
         """
+        if max_titles is not None and (type(max_titles) is not int or max_titles < 1):
+            raise ValueError("max_titles must be a positive integer or None")
+        self.last_title_guard = []
+        self.last_title_limit = []
         try:
             from modules.resume_titles import normalized_role_title
+            from modules.resume_technology_dates import late_technologies, role_period
             new_title = normalized_role_title(new_title)
             if not new_title:
                 return
             is_in_experience_section = False
+            title_entries_seen = 0
             job_title_with_dates_pattern = re.compile(r'^(.*?)(\s{2,}|\t+)?\(?[A-Za-z]+\s+\d{4}.*\)?$')
 
-            for para in doc.paragraphs:
+            for paragraph_index, para in enumerate(doc.paragraphs):
                 text = para.text.strip()
                 if not text:
                     continue
@@ -931,6 +938,24 @@ class ResumeOptimizer:
                     if match:
                         old_title = match.group(1).strip()
                         rest_of_line = text[len(old_title):].strip()
+                        title_entries_seen += 1
+                        if max_titles is not None and title_entries_seen > max_titles:
+                            self.last_title_limit.append({
+                                "paragraph_index": paragraph_index,
+                                "source_title": old_title,
+                                "dates": rest_of_line,
+                                "kept": True,
+                                "reason": "configured title replacement limit reached",
+                            })
+                            continue
+                        # A JD title naming a technology or role framing that did not
+                        # exist when this role ended stays with its historical title.
+                        late = late_technologies(new_title, role_period({"historical_title_dates": [text]}))
+                        if late:
+                            self.last_title_guard.append({"paragraph_index": paragraph_index,
+                                                          "source_title": old_title, "dates": rest_of_line,
+                                                          "kept": True, "late": late})
+                            continue
 
                         # Limit new title to fit within line length
                         allowed_title_length = max_line_length - len(rest_of_line)
@@ -1718,7 +1743,8 @@ class ResumeOptimizer:
             replace_titles = getattr(self, "replace_job_title_override", None)
             should_replace = optimization_mode == "full" if replace_titles is None else replace_titles
             if should_replace:
-                self.replace_job_titles(doc, job_title)
+                title_limit = getattr(self, "replace_job_title_count_override", 2)
+                self.replace_job_titles(doc, job_title, max_titles=title_limit)
 
             doc.save(output_path)
             print(f"✅ Successfully saved updated DOCX resume to: {output_path}")
@@ -1935,6 +1961,7 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
     requested_mode = optimization_mode if optimization_mode is not None else configured_mode
     policy = content_policy if content_policy is not None else runtime_config.get("content_policy", "grounded")
     title_override = replace_job_title if replace_job_title is not None else runtime_config.get("replace_job_title")
+    title_count = runtime_config.get("replace_job_title_count", 2)
     mode = requested_mode if requested_mode in VALID_OPTIMIZATION_MODES else "full"
     if mode != requested_mode:
         print(f"⚠️ Unknown optimization mode '{requested_mode}'. Using full mode.")
@@ -1952,6 +1979,8 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
         "project_bullet_bank_selections": {}, "format_verification": {"passed": False, "checks": {}, "warnings": []},
         "output_path": str(output_pdf),
         "content_policy": policy, "replace_job_title": title_override,
+        "replace_job_title_count": title_count,
+        "title_guard": [], "title_limit": [],
         "artifact_kind": "manual_review_draft" if policy == "review_draft" else "source_grounded_resume",
         "review_required": policy == "review_draft", "auto_submission_authorized": False,
         "ai_execution_kind": ai_execution_kind, "error_code": None,
@@ -1986,6 +2015,7 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
             artifact.unlink(missing_ok=True)
         try:
             optimizer.replace_job_title_override = False if fallback else title_override
+            optimizer.replace_job_title_count_override = title_count
             optimizer.last_bullet_bank_selection = []
             optimizer.last_bullet_bank_selections = {}
             doc, _ = optimizer.read_docx_resume(str(source_path))
@@ -1997,6 +2027,8 @@ def run_resume_optimization(job_description: str, resume_path: str, job_id: str,
                 int(runtime_config.get("max_bank_bullets", 7) or 7),
                 bool(runtime_config.get("allow_unverified_bullet_terms", False)), keywords, project_banks,
             )
+            report["title_guard"] = deepcopy(getattr(optimizer, "last_title_guard", []))
+            report["title_limit"] = deepcopy(getattr(optimizer, "last_title_limit", []))
             if getattr(optimizer, "last_bullet_provider_failure", False):
                 report["error_code"] = "bullet_" + getattr(optimizer, "last_bullet_rewrite_error_kind", "provider_error")
                 raise ResumeAIUnavailable("AI bullet rewrite unavailable: " + optimizer.last_bullet_rewrite_error)
@@ -2325,6 +2357,7 @@ def load_config() -> dict:
             config = json.load(config_file)
             return {
                 "replace_job_title": config.get("replace_job_title", False),
+                "replace_job_title_count": config.get("replace_job_title_count", 2),
                 "rewrite_all_bullets": config.get("rewrite_all_bullets", False),
                 "rewrite_experience_concurrency": config.get("rewrite_experience_concurrency", 2),
                 "rewrite_bullets": config.get("rewrite_bullets", False),
@@ -2350,6 +2383,7 @@ def load_config() -> dict:
         print(f"❌ Config file not found at {config_path}. Using default values.")
         return {
             "replace_job_title": False,
+            "replace_job_title_count": 2,
             "rewrite_all_bullets": False,
             "rewrite_experience_concurrency": 2,
             "rewrite_bullets": False,
@@ -2375,6 +2409,7 @@ def load_config() -> dict:
         print(f"❌ Error decoding JSON config file at {config_path}. Using default values.")
         return {
             "replace_job_title": False,
+            "replace_job_title_count": 2,
             "rewrite_all_bullets": False,
             "rewrite_experience_concurrency": 2,
             "rewrite_bullets": False,

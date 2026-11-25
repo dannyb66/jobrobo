@@ -18,7 +18,11 @@ PROMPT_XPATH = "//*[self::input or self::textarea or @contenteditable='true'][@d
 MODERN_CARD_XPATH = "//*[@data-view-name='job-search-job-card'] | //*[@role='button' and starts-with(@componentkey,'job-card-component-ref-') and not(ancestor::*[@data-view-name='job-search-job-card'])]"
 LEGACY_CARD_XPATH = "//li[@data-occludable-job-id]"
 FACET_XPATH = "//*[@data-view-name='job-search-facet-dropdown' or @data-view-name='job-search-facet-pill'] | //*[@role='button'][.//*[@aria-label and starts-with(@aria-label,'Filter by ')]] | //*[@role='radio' or @role='checkbox'][starts-with(@aria-label,'Filter by ')] | //*[starts-with(@aria-label,'Filter by ')][./input[@type='checkbox' or @type='radio'] and ./label]"
-LOCATION_PICKER_XPATH = "//*[@data-view-name='job-search-location-picker'] | //*[@role='button'][.//*[@aria-label and starts-with(@aria-label,'Location ')]]"
+# Observed 2026-11-18: LinkedIn removed data-view-name markers and now puts the
+# "Location <city>" label on the role=button itself; older layouts put it on a child.
+LOCATION_PICKER_XPATH = ("//*[@data-view-name='job-search-location-picker']"
+                         " | //*[@role='button'][starts-with(@aria-label,'Location ')]"
+                         " | //*[@role='button'][.//*[@aria-label and starts-with(@aria-label,'Location ')]]")
 LOCATION_EDITOR_XPATH = "//*[@role='textbox' and @contenteditable='true' and not(@componentkey='semanticSearchBox')] | //input[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'location')]"
 MENU_OPTION_XPATH = ".//*[@role='radio' or @role='checkbox' or @role='menuitemradio' or @role='menuitemcheckbox'][not(starts-with(@aria-label,'Filter by ')) and not(@data-view-name='search-filter-top-bar-select')]"
 MENU_SUBMIT_XPATH = "//*[@data-view-name='search-filter-top-bar-menu-submit'] | //a[normalize-space(.)='Show results' and contains(@href,'/jobs/search-results/')]"
@@ -241,6 +245,7 @@ def _prompt_matches(prompt, query, *, after_filters=False):
     # preserving URL keywords. Do not accept arbitrary prefix/substring matches.
     return bool(after_filters and prompt.startswith(query + " ") and re.fullmatch(
         r"(?:(?: full-time| part-time| contract| temporary| internship| volunteer))?"
+        r"(?: (?:on-site|hybrid|remote)(?:(?:, | or |, or )(?:on-site|hybrid|remote)){0,2})?"
         r"(?: Easy Apply)?(?: posted in the past (?:month|week|24 hours))?", prompt[len(query):], re.I))
 
 
@@ -274,7 +279,11 @@ def _settle(driver, query, *, timeout=30, wait=None, after_filters=False):
         cards = get_search_cards(driver)
         last_state["result_card_count"] = len(cards)
         last_state["result_job_ids"] = [search_card_id(card) for card in cards]
-        raise SearchUIError("Submitted LinkedIn query did not produce verified results", stage="query_results",
+        reason = ("LinkedIn results loaded but displayed prompt did not match the submitted query after filtering"
+                  if last_state.get("results_state") and last_state.get("query_committed")
+                  and not last_state.get("prompt_matches") and after_filters
+                  else "Submitted LinkedIn query did not produce verified results")
+        raise SearchUIError(reason, stage="query_results",
                             details={"error_type": type(error).__name__, "readiness": last_state}) from error
 
 
@@ -339,6 +348,11 @@ def _facet(driver, key, desired=()):
         labels = [_text(facet), _attribute(facet, "aria-label")]
         labels.extend(_attribute(child, "aria-label") for child in _find(facet, ".//*[@aria-label]"))
         labels = [re.sub(r"^Filter by\s+", "", label, flags=re.I) for label in labels]
+        # Committed multi-select facets add a count to their accessible name,
+        # e.g. "Workplace type, 2 filters are selected". The count identifies
+        # the control only; the reopened menu still proves the exact choices.
+        labels = [re.sub(r",\s*\d+ filters? (?:are|is) selected$", "", label, flags=re.I)
+                  for label in labels]
         if any(_location_normalize(label) in names for label in labels):
             matches.append(facet)
     if key == "on_site" and set(desired) == {"Remote"}:

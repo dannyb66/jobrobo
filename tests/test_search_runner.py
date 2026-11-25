@@ -253,6 +253,39 @@ class SearchRunnerTests(unittest.TestCase):
         self.assertEqual(manifest.query(search.query_id)['jobs']['1']['status'], 'in_progress')
         self.assertTrue(manifest.query(search.query_id)['application_failures'][0]['report_path'])
 
+    def test_exclude_agencies_skips_agency_name_and_third_party_jd_but_applies_direct_employer(self):
+        search = spec('agencies', 3)
+        manifest = self.manifest([search], {search.query_id: [['1', '2', '3']]})
+        companies = {'1': 'Harnham', '2': 'Example', '3': 'Example Two'}
+        def details(job, *args):
+            self.visited.append(job.job_id)
+            return job.job_id, 'Engineer', companies[job.job_id], 'California', 'Remote', False
+        self.namespace['get_job_main_details'] = details
+        self.namespace['get_job_description'] = Mock(side_effect=[
+            ('Hiring on behalf of our client, a Series B startup.', 1, False, '', ''),
+            ('A suitable job', 1, False, '', '')])
+        self.namespace['exclude_agencies_run'] = True
+        try:
+            self.execute(manifest)
+        finally:
+            self.namespace['exclude_agencies_run'] = False
+        self.assertEqual([r['Job ID'] for r in self.rows()], ['3'])
+        jobs = manifest.query(search.query_id)['jobs']
+        self.assertEqual(jobs['1']['status'], 'skipped')
+        self.assertIn('Agency excluded', jobs['1']['reason'])
+        self.assertEqual(self.namespace['get_job_description'].call_count, 2)  # name gate never opened job 1
+        failed = self.rows('failed.csv')
+        self.assertEqual([(r['Job ID'], r['Assumed Reason']) for r in failed], [('2', 'Agency excluded')])
+        self.assertIn('on behalf of our client', failed[0]['Stack Trace'])
+
+    def test_agency_gates_are_inactive_without_flag(self):
+        search = spec('agencies-off', 1)
+        manifest = self.manifest([search], {search.query_id: [['1']]})
+        self.namespace['get_job_main_details'] = lambda job, *args: (job.job_id, 'Engineer', 'Harnham', 'California', 'Remote', False)
+        self.namespace['get_job_description'] = lambda: ('Hiring on behalf of our client.', 1, False, '', '')
+        self.execute(manifest)
+        self.assertEqual([r['Job ID'] for r in self.rows()], ['1'])
+
     def test_unexpected_job_error_is_captured_and_next_job_applies(self):
         search = spec('unexpected', 2)
         manifest = self.manifest([search], {search.query_id: [['1', '2']]})
@@ -1947,6 +1980,20 @@ class ReceiptRecoveryTests(unittest.TestCase):
             <h2>Turn your resume into a profile that recruiters notice</h2>
             <button aria-label="Close dialog">×</button><button>Not now</button>
             <button>Update profile</button></dialog>''','<main>Jobs</main>'])
+        clear_post_submit_ui(browser,'123',timeout=.1,quiet_seconds=0)
+        self.assertEqual(browser.clicks,['Not now'])
+
+    def test_open_to_work_receipt_with_two_dismiss_buttons_selects_not_now(self):
+        # Observed 2026-11-18: receipt upsells Open to Work; two X buttons share
+        # the label Dismiss, so only the explicit decline identifies one control.
+        from modules.linkedin_post_submit import clear_post_submit_ui
+        browser=self.browser(['''<dialog open><button aria-label="Dismiss"></button>
+            <h2>Your application was sent to People In AI!</h2>
+            <p>You can keep track of your application in the "Applied" tab of My Jobs</p>
+            <h3>Next, show recruiters you\u2019re open to work</h3>
+            <p>Add your preferences to let recruiters know that you\u2019re open to relevant job opportunities.</p>
+            <button>Not now</button><button>Get started</button>
+            <button aria-label="Dismiss"></button></dialog>''','<main>Jobs</main>'])
         clear_post_submit_ui(browser,'123',timeout=.1,quiet_seconds=0)
         self.assertEqual(browser.clicks,['Not now'])
 

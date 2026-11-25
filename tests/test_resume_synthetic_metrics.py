@@ -27,7 +27,7 @@ class SyntheticMetricTest(unittest.TestCase):
         self.assertEqual([hint['number'] for hint in hints],['100+','50%'])
         self.assertNotIn('source_text',payload['requested_bullets'][0])
         raw=response({'experience_id':group['experience_id'],'requested_bullets':[source]})
-        raw['results'][0]['rewritten_text']='Shipped production Rust agents with tracing.'
+        raw['results'][0]['rewritten_text']='Shipped production APIs with request tracing.'
         result=m.validate_response(raw,group,[source],content_policy=experiment.POLICY)[source['bullet_id']]
         self.assertEqual(result['status'],'candidate')
 

@@ -15,10 +15,24 @@ def positive(value):
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest="command", required=True)
+    validate = commands.add_parser('validate',help='Read-only job URL and application-input checks; no resumes or submissions')
+    validation_source = validate.add_mutually_exclusive_group(required=True)
+    validation_source.add_argument('--urls-file',help='TXT URLs or job JSON')
+    validation_source.add_argument('--input',action='append',dest='inputs')
+    validate.add_argument('--company',action='extend',nargs='+',metavar='NAME')
+    validate.add_argument('--limit',type=positive)
+    validate.add_argument('--check-inputs',action='store_true',help='Also verify candidate and resume-upload controls; render JavaScript pages if needed')
+    validate.add_argument('--workers',type=positive,default=8,help='HTTP/API workers (default 8)')
+    validate.add_argument('--browser-workers',type=positive,default=2,help='Isolated browser workers for --check-inputs (default 2)')
+    validate.add_argument('--timeout',type=positive,default=12,help='HTTP/page timeout in seconds')
+    validate.add_argument('--output-dir',default='logs/job-url-validation/phase1')
+    validate.add_argument('--resume',action='store_true',help='Continue the same input/check mode; reuse verified results for up to six hours')
+    validate.add_argument('--refresh',action='store_true',help='With --resume, recheck all URLs')
+    validate.add_argument('--screenshots',action='store_true',help='Save browser-check screenshots')
     prepare = commands.add_parser("prepare", help="Prepare external job URLs with submission permanently disabled")
     urls = prepare.add_mutually_exclusive_group(required=True)
     urls.add_argument("--url", help="One external job posting URL")
-    urls.add_argument("--urls-file", help="UTF-8 file of job URLs, one per line")
+    urls.add_argument("--urls-file", help="TXT URLs (one per line) or job JSON")
     urls.add_argument("--input", action="append", dest="inputs", help="TXT, job JSON, verified/ranked JSON or legacy queue; repeat to merge")
     prepare.add_argument('--db', help='Existing pipeline database for a saved verified-role set')
     prepare.add_argument('--role', action='append', default=[])
@@ -35,17 +49,22 @@ def parser():
     submit = commands.add_parser('submit', help='Real application submission with durable progress and resume')
     source = submit.add_mutually_exclusive_group(required=True)
     source.add_argument('--url')
-    source.add_argument('--urls-file')
+    source.add_argument('--urls-file', help='TXT URLs (one per line) or job JSON')
     source.add_argument('--input', action='append', dest='inputs')
     source.add_argument('--resume', dest='resume_dir', help='Existing submission run directory')
     submit.add_argument('--retry-failed', action='store_true', help='With --resume, retry eligible failures before submission; confirmed applications are skipped')
     submit.add_argument('--run-dir', help='Optional destination; an existing path gets a unique sibling. Omit for an automatic fresh run')
     submit.add_argument('--pause-before-submit', choices=('always','unknown','never'), default=None, help='Default always: fill separate tabs for manual Submit; resume keeps saved policy')
     submit.add_argument('--role', action='append', default=[])
-    submit.add_argument('--company', help='Exact company name, ignoring case and surrounding whitespace; applied before --limit')
+    submit.add_argument('--company', action='extend', nargs='+', metavar='NAME',
+                        help='Exact company names; accepts a list or repeated flags, ignoring case and surrounding whitespace; applied before the global --limit')
     submit.add_argument('--limit', type=positive)
     submit.add_argument('--max-applications', type=positive)
-    submit.add_argument('--workers', type=positive, help='Parallel isolated browser workers (1-4; >1 requires --browser kernel; default 1)')
+    history = submit.add_mutually_exclusive_group()
+    history.add_argument('--history-root', help='Protect prior postings in this run directory root, including concurrent CLI claims')
+    history.add_argument('--independent-run', action='store_true', help='Use an independent fresh run without a history scope; uncertain retry files still require reconciliation')
+    submit.add_argument('--captcha-max-requests', type=positive, help='Maximum model requests per job across solver calls (default 36; saved on resume)')
+    submit.add_argument('--workers', type=positive, help='Parallel isolated workers (local Chrome 1-16; Kernel 1-4; default 1)')
     submit.add_argument('--config-dir')
     submit.add_argument('--output-dir', help='Shared preparation/resume cache, default logs/url_preparations')
     submit.add_argument('--chrome-profile')
@@ -119,31 +138,67 @@ def _free_port():
         sock.close()
 
 
-def browser_factory(profile_path=None, *, debugger_address=None):
-    """Visible, dedicated Chrome. No LinkedIn, webdriver globals or credential loaders.
+def _port_is_bound(port):
+    import socket
+    with socket.socket() as sock:
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return True
+    return False
 
-    A fixed debugging port matters beyond diagnostics: an unresolved tab is left
-    open for manual work, and a later ``--resume`` reattaches to it through this
-    port. With Selenium's default of port 0 it is ephemeral and unreachable, so
-    every retained tab was orphaned.
+
+def browser_factory(profile_path=None, *, debugger_address=None, worker_index=None):
+    """Visible Chrome with a dedicated profile and a reattachable endpoint.
+
+    Worker profiles are fresh directories, never copies of a running profile.
+    Port allocation happens per creation so factories can be constructed safely
+    before workers start. Retained browsers are attached without relaunching.
     """
-    port = None if debugger_address else _free_port()
+    profile = Path(profile_path or Path.home() / "Library/Application Support/JobRobo/ChromeProfileDirect").expanduser().resolve()
+    if worker_index is not None:
+        if type(worker_index) is not int or worker_index < 1:
+            raise ValueError('worker_index must be a positive integer')
+        profile = profile.with_name(profile.name + f'-w{worker_index}')
 
     def create():
         from selenium import webdriver
-        options = webdriver.ChromeOptions()
-        profile = Path(profile_path or Path.home() / "Library/Application Support/JobRobo/ChromeProfileDirect").expanduser().resolve()
-        if debugger_address:
-            options.debugger_address = debugger_address
-        else:
-            options.add_argument("--user-data-dir=" + str(profile))
+        from selenium.common.exceptions import WebDriverException
         if not debugger_address:
-            options.add_argument(f"--remote-debugging-port={port}")
-            options.add_argument("--remote-debugging-address=127.0.0.1")
-            options.add_experimental_option("detach", True)
-        return webdriver.Chrome(options=options)
+            profile.mkdir(parents=True, exist_ok=True)
+        for attempt in range(2):
+            options = webdriver.ChromeOptions()
+            port = None if debugger_address else _free_port()
+            create.port = port
+            if debugger_address:
+                options.debugger_address = debugger_address
+            else:
+                if _port_is_bound(port):
+                    if attempt == 0:
+                        continue
+                    raise OSError(f'Chrome debugging port {port} is already bound')
+                options.add_argument("--user-data-dir=" + str(profile))
+                options.add_argument(f"--remote-debugging-port={port}")
+                options.add_argument("--remote-debugging-address=127.0.0.1")
+                options.add_experimental_option("detach", True)
+            try:
+                driver = webdriver.Chrome(options=options)
+            except WebDriverException as error:
+                message = str(error).lower()
+                collision = any(reason in message for reason in (
+                    'address already in use', 'bind() failed', 'port is already in use'))
+                if not debugger_address and attempt == 0 and collision and _port_is_bound(port):
+                    continue
+                raise
+            address = getattr(driver, 'capabilities', {}).get('goog:chromeOptions', {}).get('debuggerAddress')
+            if address:
+                create.port = int(address.rsplit(':', 1)[1])
+            create.debugger_address = address or debugger_address
+            return driver
 
-    create.port = port
+    create.port = None
+    create.profile_path = str(profile)
+    create.debugger_address = debugger_address
     return create
 
 
@@ -158,7 +213,18 @@ def _main(args):
     from modules.direct_careers_apply import (export_applications, literal_config, load_queue, local_candidate,
                                                plan_queue, run_queue, summarize)
     try:
-        if args.command == 'copy-resume':
+        if args.command == 'validate':
+            from modules.generic_inputs import load_jobs
+            from modules.job_url_validation import validate_jobs
+            jobs=load_jobs(args.inputs or [args.urls_file],company=args.company,limit=args.limit,allow_invalid_urls=True)
+            report=validate_jobs(jobs,output_dir=args.output_dir,check_inputs=args.check_inputs,
+                                 workers=args.workers,browser_workers=args.browser_workers,timeout=args.timeout,
+                                 resume=args.resume,refresh=args.refresh,screenshots=args.screenshots)
+            print(json.dumps(report,indent=2))
+            print('Open jobs: '+str(Path(args.output_dir).resolve()/'jobs-open.json'))
+            print('Application inputs verified: '+str(Path(args.output_dir).resolve()/'jobs-apply-ready.json'))
+            return 0 if report['complete'] else 1
+        elif args.command == 'copy-resume':
             from modules.resume_export import copy_resume
             print(json.dumps(copy_resume(args.url, run_dir=args.run_dir,
                 destination=args.destination, config_dir=args.config_dir), indent=2))
@@ -176,9 +242,10 @@ def _main(args):
             print(json.dumps(reconcile_run(args.run_dir,args.role,outcome=args.outcome,reason=args.reason),indent=2))
             return 0
         elif args.command == 'submit':
+            from modules.resume_provider import cli_overrides
             from modules.generic_inputs import load_jobs
             from modules.submit_runner import run_submissions
-            if args.resume_dir and (args.role or args.limit or args.company is not None):
+            if args.resume_dir and (args.role or args.limit or args.company is not None or args.history_root or args.independent_run):
                 raise ValueError('Resume uses its saved selection; start a new run to change input roles/limit/company')
             if args.retry_failed and not args.resume_dir:
                 raise ValueError('--retry-failed requires --resume RUN_DIR')
@@ -190,8 +257,12 @@ def _main(args):
                 workers=args.workers,
                 set_name=args.set_name,export_path=args.export_path,db_path=args.db,ledger_path=args.ledger,
                 browser_backend=args.browser_backend,browser_config=args.browser_config,retry_failed=args.retry_failed,
-                captcha_solver=args.captcha_solver)
+                captcha_solver=args.captcha_solver,history_root=args.history_root,
+                independent_run=args.independent_run,captcha_max_requests=args.captcha_max_requests,
+                resume_options=cli_overrides(args) or None)
             print(json.dumps(result,indent=2))
+            from modules.submit_state import format_run_summary
+            print(format_run_summary(result), flush=True)
             return 0 if all(j['status'] in {'applied','duplicate','discarded'} for j in result['jobs']) else 1
         elif args.command == "prepare":
             from modules.generic_prepare import run_preparations

@@ -95,6 +95,27 @@ class ConfiguredCliTests(unittest.TestCase):
         self.assertFalse(self.namespace['prepare_only_run'])
         self.assertTrue(self.profile.resume_search_enabled)
 
+    def test_exclude_agencies_enables_gate_for_run_then_restores(self):
+        self.run.side_effect = lambda: self.assertTrue(self.namespace['exclude_agencies_run'])
+        self.assertEqual(self.invoke(['--configured-search-and-apply', '--fresh', '--single-search', '1',
+                                      '--exclude-agencies']), 0)
+        self.assertFalse(self.namespace['exclude_agencies_run'])
+        self.run.reset_mock()
+        self.run.side_effect = lambda: self.assertFalse(self.namespace['exclude_agencies_run'])
+        self.assertEqual(self.invoke(['--configured-search-and-apply', '--fresh', '--single-search', '1']), 0)
+
+    def test_exclude_agencies_restores_setting_after_failure(self):
+        self.run.side_effect = RuntimeError('fixture')
+        with self.assertRaises(RuntimeError):
+            self.invoke(['--configured-search-and-apply', '--exclude-agencies'])
+        self.assertFalse(self.namespace['exclude_agencies_run'])
+
+    def test_exclude_agencies_requires_configured_entry(self):
+        with self.assertRaises(SystemExit) as error:
+            self.invoke(['--exclude-agencies'])
+        self.assertEqual(error.exception.code, 2)
+        self.run.assert_not_called()
+
     def test_prepare_only_requires_configured_entry_and_positive_limit(self):
         for args in (['--prepare-only'], ['--configured-search-and-apply', '--prepare-only', '--limit', '0']):
             with self.subTest(args=args), self.assertRaises(SystemExit):

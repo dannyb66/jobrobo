@@ -105,7 +105,7 @@ class ExpandedSkillsTest(unittest.TestCase):
                 else:
                     data={'experience_id':payload['experience_id'],'results':[
                         dict(bullet_id=b['bullet_id'],source_text_hash=b['source_text_hash'],status='rewritten',
-                             rewritten_text='Built reliable Python backend APIs with distributed systems and observability for 100 clients.',
+                             rewritten_text='Built reliable Python backend APIs with observability and request tracing for 100 clients.',
                              matched_jd_spans=[],
                              preserved_fact_anchors=[],change_reason='Fixture rewrite',blocked_reason=None)
                         for b in payload['requested_bullets']]}

@@ -5,12 +5,23 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+from collections.abc import Sequence
 
 from .generic_prepare import canonical_url, fingerprint
 from .external_apply import identify_ats
 from .job_pipeline.models import read_artifact
 
 RETRY_SCHEMA = 'direct-submit-retry-v1'
+
+
+def selected_company_names(jobs):
+    """Distinct saved company names in source order, using filter identity rules."""
+    names = {}
+    for job in jobs:
+        name = job.get('company')
+        if isinstance(name, str) and name.strip():
+            names.setdefault(name.strip().casefold(), name.strip())
+    return list(names.values())
 
 
 def posting_key(url, *, allow_local=False):
@@ -73,7 +84,9 @@ def _payload(data, provenance):
             origin = {'run_dir':data['source_run_dir'], 'key':job.get('key')}
             if origin not in origins:
                 origins.append(origin)
-            if not row.get('retryable'):
+            if (row.get('status') in {'submission_uncertain','submitting','awaiting_email_verification',
+                                      'awaiting_manual_submit','awaiting_correction','awaiting_review'}
+                    or row.get('external_submission_pending')):
                 job.setdefault('admission_blockers', []).append('retry_requires_manual_resolution')
             result.append(job)
         return result
@@ -90,16 +103,27 @@ def _payload(data, provenance):
             raise ValueError('Every job needs a url string')
         if row.get('career_url') and row['career_url'] != row['url']:
             raise ValueError('Conflicting job URL fields')
-        result.append({**row, 'provenance': deepcopy(provenance), 'admission_blockers': []})
+        blockers = ['retry_requires_manual_resolution'] if row.get('retry_status') in {
+            'submission_uncertain','submitting','awaiting_email_verification'} else []
+        validation=row.get('validation')
+        if isinstance(validation,dict):
+            saved=validation.get('admission_blockers',[])
+            if not isinstance(saved,list) or any(not isinstance(reason,str) for reason in saved):
+                raise ValueError('Validation admission blockers must be a list of strings')
+            blockers=list(dict.fromkeys([*blockers,*saved]))
+        result.append({**row, 'provenance': deepcopy(provenance), 'admission_blockers': blockers})
     return result
 
 
-def load_jobs(inputs=(), *, url=None, db_path=None, selected_roles=(), limit=None, allow_local=False, company=None):
+def load_jobs(inputs=(), *, url=None, db_path=None, selected_roles=(), limit=None, allow_local=False, company=None,
+              allow_invalid_urls=False):
     """Validate the complete input before browser, credentials or durable mutation."""
     if company is not None:
-        if not isinstance(company, str) or not company.strip():
-            raise ValueError('Company filter must be a nonempty name')
-        company = company.strip().casefold()
+        names = [company] if isinstance(company, str) else company
+        if (not isinstance(names, Sequence) or not names
+                or any(not isinstance(name, str) or not name.strip() for name in names)):
+            raise ValueError('Company filter must contain nonempty names')
+        company = dict.fromkeys(name.strip().casefold() for name in names)
     jobs = []
     if url:
         jobs.extend(_payload([url], {'source': 'explicit_url'}))
@@ -109,6 +133,10 @@ def load_jobs(inputs=(), *, url=None, db_path=None, selected_roles=(), limit=Non
             raw = path.read_bytes()
             origin = {'source': str(path.resolve()), 'artifact_sha256': hashlib.sha256(raw).hexdigest()}
             data = json.loads(raw) if path.suffix.lower() == '.json' else [s.strip() for s in raw.decode('utf-8-sig').splitlines() if s.strip() and not s.lstrip().startswith('#')]
+            if path.suffix.lower() != '.json' and any(
+                    line.strip().casefold() == '# status: submission_uncertain'
+                    for line in raw.decode('utf-8-sig').splitlines()):
+                data = [{'url':value,'retry_status':'submission_uncertain'} for value in data]
         else:
             if str(value).lower().endswith(('.json', '.txt')) or not db_path or not Path(db_path).expanduser().is_file():
                 raise ValueError('Input file or existing named-set database not found: ' + str(value))
@@ -125,8 +153,13 @@ def load_jobs(inputs=(), *, url=None, db_path=None, selected_roles=(), limit=Non
     ids = set(); id_keys = {}
     merged = {}
     for job in jobs:
-        job['url'] = canonical_url(job['url'], allow_local=allow_local)
-        job['key'] = posting_key(job['url'], allow_local=allow_local)
+        try:
+            job['url'] = canonical_url(job['url'], allow_local=allow_local)
+            job['key'] = posting_key(job['url'], allow_local=allow_local)
+        except ValueError:
+            if not allow_invalid_urls:raise
+            job['input_url_error']='invalid_url'
+            job['key']='invalid|'+fingerprint(job['url'])
         job.setdefault('id', 'url:' + fingerprint(job['url'])[:24])
         if not isinstance(job['id'], str) or not job['id']:
             raise ValueError('Job IDs must be nonempty strings')
@@ -155,9 +188,12 @@ def load_jobs(inputs=(), *, url=None, db_path=None, selected_roles=(), limit=Non
         raise ValueError('Selected role IDs are absent from the input')
     jobs = [j for j in merged.values() if not selected or selected.intersection([j['id'], *j.get('aliases', [])])]
     if company is not None:
-        jobs = [j for j in jobs if isinstance(j.get('company'), str) and j['company'].strip().casefold() == company]
-        if not jobs:
-            raise ValueError('No jobs match company ' + repr(company) + ' within the selected input roles')
+        available = {name.casefold() for name in selected_company_names(jobs)}
+        missing = [name for name in company if name not in available]
+        if missing:
+            raise ValueError('No jobs match company ' + ', '.join(repr(name) for name in missing)
+                             + ' within the selected input roles; company filters require JSON or named-set company metadata')
+        jobs = [j for j in jobs if isinstance(j.get('company'), str) and j['company'].strip().casefold() in company]
     return jobs[:limit] if limit else jobs
 
 

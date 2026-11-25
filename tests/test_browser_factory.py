@@ -23,6 +23,9 @@ class BrowserFactoryTests(unittest.TestCase):
 
     def test_exposes_the_port_it_chose(self):
         create = direct_apply.browser_factory(profile_path="/tmp/p")
+        self.assertIsNone(create.port)
+        with mock.patch("selenium.webdriver.Chrome", return_value="driver"):
+            create()
         self.assertIsInstance(create.port, int)
         self.assertGreater(create.port, 0)
 

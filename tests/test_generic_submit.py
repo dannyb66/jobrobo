@@ -195,6 +195,9 @@ class Handler(BaseHTTPRequestHandler):
             action=f'action="{self.path}/thanks" method="post"' if 'native' in self.path else 'onsubmit="event.preventDefault();fetch(\'/receive'+self.path+'\',{method:\'POST\'}).then(()=>{'+('void 0' if 'no-confirm' in self.path else 'document.querySelector(\'h1\').textContent=\'Application submitted successfully\'')+'});"'
             if 'reject-once' in self.path:
                 action=action.replace("document.querySelector('h1').textContent='Application submitted successfully'", "if(!window.rejectedOnce){window.rejectedOnce=true;document.querySelector('#feedback').textContent='Your form needs corrections: Missing entry for required field: Current Company'}else{document.querySelector('#feedback').textContent='';document.querySelector('h1').textContent='Application submitted successfully'}")
+            if 'captcha-refusal' in self.path:
+                action=action.replace("document.querySelector('h1').textContent='Application submitted successfully'",
+                    "document.body.insertAdjacentHTML('beforeend','<div><h2>ERROR</h2><p>There was a problem verifying this submission with CAPTCHA. Please try again later.</p></div>')")
             if 'portal-duplicate' in self.path:
                 if '-alert' in self.path:
                     action=action.replace("document.querySelector('h1').textContent='Application submitted successfully'","document.querySelector('#feedback').textContent='You have already submitted an application for this job'")
@@ -214,7 +217,14 @@ class Handler(BaseHTTPRequestHandler):
 class SubmitActivationTests(TestCase):
     """Pure helpers; no browser needed."""
 
-    def test_rejected_post_submit_captcha_stops_at_three_attempts(self):
+    def test_rejected_post_submit_captcha_stops_at_six_attempts(self):
+        self.assert_captcha_attempts('rejected',6)
+
+    def test_abandoned_or_exhausted_captcha_never_starts_another_solve(self):
+        for status in ('abandoned','budget_exhausted','blocked'):
+            with self.subTest(status=status):self.assert_captcha_attempts(status,1)
+
+    def assert_captcha_attempts(self,status,attempts):
         from types import SimpleNamespace
         from modules.generic_submit import submit_ready
         with TemporaryDirectory() as tmp:
@@ -245,21 +255,23 @@ class SubmitActivationTests(TestCase):
                  patch('modules.generic_submit._form_reset',return_value=False), \
                  patch('modules.kernel_challenges.wait_for_challenge',return_value=True), \
                  patch('modules.captcha_solver.enabled',return_value=True), \
-                 patch('modules.captcha_solver.solve',return_value={'status':'rejected','responses':1}) as solve, \
+                 patch('modules.captcha_solver.solve',return_value={'status':status,'responses':1}) as solve, \
                  patch('modules.generic_submit.time.monotonic',side_effect=lambda:clock[0]), \
                  patch('modules.generic_submit.time.sleep',side_effect=sleep):
                 result=submit_ready(browser,report,Path(tmp),job=job,run=run,ledger=ledger,
                     attempt_id='attempt',pause='never',confirmation_timeout=.03,poll_interval=.01)
-            # Capped at three total attempts per job, never unbounded.
-            self.assertEqual(solve.call_count,3)
+            # Capped at six total attempts per job, never unbounded.
+            self.assertEqual(solve.call_count,attempts)
             # A token is now treated as proof even on a rejected status, so the
             # stub's unconditional re-submit also clicks once more.
             self.assertGreaterEqual(click.call_count,1)
             self.assertEqual(result['status'],'submission_uncertain')
             # With a token present the re-submit runs, so the terminal stage is
             # a confirmation timeout rather than an unresolved challenge.
-            self.assertIn(run.rows()[0][1]['stage'],
-                          {'captcha_unresolved_after_submit','confirmation_timeout'})
+            if attempts>1:
+                self.assertIn(run.rows()[0][1]['stage'],
+                              {'captcha_unresolved_after_submit','confirmation_timeout'})
+            else:self.assertEqual(click.call_count,1)
             self.assertTrue(ledger.protected(job['url']))
             self.assertLess(clock[0],5)
 
@@ -304,6 +316,21 @@ class SubmitActivationTests(TestCase):
             _activate(driver=Driver(), element=Element())
 @skipUnless(os.getenv('JOBROBO_BROWSER_TESTS')=='1','Opt-in local real Chrome submissions')
 class SubmitBrowserTests(TestCase):
+    def test_captcha_refusal_toast_is_recorded_as_failure_without_second_submit(self):
+        result=self.run_jobs(self.jobs('/job/captcha-refusal'),pause='never')
+        self.assertEqual(result['counts'],{'failed_before_submit':1})
+        self.assertEqual(len(Handler.receipts),1)
+        report=json.loads(Path(result['jobs'][0]['preparation_report']).read_text())
+        self.assertTrue(any('problem verifying this submission with CAPTCHA' in s for s in report['final_state']['alerts']))
+        self.assertTrue(result['jobs'][0]['retryable'])
+
+    def test_four_workers_classify_captcha_refusals_without_duplicate_submits(self):
+        jobs=self.jobs(*(f'/job/captcha-refusal-{i}' for i in range(4)))
+        result=self.run_jobs(jobs,pause='never',workers=4)
+        self.assertEqual(result['counts'],{'failed_before_submit':4})
+        self.assertEqual(len(Handler.receipts),4)
+        self.assertEqual(len(set(Handler.receipts)),4)
+
     @classmethod
     def setUpClass(cls):
         cls.server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
@@ -484,6 +511,38 @@ class SubmitBrowserTests(TestCase):
         self.assertNotIn(applied['tab_handle'],driver.window_handles,'Confirmed employer page should close')
         run_submissions(resume_dir=self.root/'run',services=self.services,driver_factory=Mock(side_effect=AssertionError('duplicate browser')),allow_local=True)
         self.assertEqual(len(Handler.receipts),2)
+
+    def test_post_submit_error_retains_filled_draft_and_continues(self):
+        def prepare(url,**kwargs):
+            report=prepare_url(url,**kwargs)
+            if '/no-confirm/' in url:
+                raise TypeError('Synthetic failure after saving uncertain outcome')
+            return report
+        result=self.run_jobs(self.jobs('/no-confirm/retained','/job/success'),
+            pause='never',preparer=prepare)
+        self.assertEqual(result['counts'],{'submission_uncertain':1,'applied':1})
+        self.assertEqual(len(self.drivers),1,'The filled draft must keep its original browser')
+        driver=self.drivers[0]
+        self.addCleanup(driver.quit)
+        uncertain=next(j for j in result['jobs'] if j['status']=='submission_uncertain')
+        applied=next(j for j in result['jobs'] if j['status']=='applied')
+        self.assertIn(uncertain['tab_handle'],driver.window_handles)
+        self.assertNotIn(applied['tab_handle'],driver.window_handles)
+        driver.switch_to.window(uncertain['tab_handle'])
+        self.assertEqual(driver.find_element('name','email').get_attribute('value'),'test@example.test')
+        self.assertTrue(driver.execute_script('return document.querySelector("input[type=file]").files.length > 0'))
+        report_path=Path(uncertain['preparation_report'])
+        report=json.loads(report_path.read_text())
+        self.assertEqual(report['status'],'submission_uncertain')
+        self.assertNotIn('reprepare',report)
+        attempts=[json.loads(line) for line in report_path.with_name('attempts.jsonl').read_text().splitlines()]
+        self.assertEqual(attempts[-1]['status'],'submission_uncertain')
+        self.assertEqual(len(Handler.receipts),2,'Retaining a draft must never replay Submit')
+        self.assertTrue(report['manual_continuation_enabled'])
+        driver.find_element('id','submit').click()
+        from selenium.webdriver.support.ui import WebDriverWait
+        WebDriverWait(driver,3).until(lambda _:len(Handler.receipts)==3)
+        self.assertEqual(driver.execute_script('return window.__jobroboPrepare.manualRecord.activations'),1)
     def test_manual_completion_of_required_fact_then_submit(self):
         outer=self
         class Review:

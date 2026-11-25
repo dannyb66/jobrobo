@@ -2,28 +2,79 @@
 from collections import Counter
 from datetime import datetime, timezone
 import json
+import shlex
 from pathlib import Path
 import sqlite3
 import threading
 import uuid
 
 from .direct_careers_apply import write_json
-from .generic_inputs import RETRY_SCHEMA
+from .generic_inputs import RETRY_SCHEMA, selected_company_names
+
+
+def retry_ready(state):
+    """Only untouched jobs or explicitly retryable failures before Submit."""
+    return state.get('status') == 'pending' or (
+        state.get('status') in {'blocked', 'failed_before_submit', 'interrupted_before_submit', 'deferred'}
+        and bool(state.get('retryable')))
 
 
 def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def retry_command(progress):
+    """A fresh retry keeps the effective execution settings, not CLI defaults."""
+    options = progress.get('options') or {}
+    args = ['python3','direct_apply.py','submit','--urls-file',
+            str(Path(progress['run_dir'])/'retry-ready.json')]
+    flags = {'workers':'--workers','pause':'--pause-before-submit',
+             'config_dir':'--config-dir','browser_backend':'--browser',
+             'browser_config':'--browser-config','max_applications':'--max-applications',
+             'questions_path':'--questions','output_dir':'--output-dir',
+             'db_path':'--db','set_name':'--set','export_path':'--output',
+             'discovery_source':'--discovery-source','history_root':'--history-root',
+             'captcha_max_requests':'--captcha-max-requests'}
+    for name, flag in flags.items():
+        if options.get(name) is not None:
+            args.extend([flag,str(options[name])])
+    # Retained profiles must not be shared by an independent fresh run.
+    if options.get('captcha_solver'):args.append('--captcha-solver')
+    if not options.get('history_root'):args.append('--independent-run')
+    return shlex.join(args)
+
+
 def build_run_summary(progress, *, generated_at=None):
     """Return concise, durable run totals; only applied is employer-confirmed."""
-    counts = dict(progress.get('counts') or {})
     jobs = progress.get('jobs') or []
+    counts = dict(progress.get('counts') or Counter(job['status'] for job in jobs))
+    options = progress.get('options') or {}
+    worker_counts = {}
+    company_groups = {}
+    for job in jobs:
+        if job.get('worker_id'):
+            worker_counts.setdefault(job['worker_id'], Counter())[job['status']] += 1
+        name = job.get('company')
+        name = name.strip() if isinstance(name, str) and name.strip() else '(unknown)'
+        group = company_groups.setdefault(name.casefold(), {'company': name, 'jobs': []})
+        group['jobs'].append(job)
+    company_summaries = []
+    for group in company_groups.values():
+        members = group['jobs']
+        statuses = Counter(job['status'] for job in members)
+        company_summaries.append({
+            'company': group['company'], 'total_jobs': len(members),
+            'confirmed_submissions': statuses.get('applied', 0),
+            'confirmed_rate_percent': round(100 * statuses.get('applied', 0) / len(members), 1),
+            'retry_ready_count': sum(retry_ready(job) for job in members),
+            'status_counts': dict(sorted(statuses.items())),
+        })
     total = int(progress.get('total', len(jobs)))
     confirmed = int(counts.get('applied', 0))
     uncertain = int(counts.get('submission_uncertain', 0)) + int(counts.get('submitting', 0))
     email_pending = int(counts.get('awaiting_email_verification', 0))
-    manual_pending = int(counts.get('awaiting_manual_submit', 0)) + int(counts.get('awaiting_correction', 0))
+    manual_pending = sum(int(counts.get(status, 0)) for status in
+                         ('awaiting_manual_submit', 'awaiting_correction', 'awaiting_review'))
     retryable = sum(1 for job in jobs
                     if job.get('status') in {'blocked', 'failed_before_submit', 'interrupted_before_submit', 'deferred'}
                     and job.get('retryable'))
@@ -33,7 +84,7 @@ def build_run_summary(progress, *, generated_at=None):
         started = datetime.fromisoformat(progress['started_at'].replace('Z', '+00:00'))
         finished = datetime.fromisoformat(progress['updated_at'].replace('Z', '+00:00'))
         elapsed_seconds = max(0, int((finished - started).total_seconds()))
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, AttributeError):
         pass
     if unattempted:
         outcome = 'partial'
@@ -67,7 +118,66 @@ def build_run_summary(progress, *, generated_at=None):
         'unattempted_count': unattempted,
         'duplicate_count': int(counts.get('duplicate', 0)),
         'status_counts': dict(sorted(counts.items())),
+        'browser_backend': options.get('browser_backend', 'local'),
+        'configured_workers': options.get('workers') or 1,
+        'worker_status_counts': {worker: dict(sorted(counts.items()))
+                                 for worker, counts in sorted(worker_counts.items())},
+        'selected_companies': selected_company_names(jobs),
+        'company_summaries': company_summaries,
+        'retry_ready_count': sum(retry_ready(job) for job in jobs),
+        'pause_before_submit': options.get('pause'),
+        'max_applications': options.get('max_applications'),
+        'captcha_solver_enabled': options.get('captcha_solver'),
     }
+
+
+def format_run_summary(progress):
+    """Human-readable CLI footer, sharing totals with the durable summary."""
+    summary = build_run_summary(progress)
+    total = summary['total_jobs']
+    elapsed = summary['elapsed_seconds']
+    duration = 'unknown' if elapsed is None else f'{elapsed // 3600:02d}:{elapsed % 3600 // 60:02d}:{elapsed % 60:02d}'
+    solver = summary['captcha_solver_enabled']
+    solver_label = 'unknown' if solver is None else 'enabled' if solver else 'disabled'
+    lines = [
+        '\nDirect apply run summary',
+        f"Run: {summary['run_id'] or 'unknown'}",
+        f"Started: {summary['started_at'] or 'unknown'} | Last checkpoint: {summary['observed_at'] or 'unknown'}",
+        f'Elapsed since run creation: {duration}',
+        f"Browser: {summary['browser_backend']} | Workers: {summary['configured_workers']} | Pause before submit: {summary['pause_before_submit'] or 'unknown'}",
+        f"Application cap: {summary['max_applications'] if summary['max_applications'] is not None else 'none'} | CAPTCHA solver: {solver_label}",
+    ]
+    if summary['selected_companies']:
+        lines.append('Companies: ' + ', '.join(summary['selected_companies']))
+    if summary['run_dir']:
+        directory = Path(summary['run_dir'])
+        lines.extend([f'Run directory: {directory}',
+                      f'Saved summary: {directory / "summary.json"}',
+                      f'Application results: {directory / "applications.json"}',
+                      f'Progress: {directory / "progress.json"}',
+                      f'Retry files: {directory / "retry-ready.json"} | {directory / "retry-submission-uncertain.txt"}',
+                      f"Ready for a fresh retry run: {summary['retry_ready_count']}"])
+        if summary['retry_ready_count']:
+            lines.append('Retry command: ' + retry_command(progress))
+        else:
+            lines.append('No safe automatic retries; inspect unresolved outcomes before retrying.')
+    lines.extend([
+        '\nJob status summary',
+        f"Outcome: {summary['outcome']}",
+        f"Jobs: {total} | Confirmed submissions: {summary['confirmed_submissions']} ({summary['confirmed_rate_percent']:.1f}%)",
+        f"Retryable before submit: {summary['retryable_before_submit_count']} | Unattempted/in preparation: {summary['unattempted_count']}",
+        f"Uncertain: {summary['unresolved_submission_count']} | Email verification: {summary['email_verification_pending_count']} | Manual review: {summary['manual_review_pending_count']}",
+    ])
+    for company in summary['company_summaries']:
+        lines.append(f"  {company['company']}: {company['confirmed_submissions']}/{company['total_jobs']} confirmed; "
+                     + ', '.join(f'{status}={count}' for status, count in company['status_counts'].items()))
+    for worker, counts in summary['worker_status_counts'].items():
+        lines.append(f"  {worker}: " + ', '.join(f'{status}={count}' for status, count in counts.items()))
+    lines.append('Statuses:')
+    for status, count in summary['status_counts'].items():
+        percent = 100 * count / total if total else 0
+        lines.append(f'  {status}: {count} ({percent:.1f}%)')
+    return '\n'.join(lines)
 
 
 class SubmitRun:
@@ -94,7 +204,8 @@ class SubmitRun:
           CREATE TABLE IF NOT EXISTS jobs(key TEXT PRIMARY KEY, position INTEGER NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS events(sequence INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, job_key TEXT, payload TEXT NOT NULL);''')
         if fresh:
-            manifest = {'schema': 'direct-submit-run-v1', 'id': run_id or str(uuid.uuid4()), 'created_at': now(), 'options': options or {}, 'jobs': jobs}
+            manifest = {'schema': 'direct-submit-run-v1', 'id': run_id or str(uuid.uuid4()), 'created_at': now(),
+                        'selected_companies': selected_company_names(jobs), 'options': options or {}, 'jobs': jobs}
             with self.db:
                 self.db.execute('INSERT INTO meta VALUES (?,?)', ('manifest', json.dumps(manifest)))
                 for index, job in enumerate(jobs):
@@ -121,6 +232,8 @@ class SubmitRun:
         with self._lock:
             state = json.loads(self.db.execute('SELECT state FROM jobs WHERE key=?', (job['key'],)).fetchone()[0])
             event = {'status': status or state['status'], 'stage': stage or state['stage'], **fields}
+            event['event_type'] = ('reservation' if fields.get('reservation_id') else
+                'transition' if event['status'] != state['status'] or event['stage'] != state['stage'] else 'metadata')
             state.update(event, updated_at=now())
             with self.db:
                 self.db.execute('UPDATE jobs SET state=? WHERE key=?', (json.dumps(state), job['key']))
@@ -184,6 +297,7 @@ class SubmitRun:
         progress = {'schema': 'direct-submit-progress-v1', 'run_id':self.manifest['id'], 'run_dir': str(self.directory), 'updated_at': now(),
                     'started_at': self.manifest.get('created_at'),
                     'options': self.options if hasattr(self, 'options') else {},
+                    'selected_companies': selected_company_names([job for job, _ in rows]),
                     'total': len(rows), 'counts': dict(counts),
                     'active_total':sum(s['status']!='discarded' for _,s in rows),
                     'active_counts':{k:v for k,v in counts.items() if k!='discarded'},
@@ -204,7 +318,20 @@ class SubmitRun:
         # resolution rather than silently dropping them.
         tracked = retry + [{'job': r['job'], 'retryable': False, **{k: v for k, v in r.items() if k != 'job'}}
                            for r in uncertain]
-        write_json(self.directory/'retry.json', {'schema': RETRY_SCHEMA, 'source_run_dir': str(self.directory), 'jobs': tracked})
+        write_json(self.directory/'retry.json', {'schema': RETRY_SCHEMA, 'source_run_dir': str(self.directory),
+                                              'source_options':self.options, 'jobs': tracked})
+        ready = [{'job': job, **state, 'retryable': True} for job, state in rows if retry_ready(state)]
+        write_json(self.directory/'retry-ready.json', {
+            'schema': RETRY_SCHEMA, 'source_run_dir': str(self.directory), 'source_options':self.options, 'jobs': ready})
+        write_json(self.directory/'retry-uncertain.json', {
+            'schema': RETRY_SCHEMA, 'source_run_dir': str(self.directory),
+            'source_options':self.options, 'jobs': [dict(r,retryable=False) for r in uncertain]})
+        uncertain_lines = ['# Status: submission_uncertain', '# Source run: ' + self.manifest['id']]
+        for job, state in rows:
+            if state['status'] == 'submission_uncertain':
+                label = str(job.get('company', '')) + ' | ' + str(job.get('title') or job['id'])
+                uncertain_lines.extend(['# ' + ' '.join(label.splitlines()), job['url']])
+        self._text('retry-submission-uncertain.txt', '\n'.join(uncertain_lines) + '\n')
         write_json(self.directory/'needs-review.json', {'schema': 'direct-submit-reconciliation-v1', 'jobs': uncertain})
         write_json(self.directory/'manual-review.json', {'schema':'direct-submit-manual-review-v1','jobs':manual})
         self._text('manual-review.txt', ''.join(r['job']['url']+'\n' for r in manual))

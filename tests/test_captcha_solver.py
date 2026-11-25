@@ -73,6 +73,7 @@ def test_solve_passes_credentials_and_url_to_child(monkeypatch):
     def fake_run(command, **kwargs):
         seen["command"] = command
         seen["env"] = kwargs.get("env") or {}
+        seen["timeout"] = kwargs.get("timeout")
         return Completed()
 
     monkeypatch.setattr(captcha_solver.subprocess, "run", fake_run)
@@ -81,6 +82,9 @@ def test_solve_passes_credentials_and_url_to_child(monkeypatch):
     assert record["status"] == "cleared"
     assert captcha_solver.cleared(record)
     assert "--url" in seen["command"]
+    assert seen["command"][seen["command"].index("--max-responses") + 1] == "6"
+    assert seen["command"][seen["command"].index("--overall-timeout-ms") + 1] == "150000"
+    assert seen["timeout"] == 200
     assert seen["env"]["CAPTCHA_KRAKEN_API_KEY"] == "ck_live_test"
     assert seen["env"]["VLLM_BASE_URL"].startswith("https://")
     # The vendor reads VLLM_BASE_URL from the environment and the other name

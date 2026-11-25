@@ -35,7 +35,12 @@ def catalogue(path="config/technology_timeline.json"):
             released = date.fromisoformat(item["first_public"])
         except (KeyError, ValueError) as exc:
             raise ValueError("Technology first_public must be an ISO date") from exc
-        rows.append((tuple(names), released, item.get("source", "")))
+        patterns = item.get("patterns", [])
+        if not isinstance(patterns, list) or not all(isinstance(value, str) and value.strip() for value in patterns):
+            raise ValueError("Technology patterns must be nonempty regex strings")
+        for value in patterns:
+            re.compile(value)
+        rows.append((tuple(names), tuple(patterns), released, item.get("source", "")))
     return tuple(rows)
 
 
@@ -69,11 +74,15 @@ def role_period(group) -> tuple[date, date] | None:
     return (start, end) if start <= end else None
 
 
-def mentioned(text, names):
+def mentioned(text, names, patterns=()):
+    """Match whole names case-insensitively, plus optional phrase regexes."""
     text = text or ""
     for name in names:
         pattern = r"(?<![\w])" + re.escape(name) + r"(?![\w])"
         if re.search(pattern, text, re.I):
+            return True
+    for pattern in patterns:
+        if re.search(r"(?<![\w])(?:" + pattern + r")(?![\w])", text, re.I):
             return True
     return False
 
@@ -85,8 +94,8 @@ def late_technologies(text, period, rows=None):
     _, ended = period
     return [
         {"technology": names[0], "first_public": released.isoformat(), "source": source}
-        for names, released, source in (rows or catalogue())
-        if released > ended and mentioned(text, names)
+        for names, patterns, released, source in (rows or catalogue())
+        if released > ended and mentioned(text, names, patterns)
     ]
 
 

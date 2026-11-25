@@ -138,6 +138,8 @@ def validate_search() -> None | ValueError | TypeError:
 
     check_list(about_company_bad_words, "about_company_bad_words")
     check_list(about_company_good_words, "about_company_good_words")
+    check_list(globals().get("agency_extra_names", []), "agency_extra_names")
+    check_list(globals().get("agency_allow_names", []), "agency_allow_names")
     check_list(bad_words, "bad_words")
     check_boolean(security_clearance, "security_clearance")
     check_boolean(did_masters, "did_masters")

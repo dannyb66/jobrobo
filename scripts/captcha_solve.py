@@ -13,6 +13,8 @@ import argparse
 import json
 import sys
 import time
+import threading
+from urllib.parse import urlsplit
 from pathlib import Path
 
 # Google now serves reCAPTCHA *Enterprise* on `/recaptcha/enterprise/anchor`.
@@ -35,6 +37,31 @@ LEVELS = ("detected", "model_response", "token_present", "challenge_cleared")
 # calls for a solve that really made five. Count the requests themselves.
 RESPONSE_COUNT = {"n": 0}
 OWN_TOKEN: dict = {}
+
+
+class RequestBudgetExceeded(Exception):
+    pass
+
+
+class RequestBudget:
+    """Count model requests separately from non-billable outcome POSTs."""
+    def __init__(self, limit):
+        self.limit = limit
+        self.model_requests = 0
+        self.post_requests = 0
+        self.exhausted = False
+        self._lock = threading.Lock()
+
+    def post(self, original, session, *args, **kwargs):
+        url = args[0] if args else kwargs.get('url','')
+        with self._lock:
+            if urlsplit(str(url)).path.rstrip('/').endswith('/chat/completions'):
+                if self.model_requests >= self.limit:
+                    self.exhausted = True
+                    raise RequestBudgetExceeded('CAPTCHA model request budget exhausted')
+                self.model_requests += 1
+            self.post_requests += 1
+        return original(session, *args, **kwargs)
 
 TOKEN_SELECTORS = (
     '[name="g-recaptcha-response"]',
@@ -293,13 +320,19 @@ def main(argv=None) -> int:
     parser.add_argument("--cdp", required=True, help="CDP websocket URL of the live browser")
     parser.add_argument("--url", default="", help="URL of the tab to solve; first page is used when omitted")
     parser.add_argument("--screenshot", help="Where to write the final screenshot")
-    parser.add_argument("--detection-timeout-ms", type=int, default=15000)
-    parser.add_argument("--overall-timeout-ms", type=int, default=120000)
-    parser.add_argument("--max-responses", type=int, default=5, help="Vendor bills per response; hard cap")
+    parser.add_argument("--detection-timeout-ms", type=int, default=30000)
+    parser.add_argument("--overall-timeout-ms", type=int, default=240000)
+    parser.add_argument("--max-responses", type=int, default=10, help="Hard cap on model requests, enforced before each POST")
+    parser.add_argument("--max-solve-loops", type=int, default=6, help="Vendor solve-loop limit, separate from request budget")
     parser.add_argument("--expect-provider", help="Fail fast as unsupported on a different provider")
     parser.add_argument("--wait-painted-ms", type=int, default=0,
                         help="Wait this long for an already-present challenge frame to draw a board")
     args = parser.parse_args(argv)
+    if args.max_responses < 1 or args.max_solve_loops < 1:
+        parser.error('CAPTCHA budgets must be positive')
+    budget = RequestBudget(args.max_responses)
+    RESPONSE_COUNT['n'] = 0
+    OWN_TOKEN.clear()
 
     from captchakraken import CaptchaKrakenAPIError as APIError
     from playwright.sync_api import sync_playwright
@@ -362,7 +395,7 @@ def main(argv=None) -> int:
                 config = PageSolverConfig(
                     detection_timeout_ms=args.detection_timeout_ms,
                     overall_solve_timeout_ms=args.overall_timeout_ms,
-                    max_solve_loops=args.max_responses,
+                    max_solve_loops=args.max_solve_loops,
                 )
                 # Count billed calls by patching the HTTP verb itself: the
                 # planner keeps a per-instance Session, so a class lookup of
@@ -371,8 +404,7 @@ def main(argv=None) -> int:
                 orig_post = _requests.Session.post
 
                 def counting_post(self, *a, **kw):
-                    RESPONSE_COUNT["n"] += 1
-                    return orig_post(self, *a, **kw)
+                    return budget.post(orig_post, self, *a, **kw)
 
                 _requests.Session.post = counting_post
                 outcome = None
@@ -382,8 +414,7 @@ def main(argv=None) -> int:
                     _requests.Session.post = orig_post
                     # A rejected solve raises, so this must be counted here or
                     # the billed calls of every failed attempt read as zero.
-                    responses = max(len(getattr(outcome, "token_usage", []) or []),
-                                    RESPONSE_COUNT["n"])
+                    responses = budget.model_requests
                 after = probe(page)
                 token_now = token_length(page)
                 cleared = not after.get("active") or token_now > 0
@@ -394,6 +425,8 @@ def main(argv=None) -> int:
                     status, detail = "cleared", "challenge no longer active or response token present"
                 else:
                     status, detail = "rejected", "solver finished but the widget is still active and has no token"
+            except RequestBudgetExceeded as error:
+                status, detail = 'budget_exhausted', str(error)
             except NoCaptchaFoundError as error:
                 status, detail = "no_challenge", str(error)[-400:]
             except UnsupportedChallengeError as error:
@@ -402,13 +435,17 @@ def main(argv=None) -> int:
                 status, detail = "blocked", str(error)[-400:]
             except APIError as error:
                 # A refused/undeniable call is not a board the model got wrong.
-                status, detail = "error", f"{getattr(error, 'code', None) or type(error).__name__}: {error}"[-400:]
+                code = getattr(error, 'code', None) or type(error).__name__
+                status = 'abandoned' if code == 'solve_abandoned' or 'solve_abandoned' in str(error) else 'error'
+                detail = f"{code}: {error}"[-400:]
             except RequestException as error:
                 status, detail = "error", f"cannot reach the solver API: {type(error).__name__}: {error}"[-400:]
             except CaptchaSolveError as error:
                 status, detail = "rejected", str(error)[-400:]
             except Exception as error:
                 status, detail = "error", f"{type(error).__name__}: {error}"[-400:]
+            if budget.exhausted:
+                status, detail = 'budget_exhausted', 'CAPTCHA model request budget exhausted'
 
         # Read as many token carriers as exist, in the frame that owns them, so a
         # caller can tell "no token" from "wrong field name".
@@ -438,6 +475,7 @@ def main(argv=None) -> int:
             host = ""
 
     print(json.dumps({
+        "schema": "captcha-solver-result-v2",
         "status": status,
         "detail": detail,
         "provider": provider,
@@ -445,6 +483,11 @@ def main(argv=None) -> int:
         "token_length": final_token,
         "tokens": OWN_TOKEN,
         "responses": responses,
+        "model_requests": budget.model_requests,
+        "response_count_kind": "model_requests",
+        "post_requests": budget.post_requests,
+        "request_limit": budget.limit,
+        "terminal": status in {'budget_exhausted','abandoned','blocked'},
         "elapsed_ms": round((time.monotonic() - started) * 1000),
         "host": host,
         "screenshot": args.screenshot,

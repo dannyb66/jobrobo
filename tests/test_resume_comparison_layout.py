@@ -39,6 +39,16 @@ class ComparisonDocument(HTMLParser):
 
 
 class ResumeComparisonLayoutTest(unittest.TestCase):
+    def test_preview_failure_keeps_pdf_links_and_explains_missing_pngs(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            report = self.report()
+            report['page_images_unavailable'] = True
+            page = self.render(root, report)
+            self.assertIn('PNG previews are unavailable', page)
+            self.assertIn('src="original.pdf"', page)
+            self.assertIn('src="optimized.pdf"', page)
+
     def render(self, root, report, records=()):
         (root / 'exact-jd.txt').write_text('Full JD with Python and AWS.', encoding='utf-8')
         _comparison(root, report, records)

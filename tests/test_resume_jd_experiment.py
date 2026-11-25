@@ -16,10 +16,10 @@ import optimize_resume as cli
 
 
 class SyntheticJDTest(unittest.TestCase):
-    def test_payload_has_no_source_content_and_no_source_keyword_restrictions(self):
+    def test_payload_has_no_source_content_but_restricts_jd_keywords_to_source_technologies(self):
         inventory=inv(3,1); group=inventory['groups'][0]
-        targets=experiment.alignment('Build Rust and AG-UI systems',['Rust','AG-UI'])
-        payload=m.compact_payload(inventory,'Build Rust and AG-UI systems','Engineer',experiment.POLICY,
+        targets=experiment.alignment('Build Rust and Python systems',['Rust','Python'])
+        payload=m.compact_payload(inventory,'Build Rust and Python systems','Engineer',experiment.POLICY,
             group,group['bullets'],alignment=targets)
         encoded=json.dumps(payload)
         for source in inventory['bullets']:
@@ -32,9 +32,12 @@ class SyntheticJDTest(unittest.TestCase):
             self.assertNotIn('source_text',slot)
             self.assertNotIn('protected_source_terms',slot)
             self.assertEqual(slot['fact_anchors'],[])
-            self.assertIn('Rust',slot['jd_keyword_opportunities'])
+            # Source-term guard (2026-11-18): only technologies this experience used are offered.
+            self.assertIn('Python',slot['jd_keyword_opportunities'])
+            self.assertNotIn('Rust',slot['jd_keyword_opportunities'])
+        self.assertEqual(payload['allowed_source_technologies'],['Python'])
 
-    def test_only_synthetic_mode_accepts_fictional_new_claims(self):
+    def test_only_synthetic_mode_accepts_fictional_outcomes_but_never_unused_technologies(self):
         inventory=inv(1,1);group=inventory['groups'][0]
         raw=response({'experience_id':group['experience_id'],'requested_bullets':group['bullets']})
         raw['results'][0].update(rewritten_text='Built Rust and AG-UI agents, reducing latency by 99%.',preserved_fact_anchors=[])
@@ -42,6 +45,10 @@ class SyntheticJDTest(unittest.TestCase):
             self.assertEqual(m.validate_response(raw,group,group['bullets'],content_policy=policy)['0']['status'],'blocked')
         with patch.object(m,'source_claim_issue',side_effect=AssertionError('source content gate called')), \
              patch('modules.ai.resume_optimizer._source_fact_issue',side_effect=AssertionError('source facts called')):
+            blocked=m.validate_response(raw,group,group['bullets'],forbidden_keywords=['Rust'],content_policy=experiment.POLICY)['0']
+            self.assertEqual(blocked['status'],'blocked')
+            self.assertEqual(blocked['reason'],'unsupported source technology/concept: Rust')
+            raw['results'][0]['rewritten_text']='Built Python API agents, reducing latency by 99%.'
             result=m.validate_response(raw,group,group['bullets'],forbidden_keywords=['Rust'],content_policy=experiment.POLICY)['0']
         self.assertEqual(result['status'],'candidate')
         self.assertEqual(result['rewritten_text'],raw['results'][0]['rewritten_text'])
@@ -52,7 +59,7 @@ class SyntheticJDTest(unittest.TestCase):
         raw['results'][0]['source_text_hash']='wrong'
         self.assertEqual(m.validate_response(raw,group,group['bullets'],content_policy=experiment.POLICY)['0']['reason'],'source hash mismatch')
         raw['results'][0].update(source_text_hash=group['bullets'][0]['source_text_hash'],
-            rewritten_text='Built Rust agents.',alternative_texts=['Implemented AG-UI services.'])
+            rewritten_text='Built Python agents.',alternative_texts=['Implemented AG-UI services.'])
         out=m.validate_response(raw,group,group['bullets'],content_policy=experiment.POLICY,
             fit_check=lambda _: 'too wide')['0']
         self.assertEqual(out['status'],'blocked')
@@ -101,8 +108,8 @@ class SyntheticJDTest(unittest.TestCase):
                 if stage=='keywords':return {'keywords':['Rust','AG-UI','MCP']}
                 return {'experience_id':payload['experience_id'],'results':[
                     {'bullet_id':b['bullet_id'],'source_text_hash':b['source_text_hash'],'status':'rewritten',
-                     'rewritten_text':('Built Rust agents with AG-UI and MCP for 20 customers through private production APIs'
-                         if b['ordinal']==0 else 'Shipped MCP tools in Rust, organizing early rollout for launch within 2 months'),
+                     'rewritten_text':('Built Python agents with AG-UI for 20 customers through private production APIs'
+                         if b['ordinal']==0 else 'Planned rollout milestones and coordinated launch within 2 months for early customers'),
                      'matched_jd_spans':[],'preserved_fact_anchors':[],'change_reason':'Synthetic JD example','blocked_reason':None}
                     for b in payload['requested_bullets']]}
             config=dict(m.DEFAULTS,rewrite_all_bullets=True,expected_page_count=1,

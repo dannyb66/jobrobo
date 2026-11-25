@@ -1,98 +1,492 @@
 {
   "schema_version": 1,
-  "research_date": "2026-11-02",
+  "research_date": "2026-11-18",
   "purpose": "Earliest defensible public availability for catalogued technologies. Release dates are eligibility bounds, not proof that the candidate used the product.",
   "technologies": [
     {
       "id": "kiro",
-      "names": ["Kiro", "AWS Kiro"],
+      "names": [
+        "Kiro",
+        "AWS Kiro"
+      ],
       "first_public": "2025-07-14",
       "source": "https://kiro.dev/blog/introducing-kiro/"
     },
     {
       "id": "mcp",
-      "names": ["Model Context Protocol", "Model Context Protocol (MCP)", "MCP"],
+      "names": [
+        "Model Context Protocol",
+        "Model Context Protocol (MCP)",
+        "MCP"
+      ],
       "first_public": "2024-11-25",
       "source": "https://www.anthropic.com/news/model-context-protocol"
     },
     {
       "id": "bedrock",
-      "names": ["Amazon Bedrock", "AWS Bedrock", "Bedrock"],
+      "names": [
+        "Amazon Bedrock",
+        "AWS Bedrock",
+        "Bedrock"
+      ],
       "first_public": "2023-04-13",
       "source": "https://aws.amazon.com/blogs/aws/amazon-bedrock-is-now-generally-available-build-and-scale-generative-ai-applications-with-foundation-models/",
       "note": "Announced in preview 2023-04-13; generally available 2023-09-28. The preview date is the earliest public bound."
     },
     {
       "id": "opentelemetry",
-      "names": ["OpenTelemetry", "OpenTelemetry (OTel)", "OTel"],
+      "names": [
+        "OpenTelemetry",
+        "OpenTelemetry (OTel)",
+        "OTel"
+      ],
       "first_public": "2019-05-21",
       "source": "https://www.cncf.io/blog/2019/05/21/a-brief-history-of-opentelemetry-so-far/"
     },
     {
       "id": "langgraph",
-      "names": ["LangGraph"],
+      "names": [
+        "LangGraph"
+      ],
       "first_public": "2024-01-17",
       "source": "https://www.langchain.com/blog/langgraph"
     },
     {
       "id": "autogen",
-      "names": ["AutoGen", "Microsoft AutoGen"],
+      "names": [
+        "AutoGen",
+        "Microsoft AutoGen"
+      ],
       "first_public": "2023-08-16",
       "source": "https://arxiv.org/abs/2308.08155"
     },
     {
       "id": "crewai",
-      "names": ["CrewAI"],
+      "names": [
+        "CrewAI"
+      ],
       "first_public": "2023-11-14",
       "source": "https://pypi.org/project/crewai/"
     },
     {
       "id": "vllm",
-      "names": ["vLLM"],
+      "names": [
+        "vLLM"
+      ],
       "first_public": "2023-06-20",
       "source": "https://vllm-project.github.io/2023/06/20/vllm.html"
     },
     {
       "id": "tensorrt-llm",
-      "names": ["TensorRT-LLM", "TensorRT LLM", "TRT-LLM"],
+      "names": [
+        "TensorRT-LLM",
+        "TensorRT LLM",
+        "TRT-LLM"
+      ],
       "first_public": "2023-10-19",
       "source": "https://developer.nvidia.com/blog/optimizing-inference-on-large-language-models-with-nvidia-tensorrt-llm-now-publicly-available/"
     },
     {
       "id": "ray",
-      "names": ["Ray", "Ray Serve"],
+      "names": [
+        "Ray",
+        "Ray Serve"
+      ],
       "first_public": "2017-11-29",
       "source": "https://github.com/ray-project/ray/releases/tag/ray-0.1.0"
     },
     {
       "id": "kubernetes",
-      "names": ["Kubernetes", "K8s"],
+      "names": [
+        "Kubernetes",
+        "K8s"
+      ],
       "first_public": "2014-06-07",
       "source": "https://kubernetes.io/blog/2014/06/07/kubernetes-is-now-available-in-beta/"
     },
     {
       "id": "docker",
-      "names": ["Docker"],
+      "names": [
+        "Docker"
+      ],
       "first_public": "2013-03-20",
       "source": "https://www.docker.com/blog/dotcloud-docker-io-launch/"
     },
     {
       "id": "terraform",
-      "names": ["Terraform"],
+      "names": [
+        "Terraform"
+      ],
       "first_public": "2014-07-28",
       "source": "https://www.hashicorp.com/blog/terraform-0-1-preview"
     },
     {
       "id": "cuda",
-      "names": ["CUDA", "NVIDIA CUDA"],
+      "names": [
+        "CUDA",
+        "NVIDIA CUDA"
+      ],
       "first_public": "2007-02-16",
       "source": "https://developer.nvidia.com/cuda-faq"
     },
     {
       "id": "prometheus",
-      "names": ["Prometheus"],
+      "names": [
+        "Prometheus"
+      ],
       "first_public": "2012-01-24",
       "source": "https://prometheus.io/blog/2015/01/24/prometheus-0-1-0/"
+    },
+    {
+      "id": "llm",
+      "names": [
+        "LLM",
+        "LLMs",
+        "large language model",
+        "large language models"
+      ],
+      "first_public": "2020-05-28",
+      "source": "https://arxiv.org/abs/2005.14165",
+      "note": "Concept bound: GPT-3 paper made 'large language model' industry vocabulary. Plain 'language model' is not catalogued."
+    },
+    {
+      "id": "gpt-3",
+      "names": [
+        "GPT-3",
+        "GPT3"
+      ],
+      "first_public": "2020-05-28",
+      "source": "https://arxiv.org/abs/2005.14165"
+    },
+    {
+      "id": "openai-api",
+      "names": [
+        "OpenAI API"
+      ],
+      "first_public": "2020-06-11",
+      "source": "https://openai.com/index/openai-api/"
+    },
+    {
+      "id": "chatgpt",
+      "names": [
+        "ChatGPT"
+      ],
+      "first_public": "2022-11-30",
+      "source": "https://openai.com/index/chatgpt/"
+    },
+    {
+      "id": "gpt-3.5",
+      "names": [
+        "GPT-3.5",
+        "gpt-3.5-turbo"
+      ],
+      "first_public": "2022-11-30",
+      "source": "https://openai.com/index/chatgpt/"
+    },
+    {
+      "id": "gpt-4",
+      "names": [
+        "GPT-4",
+        "GPT-4o",
+        "GPT-4.1",
+        "GPT4"
+      ],
+      "first_public": "2023-03-14",
+      "source": "https://openai.com/index/gpt-4-research/",
+      "patterns": [
+        "GPT-?4(?:o|\\.\\d|-turbo|-mini)?"
+      ]
+    },
+    {
+      "id": "gpt-5",
+      "names": [
+        "GPT-5"
+      ],
+      "first_public": "2025-08-07",
+      "source": "https://openai.com/index/introducing-gpt-5/",
+      "patterns": [
+        "GPT-?5(?:\\.\\d|-mini|-nano)?"
+      ]
+    },
+    {
+      "id": "claude",
+      "names": [
+        "Claude",
+        "Claude Opus",
+        "Claude Sonnet",
+        "Claude Haiku"
+      ],
+      "first_public": "2023-03-14",
+      "source": "https://www.anthropic.com/news/introducing-claude",
+      "note": "Covers every Claude model generation."
+    },
+    {
+      "id": "claude-code",
+      "names": [
+        "Claude Code"
+      ],
+      "first_public": "2025-02-24",
+      "source": "https://www.anthropic.com/news/claude-3-7-sonnet"
+    },
+    {
+      "id": "claude-cowork",
+      "names": [
+        "Claude Cowork",
+        "Cowork"
+      ],
+      "first_public": "2026-01-12",
+      "source": "https://www.axios.com/2026/01/12/ai-anthropic-claude-jobs",
+      "note": "Research preview 2026-01-12; general availability 2026-04-09."
+    },
+    {
+      "id": "openai-codex",
+      "names": [
+        "OpenAI Codex",
+        "Codex"
+      ],
+      "first_public": "2021-08-10",
+      "source": "https://openai.com/index/openai-codex/",
+      "note": "Codex model (2021). The Codex CLI agent is catalogued separately."
+    },
+    {
+      "id": "codex-cli",
+      "names": [
+        "Codex CLI"
+      ],
+      "first_public": "2025-04-16",
+      "source": "https://techcrunch.com/2025/04/16/openai-debuts-codex-cli-an-open-source-coding-tool-for-terminals/"
+    },
+    {
+      "id": "github-copilot",
+      "names": [
+        "GitHub Copilot",
+        "Copilot"
+      ],
+      "first_public": "2021-06-29",
+      "source": "https://github.blog/2021-06-29-introducing-github-copilot-ai-pair-programmer/"
+    },
+    {
+      "id": "windsurf",
+      "names": [
+        "Windsurf"
+      ],
+      "first_public": "2024-11-13",
+      "source": "https://codeium.com/blog/windsurf-launch"
+    },
+    {
+      "id": "rag",
+      "names": [
+        "RAG",
+        "retrieval-augmented generation",
+        "retrieval augmented generation"
+      ],
+      "first_public": "2020-05-22",
+      "source": "https://arxiv.org/abs/2005.11401"
+    },
+    {
+      "id": "langchain",
+      "names": [
+        "LangChain"
+      ],
+      "first_public": "2022-10-25",
+      "source": "https://github.com/langchain-ai/langchain/releases"
+    },
+    {
+      "id": "llamaindex",
+      "names": [
+        "LlamaIndex",
+        "GPT Index"
+      ],
+      "first_public": "2022-11-09",
+      "source": "https://github.com/run-llama/llama_index"
+    },
+    {
+      "id": "langsmith",
+      "names": [
+        "LangSmith"
+      ],
+      "first_public": "2023-07-18",
+      "source": "https://blog.langchain.dev/announcing-langsmith/"
+    },
+    {
+      "id": "pinecone",
+      "names": [
+        "Pinecone"
+      ],
+      "first_public": "2021-01-27",
+      "source": "https://www.pinecone.io/blog/pinecone-launch/"
+    },
+    {
+      "id": "pgvector",
+      "names": [
+        "pgvector"
+      ],
+      "first_public": "2021-04-20",
+      "source": "https://github.com/pgvector/pgvector/releases"
+    },
+    {
+      "id": "chromadb",
+      "names": [
+        "ChromaDB",
+        "Chroma DB"
+      ],
+      "first_public": "2023-02-15",
+      "source": "https://github.com/chroma-core/chroma"
+    },
+    {
+      "id": "ollama",
+      "names": [
+        "Ollama"
+      ],
+      "first_public": "2023-07-18",
+      "source": "https://github.com/ollama/ollama/releases"
+    },
+    {
+      "id": "llama",
+      "names": [
+        "LLaMA",
+        "Llama 2",
+        "Llama 3",
+        "Llama 4"
+      ],
+      "first_public": "2023-02-24",
+      "source": "https://ai.meta.com/blog/large-language-model-llama-meta-ai/",
+      "patterns": [
+        "Llama\\s*\\d(?:\\.\\d)?"
+      ]
+    },
+    {
+      "id": "mistral",
+      "names": [
+        "Mistral AI",
+        "Mistral 7B",
+        "Mixtral"
+      ],
+      "first_public": "2023-09-27",
+      "source": "https://mistral.ai/news/announcing-mistral-7b"
+    },
+    {
+      "id": "gemini",
+      "names": [
+        "Google Gemini",
+        "Gemini"
+      ],
+      "first_public": "2023-12-06",
+      "source": "https://blog.google/technology/ai/google-gemini-ai/"
+    },
+    {
+      "id": "vertex-ai",
+      "names": [
+        "Vertex AI"
+      ],
+      "first_public": "2021-05-18",
+      "source": "https://cloud.google.com/blog/products/ai-machine-learning/google-cloud-launches-vertex-ai-unified-platform-for-mlops"
+    },
+    {
+      "id": "azure-openai",
+      "names": [
+        "Azure OpenAI"
+      ],
+      "first_public": "2021-11-02",
+      "source": "https://azure.microsoft.com/en-us/blog/azure-openai-service-combines-openai-models-with-azure-security-and-enterprise-promise/"
+    },
+    {
+      "id": "sagemaker",
+      "names": [
+        "Amazon SageMaker",
+        "SageMaker"
+      ],
+      "first_public": "2017-11-29",
+      "source": "https://aws.amazon.com/blogs/aws/sagemaker/"
+    },
+    {
+      "id": "llm-agents",
+      "names": [
+        "agentic",
+        "AI agent",
+        "AI agents",
+        "LLM agent",
+        "LLM agents",
+        "agentic AI",
+        "agentic workflow",
+        "agentic workflows"
+      ],
+      "first_public": "2022-10-06",
+      "source": "https://arxiv.org/abs/2210.03629",
+      "patterns": [
+        "multi-agent\\s+(?:LLM|orchestration|workflows?|pipelines?)",
+        "agent\\s+workflows?"
+      ],
+      "note": "LLM-agent sense (ReAct). Plain 'agent' and 'multi-agent systems' are not catalogued."
+    },
+    {
+      "id": "genai",
+      "names": [
+        "GenAI",
+        "Gen AI",
+        "generative AI"
+      ],
+      "first_public": "2022-11-30",
+      "source": "https://openai.com/index/chatgpt/",
+      "note": "Resume-vocabulary sense after ChatGPT; generative models themselves predate this."
+    },
+    {
+      "id": "prompt-engineering",
+      "names": [
+        "prompt engineering",
+        "prompt engineer"
+      ],
+      "first_public": "2020-05-28",
+      "source": "https://arxiv.org/abs/2005.14165"
+    },
+    {
+      "id": "llm-evals",
+      "names": [
+        "LLM eval",
+        "LLM evals",
+        "LLM evaluation",
+        "LLM evaluations",
+        "model evals"
+      ],
+      "first_public": "2023-03-14",
+      "source": "https://github.com/openai/evals"
+    },
+    {
+      "id": "a2a",
+      "names": [
+        "Agent2Agent",
+        "A2A protocol"
+      ],
+      "first_public": "2025-04-09",
+      "source": "https://developers.googleblog.com/en/a2a-a-new-era-of-agent-interoperability/"
+    },
+    {
+      "id": "forward-deployed-engineer",
+      "names": [
+        "Forward Deployed Engineer",
+        "Forward Deployed Engineering",
+        "FDE"
+      ],
+      "first_public": "2010-01-01",
+      "source": "https://newsletter.pragmaticengineer.com/p/forward-deployed-engineers",
+      "note": "Palantir title since about 2009-2010. Raise this date here if the resume policy should treat FDE as a 2024+ framing."
+    },
+    {
+      "id": "llm-era-titles",
+      "names": [
+        "LLM Engineer",
+        "GenAI Engineer",
+        "Generative AI Engineer",
+        "Agent Engineer",
+        "AI Agent Engineer",
+        "Agentic Engineer"
+      ],
+      "first_public": "2023-06-30",
+      "source": "https://www.latent.space/p/ai-engineer",
+      "patterns": [
+        "(?:LLM|GenAI|Generative AI|Agentic)\\s+(?:Platform|Systems|Applications?)\\s+Engineer"
+      ],
+      "note": "Role framings that only exist in the LLM era. 'AI Engineer' and 'ML Engineer' predate this and are not catalogued."
     }
   ]
 }

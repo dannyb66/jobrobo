@@ -15,12 +15,31 @@ import os
 import shutil
 import subprocess
 import tempfile
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VENV_PYTHON = ROOT / ".venv-captchakraken" / "bin" / "python"
 SIDECAR = ROOT / "scripts" / "captcha_solve.py"
-DEFAULT_TIMEOUT = 100
+DEFAULT_TIMEOUT = 200
+JOB_REQUEST_LIMIT = 36
+_JOB_BUDGET = ContextVar('captcha_job_budget', default=None)
+
+
+@contextmanager
+def job_budget(*, limit=JOB_REQUEST_LIMIT, used=0, checkpoint=None):
+    budget = {'limit':limit,'used':used,'checkpoint':checkpoint}
+    token = _JOB_BUDGET.set(budget)
+    try:
+        yield budget
+    finally:
+        _JOB_BUDGET.reset(token)
+
+
+def _budget_checkpoint(budget):
+    if budget and budget['checkpoint']:
+        budget['checkpoint'](budget['used'])
 
 # Outcomes a caller may act on. ``cleared`` is the only one that means "go on".
 CLEARED = "cleared"
@@ -123,6 +142,11 @@ def solve(driver, *, expect_provider: str | None = None, timeout: int = DEFAULT_
     """Try to clear a challenge on the current tab. Never raises."""
     if not enabled():
         return _normalized(DISABLED, "CAPTCHA_SOLVER is not enabled")
+    budget = _JOB_BUDGET.get()
+    allowance = min(6, max(0,budget['limit']-budget['used'])) if budget else 6
+    if not allowance:
+        return _normalized('budget_exhausted','CAPTCHA job request budget exhausted', terminal=True,
+                           model_requests=0, request_limit=0)
     ready, why = available()
     if not ready:
         return _normalized(DISABLED, why)
@@ -137,10 +161,9 @@ def solve(driver, *, expect_provider: str | None = None, timeout: int = DEFAULT_
     except Exception:
         pass
 
-    # Three loops, not five: a board that has not cleared in three is rarely
-    # going to, and the caller retries a rejection with a fresh solve anyway.
+    # Bound each solve independently of the caller's total attempt budget.
     command = [str(VENV_PYTHON), str(SIDECAR), "--cdp", url, "--url", page_url,
-               "--max-responses", "3", "--overall-timeout-ms", "75000"]
+               "--max-responses", str(allowance), "--overall-timeout-ms", "150000"]
     if wait_painted_ms:
         command += ["--wait-painted-ms", str(wait_painted_ms)]
     if expect_provider:
@@ -165,10 +188,23 @@ def solve(driver, *, expect_provider: str | None = None, timeout: int = DEFAULT_
                  "CAPTCHA_KRAKEN_BASE_URL": base_url,
                  "VLLM_BASE_URL": base_url}
     try:
+        # Reserve before starting the child. A timeout or process crash must not
+        # reset the budget on resume when the actual usage is unknown.
+        if budget:
+            budget['used'] += allowance
+            _budget_checkpoint(budget)
         completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout,
                                    env={k: v for k, v in child_env.items() if v})
     except subprocess.TimeoutExpired:
-        return _normalized("timeout", f"sidecar exceeded {timeout}s", screenshot=screenshot)
+        return _normalized("timeout", f"sidecar exceeded {timeout}s", screenshot=screenshot,
+                           model_requests=None, model_requests_reserved=allowance,
+                           job_requests_used=budget['used'] if budget else None)
+    except OSError as error:
+        if budget:
+            budget['used'] -= allowance
+            _budget_checkpoint(budget)
+        return _normalized('error','Could not start CAPTCHA sidecar ('+type(error).__name__+')',
+                           model_requests=0, terminal=True)
 
     payload = {}
     for line in reversed((completed.stdout or "").strip().splitlines()):
@@ -185,6 +221,12 @@ def solve(driver, *, expect_provider: str | None = None, timeout: int = DEFAULT_
     payload.setdefault("token_length", -1)
     payload.setdefault("responses", 0)
     payload.setdefault("tokens", {})
+    actual = payload.get('model_requests')
+    if budget and type(actual) is int and 0 <= actual <= allowance:
+        budget['used'] -= allowance-actual
+        _budget_checkpoint(budget)
+    payload['job_requests_used'] = budget['used'] if budget else actual
+    payload['terminal'] = bool(payload.get('terminal') or payload.get('status') in {'budget_exhausted','abandoned','blocked'})
     # Dump the log for anything that is not a clean, token-bearing clear. A
     # "cleared" with no token is the exact case that needs diagnosing, and it
     # used to be excluded.

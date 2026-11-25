@@ -183,6 +183,10 @@ class AllBulletsTest(unittest.TestCase):
 
     def test_config_independence_and_validation(self):
         self.assertFalse(m.validate_options({},'full')['rewrite_all_bullets'])
+        self.assertEqual(m.validate_options({},'full')['replace_job_title_count'],2)
+        self.assertIsNone(m.validate_options({'replace_job_title_count':None},'full')['replace_job_title_count'])
+        for bad in (0,-1,True,1.5,'2'):
+            with self.assertRaises(ValueError):m.validate_options({'replace_job_title_count':bad},'full')
         for bad in ('true',1,None):
             with self.assertRaises(ValueError):m.validate_options({'rewrite_all_bullets':bad},'full')
         for bad in (0,5,2.0,True):

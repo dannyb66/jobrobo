@@ -1,0 +1,293 @@
+name,industry,tech_fit_tags,status,confidence,identity,source_tasks,tiers,reference_url,checked_at_utc
+0x Labs,fintech,backend_distributed_systems,research,high,confirmed,1,,https://0x.org/,2026-11-14T02:42:06.256Z
+7AI,security,ai_agents_rag,research,high,confirmed,1,,https://7ai.com/what-is-agentic-security,2026-11-14T02:42:06.256Z
+Abnormal AI,security,,research,high,confirmed,1,,https://abnormal.ai/,2026-11-14T02:42:06.256Z
+Accenture,other,ai_agents_rag,watchlist,high,confirmed,26,Tier 2B,https://www.accenture.com/en/services/technology-transformation/technology-strategy,2026-11-14T02:42:06.256Z
+Accord,enterprise_software,ai_agents_rag,research,high,confirmed,1,,https://inaccord.com/,2026-11-14T02:42:06.256Z
+Adobe,enterprise_software,,watchlist,high,confirmed,26,Tier 1B,https://www.adobe.com/about-adobe.html,2026-11-14T02:42:06.256Z
+Air Space Intelligence,robotics_industrial,,research,high,confirmed,33 | 45,,https://www.asi.com/,2026-11-14T02:42:06.256Z
+Airbnb,consumer,,watchlist,high,confirmed,1 | 26,Tier 1D,https://news.airbnb.com/about-us,2026-11-14T02:42:06.256Z
+AirOps,enterprise_software,ai_agents_rag,research,high,confirmed,1,,https://www.airops.com/,2026-11-14T02:42:06.256Z
+AIUC,fintech,,research,medium,confirmed,46,,https://aiuc.com/,2026-11-14T02:42:06.256Z
+Altara,robotics_industrial,ai_agents_rag,research,high,confirmed,1,,https://altara.ai/,2026-11-14T02:42:06.256Z
+Amazon / AWS,infrastructure_devtools,backend_distributed_systems | ai_agents_rag | ml_infrastructure,watchlist,medium,confirmed,26,Tier 1B,https://aws.amazon.com/,2026-11-14T02:42:06.256Z
+Ambient,security,ai_agents_rag,research,high,confirmed,33,,https://www.ambient.ai/,2026-11-14T02:42:06.256Z
+American Express,fintech,,watchlist,medium,confirmed,26,Tier 2A,https://www.americanexpress.com/en-us/company/who-we-are/?fs=e,2026-11-14T02:42:06.256Z
+Anchorage,fintech,,research,high,confirmed,33,,https://www.anchorage.com/about,2026-11-14T02:42:06.256Z
+Anduril,robotics_industrial,robotics_software,research,medium,confirmed,1,,https://www.anduril.com/mission,2026-11-14T02:42:06.256Z
+Anthropic,ai_agents,ai_agents_rag,watchlist,high,confirmed,26,Tier 1A,https://www.anthropic.com/,2026-11-14T02:42:06.256Z
+Antioch,robotics_industrial,robotics_software | backend_distributed_systems | ai_agents_rag,research,high,confirmed,1,,https://antioch.com/,2026-11-14T02:42:06.256Z
+Apiiro,security,ai_agents_rag,research,high,confirmed,1,,https://apiiro.com/,2026-11-14T02:42:06.256Z
+Apple,consumer,,watchlist,high,confirmed,1 | 26,Tier 1B,https://www.apple.com/,2026-11-14T02:42:06.256Z
+Applied Compute,infrastructure_devtools,ml_infrastructure | ai_agents_rag,research,high,confirmed,46,,https://www.appliedcompute.com/,2026-11-14T02:42:06.256Z
+applyapply,consumer,,research,high,confirmed,1,,https://applyapply.xyz/,2026-11-14T02:42:06.256Z
+Arena,ai_agents,ai_agents_rag,research,high,confirmed,45,,https://help.arena.ai/articles/5432423882-how-to-use-agent-mode,2026-11-14T02:42:06.256Z
+Armadin,security,ai_agents_rag,research,high,confirmed,45,,https://www.armadin.com/,2026-11-14T02:42:06.256Z
+Arrangr,enterprise_software,,research,high,confirmed,1,,https://get.arrangr.com/careers/,2026-11-14T02:42:06.256Z
+Aspora,fintech,,research,high,confirmed,1,,https://www.aspora.com/,2026-11-14T02:42:06.256Z
+Astranis,robotics_industrial,,research,high,confirmed,46,,https://www.astranis.com/,2026-11-14T02:42:06.256Z
+Atlassian,enterprise_software,,watchlist,high,confirmed,26,Tier 1C,https://www.atlassian.com/company,2026-11-14T02:42:06.256Z
+Atomic,fintech,ai_agents_rag,research,high,confirmed,1,,https://atomic.financial/,2026-11-14T02:42:06.256Z
+Aurelius Systems,robotics_industrial,robotics_software,research,high,confirmed,46,,https://www.aureliussystems.com/,2026-11-14T02:42:06.256Z
+Axiamatic,enterprise_software,ai_agents_rag,research,high,confirmed,1,,https://www.axiamatic.com/,2026-11-14T02:42:06.256Z
+Bain,other,,watchlist,high,confirmed,26,Tier 2B,https://www.bain.com/about/,2026-11-14T02:42:06.256Z
+Bank of America,fintech,,watchlist,high,confirmed,26,Tier 2A,https://about.bankofamerica.com/en,2026-11-14T02:42:06.256Z
+Baseten,infrastructure_devtools,ml_infrastructure | ai_agents_rag,research,high,confirmed,1,,https://www.baseten.co/,2026-11-14T02:42:06.256Z
+Baton,robotics_industrial,backend_distributed_systems,research,high,confirmed,1,,https://www.baton.io/,2026-11-14T02:42:06.256Z
+BCG / BCG X,other,,watchlist,medium,confirmed,26,Tier 2B,https://www.bcg.com/x/,2026-11-14T02:42:06.256Z
+Beacon AI,robotics_industrial,robotics_software,research,high,confirmed,1,,https://beaconai.co/,2026-11-14T02:42:06.256Z
+Bedrock Robotics,robotics_industrial,robotics_software,research,high,confirmed,45 | 46,,https://bedrockrobotics.com/,2026-11-14T02:42:06.256Z
+Bedrock Security,security,backend_distributed_systems,research,high,confirmed,1,,https://bedrockdata.ai/,2026-11-14T02:42:06.256Z
+Benchling,healthcare,ai_agents_rag,research,high,confirmed,33,,https://www.benchling.com/,2026-11-14T02:42:06.256Z
+BlackRock,fintech,,watchlist,high,confirmed,26,Tier 2A,https://www.blackrock.com/corporate/about-us/who-we-are/about-blackrock,2026-11-14T02:42:06.256Z
+Block,fintech,,research,high,confirmed,1,,https://block.xyz/,2026-11-14T02:42:06.256Z
+Blockaid,security,backend_distributed_systems,research,high,confirmed,1,,https://blockaid.io/,2026-11-14T02:42:06.256Z
+BNY,fintech,,watchlist,high,confirmed,26,Tier 2A,https://www.bny.com/corporate/global/en/about-us/about-bny.html,2026-11-14T02:42:06.256Z
+BoldVoice,consumer,,research,high,confirmed,1,,https://boldvoice.com/,2026-11-14T02:42:06.256Z
+Boltz,healthcare,ml_infrastructure | ai_agents_rag,research,high,confirmed,45,,https://boltz.com/,2026-11-14T02:42:06.256Z
+Bountiful,robotics_industrial,,research,high,confirmed,1,,https://bountiful.ag/,2026-11-14T02:42:06.256Z
+Braintrust,infrastructure_devtools,ai_agents_rag | backend_distributed_systems,research,high,confirmed,1,,https://www.braintrust.dev/,2026-11-14T02:42:06.256Z
+Bretton AI,fintech,ai_agents_rag,research,high,confirmed,1,,https://www.bretton.com/,2026-11-14T02:42:06.256Z
+Brilliant.org,other,,research,high,confirmed,1,,https://brilliant.org/,2026-11-14T02:42:06.256Z
+Candid Health,healthcare,,research,high,confirmed,1,,https://www.joincandidhealth.com/,2026-11-14T02:42:06.256Z
+Canva,enterprise_software,,watchlist,high,confirmed,26,Tier 1D,https://www.canva.com/about/,2026-11-14T02:42:06.256Z
+Cape,security,,research,high,confirmed,33,,https://www.cape.co/,2026-11-14T02:42:06.256Z
+Capgemini,other,,watchlist,high,confirmed,26,Tier 2B,https://www.capgemini.com/about-us/,2026-11-14T02:42:06.256Z
+Capital One,fintech,,watchlist,high,confirmed,26,Tier 2A,https://www.capitalone.com/about/,2026-11-14T02:42:06.256Z
+CareerJumpShip,consumer,,research,high,confirmed,1,,https://www.careerjumpship.com/,2026-11-14T02:42:06.256Z
+Carta,fintech,,research,high,confirmed,33,,https://carta.com/,2026-11-14T02:42:06.256Z
+Charles Schwab,fintech,,watchlist,high,confirmed,26,Tier 2A,https://www.aboutschwab.com/,2026-11-14T02:42:06.256Z
+Checkly,infrastructure_devtools,kubernetes_sre | ai_agents_rag | backend_distributed_systems,research,high,confirmed,1,,https://www.checklyhq.com/,2026-11-14T02:42:06.256Z
+Cisco,infrastructure_devtools,backend_distributed_systems | ai_agents_rag,watchlist,high,confirmed,1 | 26,Tier 1B,https://www.cisco.com/,2026-11-14T02:42:06.256Z
+Cisco ThousandEyes,infrastructure_devtools,kubernetes_sre,research,high,confirmed,1,,https://www.thousandeyes.com/,2026-11-14T02:42:06.256Z
+Citi,fintech,,watchlist,high,confirmed,26,Tier 2A,https://www.citigroup.com/global/about-us,2026-11-14T02:42:06.256Z
+City Detect,enterprise_software,,research,high,confirmed,1,,https://www.citydetect.com/,2026-11-14T02:42:06.256Z
+Clair Health,healthcare,,research,high,confirmed,33,,https://www.wearclair.com/,2026-11-14T02:42:06.256Z
+Clark,enterprise_software,ai_agents_rag,research,high,confirmed,46,,https://getclark.com/,2026-11-14T02:42:06.256Z
+Cleo,healthcare,,research,high,confirmed,1,,https://hicleo.com/,2026-11-14T02:42:06.256Z
+Cloudflare,infrastructure_devtools,backend_distributed_systems | ai_agents_rag,watchlist,high,confirmed,26,Tier 1C,https://www.cloudflare.com/,2026-11-14T02:42:06.256Z
+Clouted,enterprise_software,,research,high,confirmed,33,,https://clouted.com/,2026-11-14T02:42:06.256Z
+Cofactr,robotics_industrial,,research,high,confirmed,1,,https://www.cofactr.com/,2026-11-14T02:42:06.256Z
+Cogent Security,security,ai_agents_rag,research,high,confirmed,1,,https://www.cogent.com/,2026-11-14T02:42:06.256Z
+Cognizant,other,full_stack,watchlist,high,confirmed,26,Tier 2B,https://www.cognizant.com/us/en/about-cognizant,2026-11-14T02:42:06.256Z
+Cohere,ai_agents,ai_agents_rag | ml_infrastructure,watchlist,high,confirmed,26,Tier 1A,https://cohere.com/,2026-11-14T02:42:06.256Z
+CoLoop,enterprise_software,ai_agents_rag,research,high,confirmed,1,,https://www.coloop.ai/,2026-11-14T02:42:06.256Z
+Comcast,consumer,,watchlist,high,confirmed,26,Tier 2C,https://corporate.comcast.com/company/connectivity-platforms,2026-11-14T02:37:29.328Z
+Compound Eye,robotics_industrial,robotics_software,research,high,confirmed,46,,https://www.compoundeye.com/,2026-11-14T02:37:29.328Z
+Confluent,infrastructure_devtools,backend_distributed_systems | ai_agents_rag,watchlist,high,confirmed,26,Tier 1C,https://www.confluent.io/,2026-11-14T02:37:29.328Z
+Corgi,fintech,,research,high,confirmed,46,,https://www.corgi.insure/,2026-11-14T02:37:29.328Z
+Coris,fintech,,research,high,confirmed,1,,https://www.coris.ai/,2026-11-14T02:37:29.328Z
+Corridian,robotics_industrial,robotics_software,research,high,confirmed,46,,https://www.corridian.com/,2026-11-14T02:37:29.328Z
+Cozmo AI,fintech,ai_agents_rag,research,high,confirmed,1,,https://www.hellocozmo.ai/,2026-11-14T02:37:29.328Z
+Cresta,ai_agents,ai_agents_rag,research,high,confirmed,1,,https://cresta.com/,2026-11-14T02:37:29.328Z
+Cribl,infrastructure_devtools,kubernetes_sre,research,high,confirmed,1,,https://cribl.io/,2026-11-14T02:37:29.328Z
+CrowdStrike,security,ai_agents_rag,watchlist,high,confirmed,26,Tier 1C,https://www.crowdstrike.com/en-us/,2026-11-14T02:37:29.328Z
+Curai,healthcare,,research,high,confirmed,1,,https://curaihealth.com/,2026-11-14T02:37:29.328Z
+Curri,robotics_industrial,ai_agents_rag,research,high,confirmed,1,,https://www.curri.com/,2026-11-14T02:37:29.328Z
+Cursor,infrastructure_devtools,ai_agents_rag | ml_infrastructure,watchlist,high,confirmed,26 | 33,Tier 1A,https://cursor.com/,2026-11-14T02:37:29.328Z
+CVS Health / Aetna,healthcare,,watchlist,high,confirmed,26,Tier 2C,https://www.cvshealth.com/,2026-11-14T02:37:29.328Z
+Cylake,security,backend_distributed_systems,research,high,confirmed,1,,https://cylake.com/,2026-11-14T02:37:29.328Z
+Databricks,infrastructure_devtools,backend_distributed_systems | ai_agents_rag,watchlist,high,confirmed,1 | 26,Tier 1C,https://www.databricks.com/,2026-11-14T02:37:29.328Z
+Datadog,infrastructure_devtools,kubernetes_sre,watchlist,high,confirmed,26,Tier 1C,https://www.datadoghq.com/,2026-11-14T02:37:29.328Z
+Decagon,ai_agents,ai_agents_rag,research,high,confirmed,46,,https://decagon.ai/,2026-11-14T02:37:29.328Z
+Deloitte,other,,watchlist,high,confirmed,26,Tier 2B,https://www.deloitte.com/us/en.html,2026-11-14T02:37:29.328Z
+Deutsche Bank,fintech,,watchlist,high,confirmed,26,Tier 2A,https://www.db.com/,2026-11-14T02:37:29.328Z
+Discord,consumer,,research,high,confirmed,1,,https://discord.com/,2026-11-14T02:37:29.328Z
+Disney,consumer,,watchlist,high,confirmed,26,Tier 2C,https://thewaltdisneycompany.com/,2026-11-14T02:37:29.328Z
+DoorDash,consumer,,watchlist,high,confirmed,1 | 26,Tier 1D,https://about.doordash.com/en-us,2026-11-14T02:37:29.328Z
+Doppel,security,,research,high,confirmed,33,,https://www.doppel.com/,2026-11-14T02:37:29.328Z
+Dream,robotics_industrial,,research,high,confirmed,45,,https://www.dreamhq.com/,2026-11-14T02:37:29.328Z
+Dream Labs,robotics_industrial,robotics_software | ml_infrastructure,research,high,confirmed,46,,https://dreamlabs.ai/,2026-11-14T02:37:29.328Z
+DuckDuckGo,consumer,,research,high,confirmed,1,,https://duckduckgo.com/about,2026-11-14T02:37:29.328Z
+Elastic,infrastructure_devtools,backend_distributed_systems | ai_agents_rag | kubernetes_sre,watchlist,high,confirmed,26,Tier 1C,https://www.elastic.co/,2026-11-14T02:37:29.328Z
+Eliyan,robotics_industrial,,research,high,confirmed,46,,https://eliyan.com/,2026-11-14T02:37:29.328Z
+Emanate,enterprise_software,ai_agents_rag,research,high,confirmed,33,,https://emanate.ai/,2026-11-14T02:37:29.328Z
+Enveritas,other,,research,high,confirmed,1,,https://www.enveritas.org/,2026-11-14T02:37:29.328Z
+Eragon,enterprise_software,ai_agents_rag,research,high,confirmed,33,,https://www.eragon.ai/,2026-11-14T02:37:29.328Z
+Espresso Systems,fintech,backend_distributed_systems,research,high,confirmed,1,,https://www.espressosys.com/,2026-11-14T02:37:29.328Z
+etc. (Exploration Technology Corp.),robotics_industrial,,research,high,confirmed,1,,https://etc.space/,2026-11-14T02:37:29.328Z
+Eventual,infrastructure_devtools,backend_distributed_systems | ml_infrastructure,research,high,confirmed,1,,https://www.daft.ai/,2026-11-14T02:37:29.328Z
+Everlaw,enterprise_software,ai_agents_rag,research,high,confirmed,33,,https://www.everlaw.com/,2026-11-14T02:37:29.328Z
+EY,other,,watchlist,high,confirmed,26,Tier 2B,https://www.ey.com/en_us,2026-11-14T02:37:29.328Z
+Fable Security,security,,research,high,confirmed,1,,https://fablesecurity.com/,2026-11-14T02:37:29.328Z
+Fal,infrastructure_devtools,ml_infrastructure | backend_distributed_systems,research,high,confirmed,33,,https://fal.ai/,2026-11-14T02:37:29.328Z
+Fastly,infrastructure_devtools,backend_distributed_systems,research,high,confirmed,1,,https://www.fastly.com/,2026-11-14T02:37:29.328Z
+Favorited,consumer,,research,high,confirmed,33,,https://fav.com/,2026-11-14T02:37:29.328Z
+FERMAT,enterprise_software,ai_agents_rag,research,high,confirmed,1,,https://www.fermatcommerce.com/,2026-11-14T02:37:29.328Z
+Fidelity Investments,fintech,,watchlist,high,confirmed,26,Tier 2A,https://www.fidelity.com/,2026-11-14T02:37:29.328Z
+Fieldwire by Hilti,robotics_industrial,,research,high,confirmed,46,,https://www.fieldwire.com/,2026-11-14T02:37:29.328Z
+Figma,enterprise_software,ai_agents_rag,watchlist,high,confirmed,26,Tier 1D,https://www.figma.com/,2026-11-14T02:37:29.328Z
+Finch,fintech,backend_distributed_systems,research,high,confirmed,46,,https://www.tryfinch.com/,2026-11-14T02:37:29.328Z
+Flexibits,consumer,,research,high,confirmed,1,,https://flexibits.com/,2026-11-14T02:37:29.328Z
+Forgepoint,enterprise_software,ai_agents_rag,research,high,confirmed,33 | 45,,https://forgepoint.ai/,2026-11-14T02:37:29.328Z
+Foundry Robotics,robotics_industrial,robotics_software,research,high,confirmed,46,,https://foundryrobotics.ai/,2026-11-14T02:37:29.328Z
+Fractile,robotics_industrial,ml_infrastructure,research,high,confirmed,45,,https://fractile.com/,2026-11-14T02:37:29.328Z
+GE HealthCare,healthcare,,watchlist,high,confirmed,26,Tier 2C,https://www.gehealthcare.com/en-us,2026-11-14T02:37:29.328Z
+General Medicine,healthcare,,research,high,confirmed,45,,https://generalmedicine.co/,2026-11-14T02:37:29.328Z
+Glean,enterprise_software,ai_agents_rag,watchlist,high,confirmed,26,Tier 1A,https://www.glean.com/,2026-11-14T02:37:29.328Z
+Glimpse,enterprise_software,ai_agents_rag,research,high,confirmed,1,,https://www.tryglimpse.com/,2026-11-14T02:37:29.328Z
+Goldman Sachs,fintech,,watchlist,high,confirmed,26,Tier 2A,https://www.goldmansachs.com/,2026-11-14T02:37:29.328Z
+Google,consumer,ai_agents_rag,watchlist,high,confirmed,1 | 26,Tier 1B,https://about.google/,2026-11-14T02:37:29.328Z
+Google DeepMind,ai_agents,ai_agents_rag | robotics_software,watchlist,high,confirmed,26,Tier 1A,https://deepmind.google/,2026-11-14T02:37:29.328Z
+Gridware,robotics_industrial,,research,high,confirmed,46,,https://www.gridware.io/,2026-11-14T02:37:29.328Z
+Guava,ai_agents,ai_agents_rag | backend_distributed_systems,research,high,confirmed,46,,https://goguava.ai/,2026-11-14T02:37:29.328Z
+Hadean,robotics_industrial,,research,high,confirmed,46,,https://hadean.com/,2026-11-14T02:37:29.328Z
+Harvey,enterprise_software,ai_agents_rag,watchlist,high,confirmed,26,Tier 1A,https://www.harvey.ai/,2026-11-14T02:37:29.328Z
+Headway,healthcare,,research,high,confirmed,33,,https://headway.co/,2026-11-14T02:37:29.328Z
+Hedge,fintech,,research,high,confirmed,1,,https://www.hedgespecialty.com/,2026-11-14T02:37:29.328Z
+Hercules,infrastructure_devtools,ai_agents_rag | full_stack | backend_distributed_systems,research,high,confirmed,33,,https://hercules.app/careers,2026-11-14T02:37:29.328Z
+Hex,enterprise_software,ai_agents_rag,research,high,confirmed,45,,https://hex.tech/,2026-11-14T02:37:29.328Z
+Homeward,fintech,,research,high,confirmed,45,,https://www.homeward.com/,2026-11-14T02:37:29.328Z
+HubSpot,enterprise_software,ai_agents_rag,research,high,confirmed,1,,https://www.hubspot.com/,2026-11-14T02:37:29.328Z
+IBM,infrastructure_devtools,backend_distributed_systems | ai_agents_rag,watchlist,high,confirmed,26,Tier 1B,https://www.ibm.com/us-en,2026-11-14T02:37:29.328Z
+Illumio,security,,research,high,confirmed,33,,https://www.illumio.com/,2026-11-14T02:37:29.328Z
+Infosys,other,,watchlist,high,confirmed,26,Tier 2B,https://www.infosys.com/,2026-11-14T02:37:29.328Z
+Instacart,consumer,,research,high,confirmed,1,,https://company.instacart.com/about-us,2026-11-14T02:37:29.328Z
+Instrumentl,enterprise_software,,research,high,confirmed,1,,https://www.instrumentl.com/,2026-11-14T02:37:29.328Z
+Intuit,fintech,ai_agents_rag,watchlist,high,confirmed,26,Tier 1D,https://www.intuit.com/,2026-11-14T02:37:29.328Z
+Journify,enterprise_software,backend_distributed_systems,research,medium,confirmed,46,,https://www.journify.io/,2026-11-14T02:42:08.908Z
+JPMorganChase,fintech,,watchlist,medium,confirmed,26,Tier 2A,https://www.jpmorganchase.com/careers/explore-opportunities/programs/software-engineer-fulltime?trk=public_post_comment-text,2026-11-14T02:42:08.908Z
+Juicebox,enterprise_software,ai_agents_rag,research,medium,confirmed,46,,https://juicebox.ai/newsroom,2026-11-14T02:42:08.908Z
+JustPark,consumer,,research,medium,confirmed,1,,https://www.justpark.com/uk/info/about-us,2026-11-14T02:42:08.908Z
+Kalshi,fintech,,research,medium,confirmed,33 | 45,,https://institutional.kalshi.com/,2026-11-14T02:42:08.908Z
+Klarna,fintech,,research,medium,confirmed,1,,https://www.klarna.com/uk/wikipink/,2026-11-14T02:42:08.908Z
+ko-br,robotics_industrial,robotics_software,research,medium,confirmed,1,,https://ko-br.com/,2026-11-14T02:42:08.908Z
+Komodo Health,healthcare,,research,medium,confirmed,33,,https://www.komodohealth.com/resources/,2026-11-14T02:42:08.908Z
+KPMG,other,,watchlist,medium,confirmed,26,Tier 2B,https://kpmg.com/ch/en/careers/teams/stem.html,2026-11-14T02:42:08.908Z
+Labelbox,infrastructure_devtools,ml_infrastructure,research,medium,confirmed,45,,https://labelbox.com/blog/labelbox-series-e/,2026-11-14T02:42:08.908Z
+Lamar Health,healthcare,ai_agents_rag,research,high,confirmed,1,,https://lamarhealth.com/,2026-11-14T02:42:08.908Z
+Larridin,enterprise_software,,research,medium,confirmed,46,,https://larridin.com/ai-measurement-guide/,2026-11-14T02:42:08.908Z
+Legora,enterprise_software,ai_agents_rag,research,medium,confirmed,45,,https://legora.com/blog/series-d?trk=test,2026-11-14T02:42:08.908Z
+Linear,enterprise_software,,research,medium,confirmed,1,,https://linear.app/careers/c97e034e-19a8-4ec7-89a5-c81987451da8,2026-11-14T02:42:08.908Z
+LinkedIn,consumer,,watchlist,medium,confirmed,26,Tier 1D,https://about.linkedin.com/?content_language=English,2026-11-14T02:42:08.908Z
+Longeye,enterprise_software,ai_agents_rag,research,high,confirmed,45,,https://www.longeye.com/,2026-11-14T02:42:08.908Z
+Mainmatter,other,,research,medium,confirmed,1,,https://mainmatter.com/rust-consulting/,2026-11-14T02:42:08.908Z
+Mariana Minerals,robotics_industrial,,research,medium,confirmed,33,,https://marianaminerals.com/news,2026-11-14T02:42:08.908Z
+Mastercard,fintech,,watchlist,medium,confirmed,26,Tier 2A,https://www.mastercard.com/global/en/business/support/network-enablement-partners.html,2026-11-14T02:42:08.908Z
+McKinsey / QuantumBlack,other,ml_infrastructure,watchlist,medium,confirmed,26,Tier 2B,https://www.mckinsey.com/careers/search-jobs/jobs/aiengineer-quantumblackaibymckinsey-110292,2026-11-14T02:42:08.908Z
+Meta,consumer,,watchlist,medium,confirmed,26,Tier 1B,https://about.fb.com/news/2021/10/facebook-company-is-now-meta/?channel=Organic&medium=Google+-+Search,2026-11-14T02:42:08.908Z
+Microsoft,enterprise_software,ml_infrastructure | ai_agents_rag,watchlist,medium,confirmed,26,Tier 1B,https://azure.microsoft.com/en-in/products,2026-11-14T02:42:08.908Z
+Mind Robotics,robotics_industrial,robotics_software,research,medium,confirmed,33,,https://www.mindrobotics.com/,2026-11-14T02:42:08.908Z
+Mistral AI,ai_agents,ai_agents_rag | ml_infrastructure,watchlist,medium,confirmed,26,Tier 1A,https://docs.mistral.ai/getting-started/platform-overview,2026-11-14T02:42:08.908Z
+Modal,infrastructure_devtools,backend_distributed_systems | ml_infrastructure,research,medium,confirmed,1 | 45,,https://modal.com/pricing,2026-11-14T02:42:08.908Z
+Monaco,enterprise_software,,research,medium,confirmed,46,,https://jobs.ashbyhq.com/monaco/2c62f82d-2794-46f4-babb-468caf73e62d,2026-11-14T02:42:08.908Z
+MongoDB,infrastructure_devtools,backend_distributed_systems,watchlist,medium,confirmed,26,Tier 1C,https://www.mongodb.com/company/newsroom/press-releases/mongodb-unveils-vision-for-a-developer-data-products-at-mongodb-world-2022,2026-11-14T02:42:08.908Z
+Morgan Stanley,fintech,,watchlist,medium,confirmed,26,Tier 2A,https://www.morganstanley.com/who-we-serve/individuals,2026-11-14T02:42:08.908Z
+Moxie,healthcare,,research,medium,confirmed,46,,https://www.joinmoxie.com/start-medspa,2026-11-14T02:42:08.908Z
+Multiply Labs,healthcare,robotics_software,research,medium,confirmed,46,,https://www.multiplylabs.com/careers,2026-11-14T02:42:08.908Z
+Munari Labs,robotics_industrial,robotics_software | ml_infrastructure,research,high,confirmed,33,,https://speedrun.a16z.com/companies/munari,2026-11-14T02:42:08.908Z
+Namespace,infrastructure_devtools,backend_distributed_systems,research,medium,confirmed,1,,https://namespace.so/careers,2026-11-14T02:42:08.908Z
+Neon,fintech,backend_distributed_systems,research,medium,confirmed,33,,https://www.neonpay.com/payments,2026-11-14T02:42:08.908Z
+Netflix,consumer,,watchlist,medium,confirmed,26,Tier 1B,https://about.netflix.com/en,2026-11-14T02:42:08.908Z
+NeverBlink,infrastructure_devtools,backend_distributed_systems | kubernetes_sre,research,high,confirmed,1,,https://neverblink.ai/about-us,2026-11-14T02:42:08.908Z
+Newleos Therapeutics,healthcare,,research,medium,confirmed,46,,https://newleos.com/expanded-access/,2026-11-14T02:42:08.908Z
+Nextera Robotics | DIDGE.ai,robotics_industrial,robotics_software,research,high,confirmed,1,,https://didge.ai/,2026-11-14T02:42:08.908Z
+Nexxa,robotics_industrial,,research,medium,confirmed,33,,https://speedrun.a16z.com/companies/nexxaai,2026-11-14T02:42:08.908Z
+Noloco,enterprise_software,,research,medium,confirmed,1,,https://noloco.io/terms-of-service,2026-11-14T02:42:08.908Z
+Northwood Space,robotics_industrial,full_stack,research,medium,confirmed,46,,https://www.northwoodspace.io/careers?ashby_jid=bb433b43-02e8-4c60-89ba-bd5c86c80a20,2026-11-14T02:42:08.908Z
+Notion,enterprise_software,ai_agents_rag,watchlist,medium,confirmed,26,Tier 1D,https://www.notion.com/product/ai,2026-11-14T02:42:08.908Z
+nPhase AI,healthcare,,research,medium,confirmed,46,,https://www.nphase.ai/newsroom/nphase-launches-industrys-first-ai-native-enterprise-platform-for-end-to-end-clinical-data-management,2026-11-14T02:42:08.908Z
+Nubank,fintech,,research,medium,confirmed,1,,https://nubank.com.br/sobre-o-nu?msockid=348dec9d54456c3d08a5faf955316ddd,2026-11-14T02:42:08.908Z
+NVIDIA,infrastructure_devtools,ml_infrastructure | robotics_software,watchlist,medium,confirmed,1 | 26,Tier 1B,https://developer.nvidia.com/isaac,2026-11-14T02:42:08.908Z
+Okta,security,,watchlist,medium,confirmed,26,Tier 1C,https://www.okta.com/en-nl/,2026-11-14T02:42:08.908Z
+OneChronos,fintech,backend_distributed_systems,research,medium,confirmed,1,,https://www.onechronos.com/documentation/user-manual/us-equities/,2026-11-14T02:42:08.908Z
+Onos Health,healthcare,,research,medium,confirmed,46,,https://onoshealth.com/,2026-11-14T02:42:08.908Z
+Open Education Applications / Neon,other,,research,high,confirmed,1,,https://openeducation.foundation/,2026-11-14T02:42:08.908Z
+OpenAI,ai_agents,ai_agents_rag | ml_infrastructure,watchlist,medium,confirmed,1 | 26,Tier 1A,https://openai.com/index/research-acceleration-view-inside-openai/,2026-11-14T02:42:08.908Z
+OpenGov,enterprise_software,,research,medium,confirmed,33,,https://opengov.com/careers/,2026-11-14T02:42:08.908Z
+OpenRent,consumer,,research,medium,confirmed,1,,https://www.openrent.co.uk/about,2026-11-14T02:42:08.908Z
+OpenRouter,infrastructure_devtools,ml_infrastructure | backend_distributed_systems,research,medium,confirmed,33,,https://openrouter.ai/for-ai,2026-11-14T02:42:08.908Z
+OpenSanctions,fintech,backend_distributed_systems,research,high,confirmed,1,,https://www.opensanctions.org/docs/about/,2026-11-14T02:42:08.908Z
+Oracle,infrastructure_devtools,backend_distributed_systems | ml_infrastructure,watchlist,medium,confirmed,26,Tier 1B,https://www.oracle.com/,2026-11-14T02:42:08.908Z
+Oratomic,robotics_industrial,,research,high,confirmed,45,,https://www.oratomic.com/,2026-11-14T02:42:08.908Z
+PAGNOS,other,backend_distributed_systems | full_stack,research,medium,confirmed,1,,https://www.pagnos.com/cloud-development/index.html,2026-11-14T02:42:08.908Z
+Palo Alto Networks,security,backend_distributed_systems | kubernetes_sre,watchlist,medium,confirmed,26,Tier 1C,https://jobs.paloaltonetworks.com/en/search_jobs/Principal%20System%20QA%20Engineer%20%28DevOps%20Platform-%20Cortex%20Cloud%29/47263/1?weekdayJdUid=998314,2026-11-14T02:42:08.908Z
+PayPal,fintech,backend_distributed_systems,research,medium,confirmed,1,,https://www.paypal.com/us/business/accept-payments?locale.x=en_US,2026-11-14T02:42:08.908Z
+Peak Energy,robotics_industrial,,research,medium,confirmed,46,,https://peakenergy.com/,2026-11-14T02:42:08.908Z
+Periodic Labs,ai_agents,ml_infrastructure | ai_agents_rag,research,medium,confirmed,33,,https://periodic.com/news,2026-11-14T02:42:08.908Z
+Perplexity,ai_agents,ai_agents_rag,watchlist,medium,confirmed,26,Tier 1A,https://www.perplexity.ai/hub?trk=article-ssr-frontend-pulse_little-text-block,2026-11-14T02:42:08.908Z
+Plaid,fintech,backend_distributed_systems,research,medium,confirmed,33,,https://plaid.com/docs/financial-insights/,2026-11-14T02:42:08.908Z
+Planlab.ai,enterprise_software,ai_agents_rag,research,medium,confirmed,1,,https://www.planlab.ai/schedule-generation,2026-11-14T02:42:08.908Z
+Plutus,fintech,ai_agents_rag,research,medium,confirmed,1,,https://help.runplutus.com/en/articles/17567965-connect-plutus-to-claude,2026-11-14T02:42:08.908Z
+Polymath Robotics,robotics_industrial,robotics_software,research,medium,confirmed,1,,https://www.polymathrobotics.com/about,2026-11-14T02:42:08.908Z
+Postscript,enterprise_software,,research,medium,confirmed,1,,https://postscript.io/sms-marketing-certification,2026-11-14T02:42:08.908Z
+PrairieLearn,other,,research,medium,confirmed,1,,https://www.prairielearn.com/catalog/assessments,2026-11-14T02:42:08.908Z
+Preference Model,ai_agents,ml_infrastructure,research,high,confirmed,45,,https://www.preferencemodel.com/,2026-11-14T02:42:08.908Z
+Primitive Labs,infrastructure_devtools,ai_agents_rag,research,high,confirmed,33,,https://speedrun.a16z.com/companies/primitive-labs,2026-11-14T02:42:08.908Z
+PwC,other,,watchlist,medium,confirmed,26,Tier 2B,https://www.pwc.com/us/consulting,2026-11-14T02:42:08.908Z
+Quilter,robotics_industrial,,research,medium,confirmed,46,,https://www.quilter.ai/about,2026-11-14T02:42:08.908Z
+QUOBYTE,infrastructure_devtools,backend_distributed_systems | kubernetes_sre,research,medium,confirmed,1,,https://www.quobyte.com/storage-for/kubernetes-and-containers/,2026-11-14T02:42:08.908Z
+Ramp,fintech,,watchlist,medium,confirmed,26,Tier 1D,https://support.ramp.com/ramp-overview/,2026-11-14T02:42:08.908Z
+reddit,consumer,,research,medium,confirmed,1,,https://about.reddit.com/,2026-11-14T02:41:34.882664+00:00
+Reflex,infrastructure_devtools,full_stack | ai_agents_rag,research,high,confirmed,46,,https://reflex.dev/blog/series-a-announcement/,2026-11-14T02:41:34.882664+00:00
+Relevant Healthcare,healthcare,,research,medium,confirmed,1,,https://relevant.healthcare/,2026-11-14T02:41:34.882664+00:00
+Reliable Robotics,robotics_industrial,robotics_software,research,medium,confirmed,46,,https://www.businesswire.com/news/home/20240214333635/en/Reliable-Robotics-Demonstrates-Flexibility-of-Autonomous-Flight-System-in-an-Operational-Mission-for-the-U.S.-Air-Force,2026-11-14T02:41:34.882664+00:00
+Retool,infrastructure_devtools,full_stack | ai_agents_rag,research,medium,confirmed,1,,https://docs.retool.com/agents,2026-11-14T02:41:34.882664+00:00
+Rillet,fintech,ai_agents_rag,research,medium,confirmed,33 | 46,,https://www.rillet.com/blog/100m-series-c,2026-11-14T02:41:34.882664+00:00
+Rippling,enterprise_software,ai_agents_rag,watchlist,medium,confirmed,26,Tier 1D,https://www.rippling.com/platform,2026-11-14T02:41:34.882664+00:00
+River,fintech,,research,medium,confirmed,1,,https://river.com/about/,2026-11-14T02:41:34.882664+00:00
+Roche / Genentech,healthcare,,watchlist,high,confirmed,26,Tier 2C,https://www.roche.com/about,2026-11-14T02:41:34.882664+00:00
+SafeWorld,robotics_industrial,robotics_software,research,high,confirmed,45,,https://www.safeworld.ai/,2026-11-14T02:41:34.882664+00:00
+Salesforce,enterprise_software,ai_agents_rag,watchlist,medium,confirmed,26,Tier 1B,https://www.salesforce.com/agentforce/?bc=OTH&content_language=English,2026-11-14T02:41:34.882664+00:00
+Sardine,fintech,ai_agents_rag,research,high,confirmed,33,,https://www.sardine.ai/,2026-11-14T02:41:34.882664+00:00
+Scale AI,ai_agents,ml_infrastructure,watchlist,medium,confirmed,26,Tier 1A,https://scale.com/data-engine,2026-11-14T02:41:34.882664+00:00
+Sekai,consumer,ai_agents_rag,research,high,confirmed,33,,https://speedrun.a16z.com/companies/sekai,2026-11-14T02:41:34.882664+00:00
+SentiLink,fintech,,research,medium,confirmed,33,,https://resources.sentilink.com/alert-j1-f1-visa-fraud,2026-11-14T02:41:34.882664+00:00
+Sentra,enterprise_software,ai_agents_rag,research,high,confirmed,33,,https://speedrun.a16z.com/companies/sentra,2026-11-14T02:41:34.882664+00:00
+ServiceNow,enterprise_software,ai_agents_rag,watchlist,high,confirmed,26,Tier 1C,https://www.servicenow.com/,2026-11-14T02:41:34.882664+00:00
+Sesame,ai_agents,ai_agents_rag,research,high,confirmed,33,,https://www.sesame.com/,2026-11-14T02:41:34.882664+00:00
+ShareWillow,fintech,ai_agents_rag,research,high,confirmed,46,,https://www.sharewillow.com/,2026-11-14T02:41:34.882664+00:00
+Shepherd,fintech,,research,high,confirmed,1,,https://www.shepherdinsurance.com/,2026-11-14T02:41:34.882664+00:00
+Shield AI,robotics_industrial,robotics_software,research,high,confirmed,1,,https://shield.ai/,2026-11-14T02:41:34.882664+00:00
+Sidekick Labs,security,ai_agents_rag,research,high,confirmed,1,,https://sidekicklabs.com/,2026-11-14T02:41:34.882664+00:00
+SiMa.ai,robotics_industrial,ml_infrastructure | robotics_software,research,high,confirmed,46,,https://sima.ai/,2026-11-14T02:41:34.882664+00:00
+Sirius,enterprise_software,ai_agents_rag,research,high,confirmed,33,,https://speedrun.a16z.com/companies/sirius,2026-11-14T02:41:34.882664+00:00
+Skydio,robotics_industrial,robotics_software,research,medium,confirmed,1 | 33,,https://www.skydio.com/skydio-autonomy,2026-11-14T02:41:34.882664+00:00
+Smarkets,fintech,,research,medium,confirmed,1,,https://smarkets.com/about/,2026-11-14T02:41:34.882664+00:00
+Snout,healthcare,,research,medium,confirmed,1,,https://www.snout.com/,2026-11-14T02:41:34.882664+00:00
+Snowflake,infrastructure_devtools,ai_agents_rag | ml_infrastructure,watchlist,high,confirmed,1 | 26,Tier 1C,https://www.snowflake.com/es/,2026-11-14T02:41:34.882664+00:00
+Socket,security,,research,high,confirmed,33,,https://socket.dev/,2026-11-14T02:41:34.882664+00:00
+Solace Health,healthcare,,research,high,confirmed,1,,https://www.solace.health/,2026-11-14T02:41:34.882664+00:00
+SpaceX,robotics_industrial,,research,medium,confirmed,1,,https://www.spacex.com/about/mission,2026-11-14T02:41:34.882664+00:00
+Spade,fintech,ai_agents_rag,research,high,confirmed,1,,https://spade.com/,2026-11-14T02:41:34.882664+00:00
+Sprinter Health,healthcare,,research,high,confirmed,33,,https://www.sprinterhealth.com/,2026-11-14T02:41:34.882664+00:00
+Starbridge,enterprise_software,ai_agents_rag,research,high,confirmed,1,,https://starbridge.ai/,2026-11-14T02:41:34.882664+00:00
+Starburst,infrastructure_devtools,backend_distributed_systems,research,high,confirmed,33,,https://www.starburst.io/,2026-11-14T02:41:34.882664+00:00
+Stripe,fintech,backend_distributed_systems,watchlist,high,confirmed,1 | 26,Tier 1D,https://stripe.com/,2026-11-14T02:41:34.882664+00:00
+Stuut,fintech,ai_agents_rag,research,high,confirmed,33,,https://www.stuut.ai/,2026-11-14T02:41:34.882664+00:00
+Sudowrite,consumer,,research,high,confirmed,1,,https://sudowrite.com/,2026-11-14T02:41:34.882664+00:00
+SuperMe,ai_agents,ai_agents_rag,research,high,confirmed,46,,https://www.superme.ai/,2026-11-14T02:42:10.766273+00:00
+SwingVision,consumer,,research,medium,confirmed,1,,https://swing.vision/,2026-11-14T02:41:34.882664+00:00
+Syncere,robotics_industrial,robotics_software,research,high,confirmed,46,,https://syncere.com/newsroom/funding,2026-11-14T02:41:34.882664+00:00
+Tanium,security,ai_agents_rag,research,high,confirmed,33,,https://www.tanium.com/,2026-11-14T02:41:34.882664+00:00
+Tank Payments,fintech,,research,high,confirmed,1,,https://www.tankpayments.com/,2026-11-14T02:41:34.882664+00:00
+Target,consumer,,watchlist,high,confirmed,26,Tier 2C,https://corporate.target.com/about,2026-11-14T02:41:34.882664+00:00
+TCS,other,,watchlist,high,confirmed,26,Tier 2B,https://www.tcs.com/who-we-are,2026-11-14T02:41:34.882664+00:00
+Tennr,healthcare,,research,high,confirmed,33,,https://www.tennr.com/,2026-11-14T02:41:34.882664+00:00
+Tenstorrent,infrastructure_devtools,ml_infrastructure | backend_distributed_systems,research,high,confirmed,45,,https://tenstorrent.com/,2026-11-14T02:41:34.882664+00:00
+Tesla,robotics_industrial,robotics_software | ml_infrastructure,watchlist,high,confirmed,26,Tier 1D,https://www.tesla.com/SI,2026-11-14T02:41:34.882664+00:00
+Tether,fintech,,research,high,confirmed,1,,https://tether.io/,2026-11-14T02:41:34.882664+00:00
+Thinking Machines Lab,ai_agents,,research,high,confirmed,33,,https://thinkingmachines.ai/,2026-11-14T02:41:34.882664+00:00
+Thunder Compute,infrastructure_devtools,ml_infrastructure | ai_agents_rag,research,high,confirmed,1,,https://www.thundercompute.com/,2026-11-14T02:41:34.882664+00:00
+Together AI,infrastructure_devtools,ml_infrastructure | ai_agents_rag,watchlist,high,confirmed,26,Tier 1A,https://www.together.ai/,2026-11-14T02:41:34.882664+00:00
+Town,ai_agents,ai_agents_rag,research,high,confirmed,45,,https://www.town.com/,2026-11-14T02:41:34.882664+00:00
+Trajectory,infrastructure_devtools,ml_infrastructure,research,high,confirmed,46,,https://www.trajectory.ai/field-notes/introducing-the-trajectory-platform,2026-11-14T02:41:34.882664+00:00
+Traversal,infrastructure_devtools,ai_agents_rag | kubernetes_sre | backend_distributed_systems,research,high,confirmed,46,,https://www.traversal.com/,2026-11-14T02:41:34.882664+00:00
+Trustworthy Technology,other,,research,medium,confirmed,1,,https://trustworthy.technology/,2026-11-14T02:41:34.882664+00:00
+Tutor Intelligence,robotics_industrial,robotics_software,research,high,confirmed,46,,https://tutorintelligence.com/,2026-11-14T02:41:34.882664+00:00
+Uber,consumer,backend_distributed_systems | kubernetes_sre,watchlist,high,confirmed,26,Tier 1D,https://www.uber.com/us/en/about/,2026-11-14T02:41:34.882664+00:00
+UBS,fintech,,watchlist,high,confirmed,26,Tier 2A,https://www.ubs.com/global/en/our-firm.html,2026-11-14T02:41:34.882664+00:00
+UnitedHealth Group / Optum,healthcare,,watchlist,medium,confirmed,26,Tier 2C,https://www.unitedhealthgroup.com/uhg/businesses.html,2026-11-14T02:41:34.882664+00:00
+Valon,fintech,ai_agents_rag,research,high,confirmed,33 | 45,,https://www.valon.ai/,2026-11-14T02:41:34.882664+00:00
+Vanta,security,,research,high,confirmed,1,,https://www.vanta.com/,2026-11-14T02:41:34.882664+00:00
+Vesta,fintech,ai_agents_rag,research,high,confirmed,45,,https://www.vesta.com/,2026-11-14T02:41:34.882664+00:00
+Visa,fintech,,watchlist,high,confirmed,26,Tier 2A,https://corporate.visa.com/en/about-visa.html,2026-11-14T02:41:34.882664+00:00
+VOYGR,infrastructure_devtools,ai_agents_rag,research,high,confirmed,1,,https://www.ycombinator.com/companies/voygr,2026-11-14T02:41:34.882664+00:00
+Walmart / Global Tech,consumer,kubernetes_sre,watchlist,high,confirmed,26,Tier 2C,https://tech.walmart.com/content/walmart-global-tech/en_us.html,2026-11-14T02:41:34.882664+00:00
+Wells Fargo,fintech,,watchlist,high,confirmed,26,Tier 2A,https://www.wellsfargo.com/about/,2026-11-14T02:41:34.882664+00:00
+WhatsApp,consumer,,research,high,confirmed,1,,https://www.whatsapp.com/,2026-11-14T02:41:34.882664+00:00
+Wonderschool,other,,research,high,confirmed,33,,https://www.wonderschool.com/corp/,2026-11-14T02:41:34.882664+00:00
+xAI,ai_agents,ml_infrastructure | ai_agents_rag,watchlist,high,confirmed,26,Tier 1A,https://x.ai/,2026-11-14T02:41:34.882664+00:00
+Yardstik,enterprise_software,,research,high,confirmed,1,,https://yardstik.com/,2026-11-14T02:41:34.882664+00:00
+YouTube,consumer,,research,high,confirmed,1,,https://about.youtube/,2026-11-14T02:41:34.882664+00:00
+Zensors,robotics_industrial,ai_agents_rag,research,high,confirmed,46,,https://www.zensors.com/,2026-11-14T02:41:34.882664+00:00

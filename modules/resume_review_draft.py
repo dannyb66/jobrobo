@@ -182,7 +182,8 @@ def write_review(root,source,jd,role,job_id,inv,records,scheduler,config,scoring
         report['keyword_provenance']=keyword_provenance(before,after,keywords,bank)
         report['score_breakdown']=m.score_breakdown(report,scoring)
         report['same_jd_verified']=True
-        m._render_page_images(root)
+        report['page_images'] = m._render_page_images(root)
+        report['page_images_unavailable'] = bool(report['page_images'] and report['page_images']['status'] != 'complete')
     m._write_json(root/'rewrite-coverage.json',{'summary':counts,'bullets':records})
     for name in ('match-report.json','optimized.match_report.json'):m._write_json(root/name,report)
     m._comparison(root,report,records)

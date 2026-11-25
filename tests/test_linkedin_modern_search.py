@@ -455,6 +455,27 @@ class ModernResultsDOMTests(unittest.TestCase):
         self.assertEqual(row["workplace_type"], "Hybrid")
         self.assertEqual(row["title"].count("Voice Agents"), 1)
 
+    def test_location_label_on_picker_button_itself_counts_as_hydrated(self):
+        # Observed 2026-11-18: LinkedIn dropped every data-view-name marker and
+        # moved "Location <city>" onto the role=button element instead of a child.
+        from modules.linkedin_modern_search import _settle, _location_label, verify_modern_location
+        browser = DOMBrowser((FIXTURES / "linkedin_modern_results_unmarked.html").read_text())
+        picker = browser.root.xpath("//*[@role='button'][.//*[starts-with(@aria-label,'Location ')]]")[0]
+        inner = picker.xpath(".//*[@aria-label]")[0]
+        picker.set("aria-label", inner.get("aria-label"))
+        del inner.attrib["aria-label"]
+        # Facets kept their label on a child of the role=button wrapper.
+        facet = html.fromstring('<nav><div role="button" tabindex="0" aria-expanded="false">'
+                                '<div aria-label="Filter by Workplace type">Workplace type</div></div></nav>')
+        picker.addnext(facet)
+        self.assertEqual(browser.find_elements("xpath", "//*[@data-view-name]"), [])
+        self.assertEqual(browser.find_elements("xpath", "//*[@role='button'][.//*[starts-with(@aria-label,'Location ')]]"), [])
+        query = "Find Senior Software Engineer roles."
+        browser.get("https://www.linkedin.com/jobs/search-results/?" + urlencode({"keywords": query, "geoId": "90000084"}))
+        self.assertEqual(_settle(browser, query, wait=immediate), "jobs")
+        self.assertEqual(_location_label(browser), "San Francisco Bay Area")
+        self.assertIsNotNone(verify_modern_location(browser, "San Francisco Bay Area"))
+
     def test_display_contents_cards_and_facets_use_visible_actionable_descendants(self):
         from modules.linkedin_modern_search import get_search_cards
         browser = DOMBrowser()
@@ -600,12 +621,26 @@ class ModernFilterReplayTests(unittest.TestCase):
         self.assertEqual(result.executed_query, make_spec().query_text)
         self.assertEqual(result.diagnostics()["result_card_count"], 1)
 
+    def test_post_filter_readiness_accepts_workplace_annotations(self):
+        from modules.linkedin_modern_search import _settle
+        spec = make_spec()
+        for workplace in ("hybrid or remote", "remote or hybrid", "on-site", "remote",
+                          "on-site, hybrid or remote"):
+            with self.subTest(workplace=workplace):
+                self.browser.get("https://www.linkedin.com/jobs/search-results/?" + urlencode({"keywords": spec.query_text}))
+                prompt = self.browser.root.xpath("//*[@componentkey='semanticSearchBox']")[0]
+                prompt.set("value", spec.query_text + " full-time " + workplace +
+                           " Easy Apply posted in the past month")
+                self.assertEqual(_settle(self.browser, spec.query_text,
+                                         after_filters=True, wait=immediate), "jobs")
+
     def test_post_filter_readiness_rejects_unrelated_text_or_wrong_url_query(self):
         from modules.linkedin_modern_search import _settle
         from modules.linkedin_search import SearchUIError
         spec = make_spec()
         for prompt, url_query in (("Unrelated marketing jobs", spec.query_text),
                                   (spec.query_text + " unrelated words", spec.query_text),
+                                  (spec.query_text + " full-time hybrid or remote marketing", spec.query_text),
                                   (spec.query_text + " posted in the past month", "Wrong query")):
             with self.subTest(prompt=prompt, url_query=url_query):
                 self.browser.get("https://www.linkedin.com/jobs/search-results/?" + urlencode({"keywords": url_query}))
@@ -613,15 +648,19 @@ class ModernFilterReplayTests(unittest.TestCase):
                 with self.assertRaises(SearchUIError) as caught:
                     _settle(self.browser, spec.query_text, after_filters=True, wait=immediate)
                 self.assertIn("readiness", caught.exception.diagnostics())
+                if url_query == spec.query_text:
+                    self.assertIn("results loaded but displayed prompt", str(caught.exception))
 
     def test_initial_query_does_not_accept_filter_annotation(self):
         from modules.linkedin_modern_search import _settle
         from modules.linkedin_search import SearchUIError
         spec = make_spec()
         self.browser.get("https://www.linkedin.com/jobs/search-results/?" + urlencode({"keywords": spec.query_text}))
-        self.browser.root.xpath("//*[@componentkey='semanticSearchBox']")[0].set("value", spec.query_text + " posted in the past month")
-        with self.assertRaises(SearchUIError):
-            _settle(self.browser, spec.query_text, wait=immediate)
+        for suffix in (" posted in the past month", " full-time hybrid or remote Easy Apply posted in the past month"):
+            with self.subTest(suffix=suffix):
+                self.browser.root.xpath("//*[@componentkey='semanticSearchBox']")[0].set("value", spec.query_text + suffix)
+                with self.assertRaises(SearchUIError):
+                    _settle(self.browser, spec.query_text, wait=immediate)
 
     def test_easy_apply_pill_can_disappear_during_filter_hydration(self):
         from unittest.mock import patch
@@ -857,6 +896,28 @@ class ModernFilterReplayTests(unittest.TestCase):
         result = self.prepare()
         self.assertEqual(result.filter_report["on_site"]["status"], "verified")
         self.assertEqual(set(parse_qs(urlsplit(self.browser.current_url).query)["f_WT"][0].split(",")), {"2", "3"})
+
+    def test_committed_workplace_count_badge_still_allows_option_verification(self):
+        trigger = self.browser.root.xpath("//*[@aria-label='On-site/remote']")[0]
+        trigger.set("aria-label", "Workplace type")
+        trigger.text = "Workplace type"
+        original_click = self.browser.click
+
+        def counted_workplace(node):
+            # The fixture handler recognizes the base label; the public DOM
+            # retains LinkedIn's observed selected-count label between clicks.
+            counted = node is trigger and node.get("aria-label", "").endswith("filters are selected")
+            if counted:
+                node.set("aria-label", "Workplace type")
+            original_click(node)
+            if counted or (node.tag == "a" and node.getparent().get("id") == "work-menu"):
+                trigger.set("aria-label", "Filter by Workplace type, 2 filters are selected")
+                trigger.text = "2 Workplace type"
+
+        self.browser.click = counted_workplace
+        result = self.prepare()
+        self.assertEqual(result.filter_report["on_site"]["status"], "verified")
+        self.assertIn("on_site", result.verified_filters)
 
     def test_hybrid_and_onsite_only_do_not_treat_remote_pill_as_workplace_dropdown(self):
         for arrangement in ("Hybrid", "On-site"):

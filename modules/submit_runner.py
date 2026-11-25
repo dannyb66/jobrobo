@@ -19,6 +19,37 @@ from .manual_tabs import ManualTabs
 from .manual_tabs import close_browser_tab
 from .search_history import file_lock
 from .submit_state import SubmitRun, build_run_summary, now
+from .portal_outcomes import explicit_portal_rejection, portal_messages
+from .submit_history import SubmissionHistory
+
+LOCAL_WORKER_LIMIT = 16
+KERNEL_WORKER_LIMIT = 4
+
+
+def recover_abandoned_preparations(run, ledger):
+    """Called under the exclusive run lock; never replay a possible Submit."""
+    recovered = 0
+    protected = ledger._read()
+    for job, state in run.rows():
+        if state['status'] not in {'preparing', 'ready'}:
+            continue
+        prior = protected.get(ledger.target_key(job['url']), {})
+        manual = state.get('manual_tab') or {}
+        if prior.get('status') in {'applied', 'duplicate'}:
+            status = 'applied' if prior.get('status') == 'applied' and prior.get('attempt_id') == state.get('attempt_id') else 'duplicate'
+            run.update(job, status=status, stage='recovered_ledger_confirmation', retryable=False,
+                       submitted_at=prior.get('submitted_at'))
+        elif (ledger.protected(job['url']) or state.get('manual_tab')
+              or state.get('verification_after_submit') or state.get('external_submission_pending')
+              or manual.get('verification_after_submit')):
+            run.update(job, status='submission_uncertain', stage='crash_reconciliation', retryable=False,
+                       reason='Interrupted attempt has submission or manual-handoff evidence; inspect outcome before retrying')
+        else:
+            run.update(job, status='pending', stage='recovered_pre_submit', retryable=False,
+                       previous_attempt_id=state.get('attempt_id'), attempt_id=None,
+                       reason='Recovered abandoned pre-submit preparation after obtaining exclusive run lock')
+            recovered += 1
+    return recovered
 
 
 @dataclass
@@ -28,20 +59,6 @@ class ApplicationTab:
     handle: str
     on_update: object = None
     url_guard: object = None
-
-
-def explicit_portal_rejection(state):
-    """Return evidence only for a visible employer denial of the submitted form."""
-    messages = [str(x) for x in state.get('alerts', []) + state.get('headings', [])]
-    text = '\n'.join(messages + [str(state.get('text', ''))])
-    if (re.search(r"we couldn['’]t submit your application", text, re.I) and
-        re.search(r'flagged as possible spam', text, re.I)):
-        return 'Employer explicitly rejected the application as possible spam'
-    # Lever answers a failed server-side verification with this instead of a
-    # receipt. The application is not accepted, so it is safe to retry.
-    if re.search(r'error verifying your application', text, re.I):
-        return 'Employer could not verify the submitted application'
-    return ''
 
 
 def requeue_failed(run, ledger):
@@ -98,7 +115,8 @@ def recover_verification_tabs(driver, run, ledger, job_keys=None):
             if not _identity_ok(live['url'],report['resolved_url']):continue
             baseline=report.get('confirmation_baseline')
             if baseline is None:baseline=[h for step in report.get('steps',[]) for h in step.get('headings',[])]
-            fresh={**live,'headings':[h for h in live.get('headings',[]) if h not in baseline]}
+            fresh={**live, **{field:[h for h in live.get(field,[]) if h not in baseline]
+                             for field in ('headings','alerts')}}
             if external_dispatch_pending(fresh):
                 reason='Application service accepted the request; employer submission is still pending'
                 run.update(job,status='submission_uncertain',stage='external_submission_pending',retryable=False,
@@ -107,11 +125,12 @@ def recover_verification_tabs(driver, run, ledger, job_keys=None):
                 write_json(Path(state['preparation_report']),report)
                 continue
             rejection = explicit_portal_rejection(fresh)
-            if rejection and not live.get('challenge'):
+            if rejection:
                 ledger.reconcile(job['url'], state['attempt_id'], applied=False, reason=rejection)
                 run.update(job,status='failed_before_submit',stage='portal_rejected_as_spam',retryable=True,
                     reason=rejection,reconciliation={'source':'retained_portal_message','at':now()})
-                report.update(status='failed',portal_rejection=rejection,blockers=[rejection])
+                report.update(status='failed',portal_rejection=rejection,blockers=[rejection],
+                              rejection_evidence={'messages':portal_messages(fresh),'observed_at':now()})
                 write_json(Path(state['preparation_report']),report)
                 continue
             if _confirmed(fresh) and not live.get('challenge'):
@@ -169,6 +188,7 @@ def reconcile_run(directory, job_id, *, outcome, reason):
                 reason='Operator verified '+outcome,reconciliation=entry['reconciliation'],
                 submitted_at=entry.get('submitted_at'))
             application_export(run,set_name=run.options.get('set_name'),output=run.options.get('export_path'),db_path=run.options.get('db_path'))
+            if run.options.get('history_root'):SubmissionHistory(run.options['history_root']).finish(run)
             return run.export()
         finally:run.close()
 
@@ -211,6 +231,11 @@ def local_ledger(run):
 
 
 def application_export(run, *, set_name='direct-submissions', output=None, db_path=None):
+    with run._lock:
+        return _application_export_locked(run, set_name=set_name, output=output, db_path=db_path)
+
+
+def _application_export_locked(run, *, set_name, output, db_path):
     set_name = set_name or 'direct-submissions'
     from .job_pipeline.models import StageResult, write_artifact
     records = []; errors = []
@@ -220,12 +245,15 @@ def application_export(run, *, set_name='direct-submissions', output=None, db_pa
         if state['status'] == 'pending':
             continue
         records.append({'id': 'direct-application:'+fingerprint([run.manifest['id'],job['key']]), 'role_id': job['id'],
-            'company_id': job.get('company_id'), 'company': (job.get('role') or {}).get('company'),
+            'company_id': job.get('company_id'),
+            'company': (job.get('role') or {}).get('company') or job.get('company'),
+            'title': job.get('title') or (job.get('role') or {}).get('title',''),
             'career_url': job['url'], 'ats_identity': job['key'], 'direct_run_id': run.manifest['id'],
             'verification_run_id': job.get('verification_run_id'),
             'verified_at':job.get('verified_at'), 'preference_warnings':job.get('preference_warnings',[]),
             'ranking_run_id': job.get('provenance', {}).get('input_run_id'),
-            'source_provenance': job.get('provenance', {}), **state})
+            'source_provenance': job.get('provenance', {}),
+            'retry_origins':job.get('retry_origins', []), **state})
     artifact = StageResult.create('applications', set_name, run.manifest['id'], records, errors=errors,
         input_set_ids=list(dict.fromkeys('verified_roles:'+j['provenance']['set_name'] for j, _ in run.rows() if j.get('provenance', {}).get('set_name'))))
     canonical = run.directory/'applications.json'
@@ -237,6 +265,15 @@ def application_export(run, *, set_name='direct-submissions', output=None, db_pa
         with PipelineStore(db_path) as store:
             store.import_artifact(artifact, 'applications')
     return artifact.to_dict()
+
+
+def prepare_with_budget(preparer, url, *, run, job, options, saved, **kwargs):
+    from .captcha_solver import job_budget
+    run.update(job,preparation_report=str(Path(kwargs['output_dir'])/fingerprint(url)[:20]/'report.json'))
+    def checkpoint(used):
+        run.update(job,captcha_model_requests=used,captcha_request_limit=options['captcha_max_requests'])
+    with job_budget(limit=options['captcha_max_requests'],used=saved.get('captcha_model_requests',0),checkpoint=checkpoint):
+        return preparer(url, **kwargs)
 
 
 def _parallel_submit_job(job, saved, *, attempt, index, total, run, options, services,
@@ -257,8 +294,10 @@ def _parallel_submit_job(job, saved, *, attempt, index, total, run, options, ser
             address=driver.capabilities.get('goog:chromeOptions',{}).get('debuggerAddress')
             if address:
                 run.update(job,debugger_address=address)
-                # Run-level too: resume reattaches once for the whole session.
-                run.set_options({**run.options,'debugger_address':address})
+                run.update(job,worker_session={
+                    'backend':'local','worker_id':worker_context['worker_id'],
+                    'profile_path':worker_context.get('profile_path'),
+                    'debugger_address':address})
         run.update(job,worker_id=worker_context['worker_id'])
         driver.switch_to.new_window('tab')
         run.update(job,tab_handle=str(driver.current_window_handle))
@@ -268,7 +307,7 @@ def _parallel_submit_job(job, saved, *, attempt, index, total, run, options, ser
             candidate['application_source']=job['discovery_source']
             question_config.setdefault('candidate',{})['application_source']=job['discovery_source']
         def stage(name, report):
-            run.update(job,stage=name)
+            run.update(job,stage=name,preparation_report=str(Path(report['output_dir'])/'report.json'))
             print(f'[{index}/{total} | {time.monotonic()-started:.0f}s] {name}',flush=True)
         def ready(browser, report, root):
             nonlocal monitor
@@ -288,7 +327,8 @@ def _parallel_submit_job(job, saved, *, attempt, index, total, run, options, ser
             return services['resume_provider'](job_context,
                 Path(options['output_dir'])/fingerprint(job['url'])[:20]/'resume')
         print(f"[{index}/{total}] {job.get('company','')} {job.get('title') or job['url']}",flush=True)
-        report=preparer(job['url'],driver=driver,output_dir=options['preparation_dir'],
+        report=prepare_with_budget(preparer,job['url'],run=run,job=job,options=options,saved=saved,
+            driver=driver,output_dir=options['preparation_dir'],
             candidate=candidate,question_config=question_config,resume_provider=cached_resume,
             drafting_factory=services.get('drafting_factory'),question_mapper=services.get('question_mapper'),
             ledger=ledger,job_hint=job_hint(job),browser_class=SubmissionBrowser,on_ready=ready,on_stage=stage,
@@ -337,7 +377,7 @@ def _parallel_submit_job(job, saved, *, attempt, index, total, run, options, ser
             retryable=bool(report.get('pre_submit_retryable')) or report['status'] in {'failed','blocked','interrupted'} and not any(
                 phrase in ' '.join(report.get('blockers',[])).lower() for phrase in ('captcha','manual access','closed','unsupported','login'))
             if report.get('access_outcome')=='posting_identity_changed':retryable=False
-            run.update(job,status='failed_before_submit' if report['status']=='failed' else 'blocked',
+            run.update(job,status='failed_before_submit' if report['status'] in {'failed','failed_before_submit'} else 'blocked',
                 stage='portal_validation_rejected' if report.get('portal_validation_rejected') else 'captcha_timeout_before_submit' if report.get('pre_submit_retryable') and any('CAPTCHA timeout' in b for b in report.get('blockers',[])) else 'preparation_finished',
                 reason='; '.join(report.get('blockers',[])),retryable=retryable)
         run.update(job,preparation_report=str(Path(report['output_dir'])/'report.json'),
@@ -350,7 +390,7 @@ def _parallel_submit_job(job, saved, *, attempt, index, total, run, options, ser
         final_state=next(s for row,s in run.rows() if row['key']==job['key'])
         worker_context.setdefault('job_keys',set()).add(job['key'])
         worker_context.setdefault('retain_keys',set())
-        if final_state['status'] not in {'applied','duplicate','discarded','pending'}:
+        if final_state['status'] not in {'applied','pending'}:
             worker_context['retain_keys'].add(job['key'])
         return worker_context
     except BaseException as error:
@@ -363,7 +403,7 @@ def _parallel_submit_job(job, saved, *, attempt, index, total, run, options, ser
             return worker_context
         print('Job stopped: '+type(error).__name__,flush=True)
         worker_context.setdefault('job_keys',set()).add(job['key'])
-        if options['pause']!='never':worker_context.setdefault('retain_keys',set()).add(job['key'])
+        if status!='applied':worker_context.setdefault('retain_keys',set()).add(job['key'])
         return worker_context
 
 
@@ -373,55 +413,85 @@ def _run_parallel_submissions(run, *, options, services, ledger, driver_factory,
                               tab_monitor_factory, retry_failed=False):
     """Run bounded URL workers; each worker owns one isolated session and tabs."""
     workers=options['workers']
-    if backend!='kernel' and driver_factory_is_default:
-        raise ValueError('Parallel workers require --browser kernel; one local Chrome profile cannot be safely shared.')
     if retry_failed:print('[Resume] Requeued '+str(requeue_failed(run,ledger))+' eligible failures; confirmed jobs remain skipped.',flush=True)
     import threading
     from collections import defaultdict, deque
     stop=threading.Event();startup_failed=threading.Event();dispatch_lock=threading.Lock()
     startup_failure_reason=[];startup_probe=threading.Event();startup_probe_lock=threading.Lock();startup_probe_claimed=False
 
-    def create_context(worker_id, session_id=None, telemetry_offset=0):
+    def create_context(worker_id, session_id=None, telemetry_offset=0, local_session=None, profile_base=None):
+        profile_path=None
         if backend=='kernel':
             from .kernel_browser import KernelBrowser
             driver=KernelBrowser(settings=kernel_settings,run_id=run.manifest['id']+'-'+worker_id,
                 session_id=session_id,telemetry_offset=telemetry_offset)
+        elif driver_factory_is_default:
+            from direct_apply import browser_factory
+            if local_session:
+                profile_path=local_session.get('profile_path')
+                factory=browser_factory(profile_path,debugger_address=local_session['debugger_address'])
+            else:
+                base=Path(profile_base or options.get('chrome_profile') or run.directory/'chrome-profile')
+                worker_index=int(worker_id.rsplit('-',1)[1])
+                profile_path=str(base.expanduser().resolve())+'-w'+str(worker_index)
+                factory=browser_factory(base,worker_index=worker_index)
+            driver=factory()
         else:driver=driver_factory()
         try:
             driver.set_window_size(1440,1000);driver.set_page_load_timeout(40)
         except BaseException:
             try:
                 if getattr(driver,'browser_backend',None)=='kernel':driver.finish(retain=True)
+                elif local_session:driver.service.stop()
                 else:driver.quit()
             except Exception:pass
             raise
-        return {'driver':driver,'monitor':None,'worker_id':worker_id,'job_keys':set(),'retain_keys':set()}
+        return {'driver':driver,'monitor':None,'worker_id':worker_id,'profile_path':profile_path,'job_keys':set(),'retain_keys':set()}
 
     def restore_session(worker_id,session_id,items):
         keys={job['key'] for job,state in items}
         offsets=[state.get('kernel_telemetry_offset',0) for _,state in items]
-        context=create_context(worker_id,session_id,max(offsets or [0]))
+        local_session=items[0][1].get('worker_session') if backend!='kernel' else None
+        context=create_context(worker_id,session_id,max(offsets or [0]),local_session=local_session)
         driver=context['driver']
-        def observe(event):run.browser_event(driver.session_id,event)
-        driver.session_observer=observe
-        driver.challenge_observer=lambda event:run.browser_event(driver.session_id,{'type':'challenge','event':event})
-        for job,state in items:
-            if state.get('tab_handle'):
-                try:driver.switch_to.window(state['tab_handle'])
+        try:
+            def observe(event):run.browser_event(driver.session_id,event)
+            if backend=='kernel':
+                driver.session_observer=observe
+                driver.challenge_observer=lambda event:run.browser_event(driver.session_id,{'type':'challenge','event':event})
+            for job,state in items:
+                if state.get('tab_handle'):
+                    try:driver.switch_to.window(state['tab_handle'])
+                    except Exception:pass
+            recover_verification_tabs(driver,run,ledger,job_keys=keys)
+            monitor=tab_monitor_factory(driver,run,ledger,allow_local=allow_local,
+                confirmation_timeout=confirmation_timeout,job_keys=keys,persist_run_options=False)
+            context['monitor']=monitor
+            monitor.restore(job_keys=keys);context['job_keys']=keys
+            return context
+        except BaseException:
+            if context.get('monitor'):
+                try:context['monitor'].close()
                 except Exception:pass
-        recover_verification_tabs(driver,run,ledger,job_keys=keys)
-        monitor=tab_monitor_factory(driver,run,ledger,allow_local=allow_local,
-            confirmation_timeout=confirmation_timeout,job_keys=keys,persist_run_options=False)
-        monitor.restore(job_keys=keys);context['monitor']=monitor;context['job_keys']=keys
-        return context
+            try:
+                if backend=='kernel':driver.finish(retain=True)
+                else:driver.service.stop()
+            except Exception:pass
+            raise
 
     # Group retained jobs by their owning browser session. New runs write one
     # shared session id per bounded worker, while older parallel runs may have
     # one session per job; both layouts resume without refilling those forms.
+    unresolved_statuses={'awaiting_manual_submit','awaiting_correction','submitting','awaiting_email_verification','submission_uncertain'}
     saved_groups=defaultdict(list)
     for job,state in run.rows():
-        if state['status'] not in {'awaiting_manual_submit','awaiting_correction','submitting','awaiting_email_verification','submission_uncertain'}:continue
-        session=state.get('kernel_session_id')
+        if backend=='kernel' and state['status'] not in unresolved_statuses:continue
+        if backend!='kernel' and (state['status'] in {'applied','duplicate','discarded'} or state.get('stage')=='manual_browser_unavailable'):continue
+        local_session=state.get('worker_session') or {}
+        session=(state.get('kernel_session_id') if backend=='kernel' else local_session.get('debugger_address') or state.get('debugger_address'))
+        if session and backend!='kernel' and not local_session:
+            state={**state,'worker_session':{'backend':'local','worker_id':state.get('worker_id'),
+                'debugger_address':session,'profile_path':None}}
         if not session:
             if state['status'] in {'awaiting_manual_submit','awaiting_correction','submitting','awaiting_email_verification'}:
                 run.update(job,status='submission_uncertain',stage='worker_session_missing',retryable=False,
@@ -434,7 +504,7 @@ def _run_parallel_submissions(run, *, options, services, ledger, driver_factory,
         try:
             context=restore_session(worker_id,session,items)
             if options['pause']!='never' and context['monitor'].tabs:
-                context['driver'].show_live_view()
+                if backend=='kernel':context['driver'].show_live_view()
                 while not stop.is_set() and any(not tab['done'] for tab in context['monitor'].tabs.values()):
                     if context['monitor'].poll():application_export(run,set_name=options['set_name'],output=options['export_path'],db_path=options['db_path'])
                     time.sleep(.4)
@@ -443,9 +513,12 @@ def _run_parallel_submissions(run, *, options, services, ledger, driver_factory,
             print('[Worker] Could not restore prior session: '+type(error).__name__,flush=True)
         finally:
             if context:
+                # Only the owning thread may inspect this worker's retained tabs.
+                try:recover_verification_tabs(context['driver'],run,ledger,job_keys=keys)
+                except Exception:pass
                 try:context['monitor'].close()
                 except Exception:pass
-                retain=any(state['status'] not in {'applied','duplicate','discarded','pending'}
+                retain=any(state['status'] not in {'applied','pending'}
                     for job,state in run.rows() if job['key'] in keys)
                 try:context['driver'].finish(retain=retain)
                 except Exception:pass
@@ -459,7 +532,7 @@ def _run_parallel_submissions(run, *, options, services, ledger, driver_factory,
                 run.update(job,status='duplicate' if prior.get('status') in {'applied','duplicate'} else 'submission_uncertain',
                     stage='protected_in_run_ledger',retryable=False)
                 continue
-            blockers=[b for b in job.get('admission_blockers',[]) if b!='retry_requires_manual_resolution']
+            blockers=job.get('admission_blockers',[])
             if blockers:
                 run.update(job,status='blocked',stage='input_admission',reason='; '.join(blockers),retryable=False)
                 continue
@@ -472,22 +545,51 @@ def _run_parallel_submissions(run, *, options, services, ledger, driver_factory,
     def count_toward_cap(state):
         return state['status'] in {'preparing','ready','awaiting_review','submitting','submission_uncertain','awaiting_manual_submit','awaiting_correction','awaiting_email_verification','applied'}
 
-    def take_work():
+    def take_work(owned_session=None):
         with dispatch_lock:
             if stop.is_set() or startup_failed.is_set() or not queue:return None
             used=sum(count_toward_cap(state) for _,state in run.rows())
             if cap is not None and used>=cap:return None
-            job,state=queue.popleft();attempt=str(uuid.uuid4())
+            # Pending retries retain their browser ownership until attachment
+            # succeeds. Other slots must not race them onto a fresh profile.
+            selected=None
+            for item in queue:
+                saved_session=(item[1].get('worker_session') or {}).get('debugger_address') or item[1].get('debugger_address')
+                if backend=='kernel' or not saved_session or saved_session==owned_session:
+                    selected=item;break
+            if selected is None:return None
+            queue.remove(selected)
+            job,state=selected;attempt=str(uuid.uuid4())
             reserved=run.update(job,status='preparing',stage='worker_reserved',attempt_id=attempt,
-                attempts=state.get('attempts',0)+1,reason='')
+                reservation_id=attempt,attempts=state.get('attempts',0)+1,reason='')
             return job,reserved,attempt
 
-    def worker_loop(worker_index):
+    def worker_loop(worker_index, restored=None):
         nonlocal startup_probe_claimed
-        worker_id=f'worker-{worker_index:02d}';context=None
+        worker_id=f'worker-{worker_index:02d}';context=None;recovery_profile=None
         try:
+            if restored:
+                session,items=restored
+                try:
+                    context=restore_session(worker_id,session,items)
+                except Exception as error:
+                    with dispatch_lock:
+                        for job,state in items:
+                            if state['status'] in unresolved_statuses:
+                                run.update(job,status='submission_uncertain',stage='manual_browser_unavailable',retryable=False,
+                                    reason='Prior browser unavailable ('+type(error).__name__+'); inspect employer outcome before retrying')
+                            elif state['status']=='pending':
+                                # Explicit safe retries may proceed without the old
+                                # browser. Clear both durable and queued ownership.
+                                updated=run.update(job,worker_session=None,debugger_address=None,tab_handle=None,manual_tab=None)
+                                for queued_job,queued_state in queue:
+                                    if queued_job['key']==job['key']:queued_state.update(updated)
+                    # Never reuse the old profile: Chrome may still be running
+                    # despite an unreachable endpoint or attachment failure.
+                    recovery_profile=run.directory/('chrome-recovery-'+uuid.uuid4().hex)
+                    restored=None
             while not stop.is_set():
-                task=take_work()
+                task=take_work(restored[0] if restored else None)
                 if task is None:break
                 job,saved,attempt=task
                 if context is None:
@@ -505,7 +607,7 @@ def _run_parallel_submissions(run, *, options, services, ledger, driver_factory,
                         run.update(job,status='pending',stage='pending',attempt_id=None,
                             attempts=saved.get('attempts',0),reason='')
                         break
-                    try:context=create_context(worker_id)
+                    try:context=create_context(worker_id,profile_base=recovery_profile)
                     except Exception as error:
                         if backend=='kernel':
                             safe_reason=(str(error).strip().replace('\n',' ')[:350]
@@ -521,6 +623,9 @@ def _run_parallel_submissions(run, *, options, services, ledger, driver_factory,
                         print(f'[Worker {worker_index}/{workers}] Browser startup failed: {safe_reason}',flush=True)
                         break
                     if is_probe:startup_probe.set()
+                    if backend!='kernel':
+                        address=context['driver'].capabilities.get('goog:chromeOptions',{}).get('debuggerAddress','unknown')
+                        print(f"[Worker {worker_index}/{workers}] Local Chrome {address}; profile {context.get('profile_path')}",flush=True)
                     if getattr(context['driver'],'browser_backend',None)=='kernel':
                         print(f"[Worker {worker_index}/{workers}] Kernel session {context['driver'].session_id}",flush=True)
                 context=_parallel_submit_job(job,saved,attempt=attempt,index=positions.get(job['key'],0),total=total,
@@ -528,7 +633,8 @@ def _run_parallel_submissions(run, *, options, services, ledger, driver_factory,
                     preparer=preparer,review_factory=review_factory,allow_local=allow_local,
                     confirmation_timeout=confirmation_timeout,tab_monitor_factory=tab_monitor_factory)
             if context and context.get('monitor') and options['pause']!='never' and context['monitor'].tabs:
-                driver=context['driver'];driver.show_live_view()
+                driver=context['driver']
+                if backend=='kernel':driver.show_live_view()
                 while not stop.is_set() and any(not tab['done'] for tab in context['monitor'].tabs.values()):
                     if context['monitor'].poll():application_export(run,set_name=options['set_name'],output=options['export_path'],db_path=options['db_path'])
                     time.sleep(.4)
@@ -537,11 +643,13 @@ def _run_parallel_submissions(run, *, options, services, ledger, driver_factory,
             stop.set();return context
         finally:
             if context:
+                try:recover_verification_tabs(context['driver'],run,ledger,job_keys=context.get('job_keys',set()))
+                except Exception:pass
                 if stop.is_set():context.setdefault('retain_keys',set()).update(context.get('job_keys',set()))
                 if context.get('monitor'):
                     try:context['monitor'].close()
                     except Exception:pass
-                retain=stop.is_set() or any(s['status'] not in {'applied','duplicate','discarded','pending'} for job,s in run.rows() if job['key'] in context.get('job_keys',set()))
+                retain=stop.is_set() or any(s['status'] not in {'applied','pending'} for job,s in run.rows() if job['key'] in context.get('job_keys',set()))
                 try:
                     if getattr(context['driver'],'browser_backend',None)=='kernel':context['driver'].finish(retain=retain)
                     elif retain and driver_factory_is_default:
@@ -554,10 +662,26 @@ def _run_parallel_submissions(run, *, options, services, ledger, driver_factory,
     parallel_workers=min(workers,max(1,len(queue)))
     with ThreadPoolExecutor(max_workers=max(1,parallel_workers+len(saved_groups)),thread_name_prefix='jobrobo-apply') as pool:
         futures=[]
-        for slot,(session,items) in enumerate(saved_groups.items(),1):
-            worker_id=items[0][1].get('worker_id') or f'restored-{slot:02d}'
-            futures.append(pool.submit(monitor_saved_session,worker_id,session,items))
-        futures.extend(pool.submit(worker_loop,index) for index in range(1,parallel_workers+1))
+        if backend=='kernel':
+            for slot,(session,items) in enumerate(saved_groups.items(),1):
+                worker_id=items[0][1].get('worker_id') or f'restored-{slot:02d}'
+                futures.append(pool.submit(monitor_saved_session,worker_id,session,items))
+            futures.extend(pool.submit(worker_loop,index) for index in range(1,parallel_workers+1))
+        else:
+            # A restored browser and its pending work have one owning thread.
+            if len(saved_groups)>workers:
+                raise ValueError('Worker count cannot be lower than the retained local session count')
+            occupied=set()
+            restored_slots=[]
+            for session,items in saved_groups.items():
+                worker_id=items[0][1].get('worker_id')
+                index=int(worker_id.rsplit('-',1)[1]) if worker_id else next(i for i in range(1,LOCAL_WORKER_LIMIT+1) if i not in occupied)
+                if index in occupied:
+                    raise ValueError('Conflicting retained local worker sessions; inspect saved run')
+                occupied.add(index);restored_slots.append((index,(session,items)))
+            futures.extend(pool.submit(worker_loop,index,restored) for index,restored in restored_slots)
+            available=(i for i in range(1,LOCAL_WORKER_LIMIT+1) if i not in occupied)
+            futures.extend(pool.submit(worker_loop,next(available)) for _ in range(min(len(queue),workers-len(occupied))))
         try:
             for future in as_completed(futures):future.result()
         except KeyboardInterrupt:
@@ -581,7 +705,8 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     tab_monitor_factory=ManualTabs,
                     preparer=prepare_url, set_name=None, export_path=None, db_path=None,
                     browser_backend=None,browser_config=None,retry_failed=False,captcha_solver=False,
-                    application_tab=None):
+                    application_tab=None,history_root=None,independent_run=False,captcha_max_requests=None,
+                    resume_options=None):
     """CLI runs are independent; application_tab borrows a caller-owned tab/shared ledger."""
     if pause is not None and pause not in {'always', 'unknown', 'never'}:
         raise ValueError('Invalid pause mode')
@@ -601,6 +726,10 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
         raise ValueError('Resume takes its jobs and run directory from saved state')
     if retry_failed and not resume_dir:
         raise ValueError('Retrying failures requires an explicit saved run')
+    if history_root and independent_run:
+        raise ValueError('Select a history scope or an independent run')
+    if resume_dir and (history_root or independent_run):
+        raise ValueError('Resume uses its saved history scope')
     if resume_dir:
         directory, run_id = Path(resume_dir).expanduser().resolve(), None
     else:
@@ -612,6 +741,9 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     'chrome_profile': str(chrome_profile) if chrome_profile else None, 'questions_path': questions_path,
                     'discovery_source': discovery_source, 'pause': pause, 'max_applications': max_applications,
                     'workers': workers,
+                    'history_root':str(history_root) if history_root else None,
+                    'captcha_max_requests':captcha_max_requests,
+                    'resume_options':deepcopy(resume_options),
                     'ledger_path': str(ledger_path) if ledger_path else None,
                     'set_name': set_name, 'export_path': str(export_path) if export_path else None,
                     'db_path': str(db_path) if db_path else None,
@@ -621,9 +753,14 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
         if application_tab is not None and application_tab.on_update:
             run.on_update = lambda job, state: application_tab.on_update(job, {
                 **state, 'direct_run_id':run.manifest['id'], 'direct_run_dir':str(run.directory)})
-        driver = None; manual_tabs = None; driver_factory_is_default=False; keep_browser=False
+        driver = None; manual_tabs = None; driver_factory_is_default=False; keep_browser=False; history=None
         try:
             options = {k: (v if v is not None else run.options.get(k)) for k, v in supplied.items()}
+            if resume_dir and run.options.get('captcha_solver'):
+                from .captcha_solver import enable
+                enable()
+            from .captcha_solver import enabled as solver_enabled
+            options['captcha_solver'] = solver_enabled()
             if resume_dir:
                 for key in ('kernel_session_id','kernel_settings','kernel_telemetry_offset'):
                     if key in run.options:options[key]=run.options[key]
@@ -631,10 +768,16 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                 options['debugger_address']=run.options['debugger_address']
             options['config_dir'] = options['config_dir'] or str(Path(__file__).resolve().parents[1]/'config')
             options['output_dir'] = options['output_dir'] or 'logs/url_preparations'
+            options['captcha_max_requests'] = options['captcha_max_requests'] or 36
+            if type(options['captcha_max_requests']) is not int or options['captcha_max_requests'] < 1:
+                raise ValueError('CAPTCHA model request limit must be positive')
+            if options.get('history_root'):
+                options['history_root'] = str(Path(options['history_root']).expanduser().resolve())
+            options['history_policy'] = 'protect' if options.get('history_root') else 'independent'
             options['pause'] = options['pause'] or 'always'
-            options['workers'] = options['workers'] or (run.options.get('workers') if resume_dir else None) or 1
-            if type(options['workers']) is not int or not 1 <= options['workers'] <= 4:
-                raise ValueError('Parallel worker count must be between 1 and 4')
+            if options['workers'] is None:options['workers'] = 1
+            if type(options['workers']) is not int or not 1 <= options['workers'] <= LOCAL_WORKER_LIMIT:
+                raise ValueError(f'Parallel worker count must be between 1 and {LOCAL_WORKER_LIMIT}')
             options['set_name'] = options['set_name'] or 'direct-submissions'
             for key in ('config_dir','output_dir','chrome_profile','questions_path','ledger_path','export_path','db_path','browser_config'):
                 if options.get(key):
@@ -661,11 +804,18 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
             if resume_dir and run.options.get('browser_backend','local')!=backend:
                 raise ValueError('Resume must use the saved browser backend')
             if backend=='kernel':
+                if options['workers'] > KERNEL_WORKER_LIMIT:
+                    raise ValueError(f'Kernel worker count must be between 1 and {KERNEL_WORKER_LIMIT}')
                 if options.get('chrome_profile'):raise ValueError('Kernel uses profile_id in browser_runtime.json, not --chrome-profile')
                 kernel_preflight()
                 kernel_settings=options.get('kernel_settings') or kernel_settings
                 options['kernel_settings']=kernel_settings
             options['browser_backend']=backend
+            if not resume_dir:
+                from .submit_diagnostics import runtime_metadata
+                options['runtime_metadata'] = runtime_metadata(options['config_dir'])
+            elif run.options.get('runtime_metadata'):
+                options['runtime_metadata'] = run.options['runtime_metadata']
             run.set_options(options)
             print('Run ID: '+run.manifest['id'], flush=True)
             print('Submission run: '+str(directory), flush=True)
@@ -674,11 +824,29 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
             print('Optional resume: python3 direct_apply.py submit --resume '+shlex.quote(str(directory)), flush=True)
             print('Pause before submit: '+options['pause'], flush=True)
             ledger = ExternalApplicationLedger(options['ledger_path'])
+            if resume_dir:
+                recovered = recover_abandoned_preparations(run, ledger)
+                if recovered:
+                    print(f'[Resume] Recovered {recovered} abandoned pre-submit preparations.', flush=True)
             if retry_failed:
                 print('[Resume] Requeued '+str(requeue_failed(run,ledger))+' eligible failures; confirmed jobs remain skipped.',flush=True)
+            for job,state in run.rows():
+                if state['status']=='pending' and job.get('admission_blockers'):
+                    run.update(job,status='blocked',stage='input_admission',retryable=False,
+                               reason='; '.join(job['admission_blockers']))
+            if options.get('history_root'):
+                history = SubmissionHistory(options['history_root'])
+                history.reserve(run)
             if all(state['status'] in {'applied','discarded','duplicate','blocked','failed_before_submit','deferred'} for _,state in run.rows()):
                 return run.export()
-            svc = services or preparation_services(config_dir=options['config_dir'], questions_path=options['questions_path'], discovery_source=options['discovery_source'])
+            from .resume_provider import override_settings
+            # Resolve services once in the parent; worker closures capture the
+            # same config snapshot. Saved runs retain their explicit overrides.
+            with override_settings(options.get('resume_options')):
+                if services is None:
+                    from .resume_provider import check_configuration
+                    check_configuration()
+                svc = services or preparation_services(config_dir=options['config_dir'], questions_path=options['questions_path'], discovery_source=options['discovery_source'])
             if services is None:
                 private=literal_config(Path(options['config_dir'])/'settings.py').get('direct_submit_profile_path')
                 svc=submit_profile(svc,private)
@@ -693,8 +861,9 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                 else:
                     from direct_apply import browser_factory
                     profile = options['chrome_profile'] or directory/'chrome-profile'
-                    driver_factory = browser_factory(profile, debugger_address=options.get('debugger_address'))
-            if options['workers'] > 1:
+                    if options['workers']==1 and not (resume_dir and any(s.get('worker_session') for _,s in run.rows())):
+                        driver_factory = browser_factory(profile, debugger_address=options.get('debugger_address'))
+            if options['workers'] > 1 or (resume_dir and any(s.get('worker_session') for _,s in run.rows())):
                 return _run_parallel_submissions(run,options=options,services=svc,ledger=ledger,
                     driver_factory=driver_factory,driver_factory_is_default=driver_factory_is_default,
                     kernel_settings=kernel_settings,backend=backend,preparer=preparer,
@@ -736,9 +905,7 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     reserved_manual=any(s.get('attempt_id')==prior.get('attempt_id') and s['status'] in {'awaiting_manual_submit','awaiting_correction'} for _,s in run.rows())
                     run.update(job, status='duplicate' if prior.get('status') in {'applied','duplicate'} or reserved_manual else 'submission_uncertain', stage='protected_in_this_run', retryable=False)
                     continue
-                # A retry export's old execution restriction is provenance in
-                # a fresh run. Verified inventory admission still applies.
-                blockers = [b for b in job.get('admission_blockers', []) if b != 'retry_requires_manual_resolution']
+                blockers = job.get('admission_blockers', [])
                 if blockers:
                     run.update(job, status='blocked', stage='input_admission', reason='; '.join(blockers), retryable=False)
                     continue
@@ -748,7 +915,8 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     break
                 attempt = str(uuid.uuid4())
                 started = time.monotonic()
-                run.update(job, status='preparing', stage='starting', attempt_id=attempt, attempts=saved.get('attempts', 0)+1,reason='')
+                run.update(job, status='preparing', stage='starting', attempt_id=attempt,
+                           reservation_id=attempt,attempts=saved.get('attempts', 0)+1,reason='')
                 print(f"[{index}/{total}] {job.get('company','')} {job.get('title') or job['url']}", flush=True)
                 if job.get('preference_warnings'):
                     print('[Input] Candidate preference warnings: '+', '.join(map(str,job['preference_warnings'])),flush=True)
@@ -779,7 +947,7 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                         candidate['application_source'] = job['discovery_source']
                         question_config.setdefault('candidate', {})['application_source'] = job['discovery_source']
                     def stage(name, report):
-                        run.update(job, stage=name)
+                        run.update(job, stage=name, preparation_report=str(Path(report['output_dir'])/'report.json'))
                         print(f'[{index}/{total} | {time.monotonic()-started:.0f}s] {name}', flush=True)
                     def ready(browser, report, root):
                         nonlocal manual_tabs
@@ -795,7 +963,8 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                             confirmation_timeout=confirmation_timeout)
                     def cached_resume(job_context, _report_resume_dir):
                         return svc['resume_provider'](job_context,Path(options['output_dir'])/fingerprint(job['url'])[:20]/'resume')
-                    report = preparer(job['url'], driver=driver, output_dir=options['preparation_dir'],
+                    report = prepare_with_budget(preparer,job['url'],run=run,job=job,options=options,saved=saved,
+                        driver=driver, output_dir=options['preparation_dir'],
                         **({'url_guard':application_tab.url_guard} if application_tab is not None and application_tab.url_guard else {}),
                         candidate=candidate, question_config=question_config,
                         resume_provider=cached_resume, drafting_factory=svc.get('drafting_factory'),
@@ -838,7 +1007,7 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                         retryable = bool(report.get('pre_submit_retryable')) or report['status'] in {'failed','blocked','interrupted'} and not any(
                             phrase in ' '.join(report.get('blockers',[])).lower() for phrase in ('captcha','manual access','closed','unsupported','login'))
                         if report.get('access_outcome')=='posting_identity_changed':retryable=False
-                        run.update(job, status='failed_before_submit' if report['status']=='failed' else 'blocked',
+                        run.update(job, status='failed_before_submit' if report['status'] in {'failed','failed_before_submit'} else 'blocked',
                             stage='portal_validation_rejected' if report.get('portal_validation_rejected') else 'captcha_timeout_before_submit' if report.get('pre_submit_retryable') and any('CAPTCHA timeout' in b for b in report.get('blockers',[])) else 'preparation_finished',
                             reason='; '.join(report.get('blockers',[])), retryable=retryable)
                     run.update(job, preparation_report=str(Path(report['output_dir'])/'report.json'),
@@ -859,12 +1028,9 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                     if not isinstance(error, Exception):
                         raise
                     print('Job stopped: '+type(error).__name__, flush=True)
-                    if driver and not manual_tabs and not keep_browser and application_tab is None:
-                        try:
-                            if getattr(driver,'browser_backend',None)=='kernel':driver.finish(retain=True)
-                            else:driver.quit()
-                        except Exception: pass
-                        driver=None
+                    # Keep the existing session and filled draft, even in
+                    # automatic mode. The next job opens a separate tab; final
+                    # cleanup retains any outcome without confirmed success.
                 finally:
                     application_export(run, set_name=set_name, output=export_path, db_path=db_path)
             if driver is not None:
@@ -889,7 +1055,7 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                 try:
                     if manual_tabs:
                         manual_tabs.close()
-                    retain_browser=any(s['status'] not in {'applied','duplicate','discarded','pending'} for _,s in run.rows())
+                    retain_browser=any(s['status'] not in {'applied','pending'} for _,s in run.rows())
                     if application_tab is not None:
                         pass  # The search runner owns browser lifetime and retained employer tabs.
                     elif driver and getattr(driver,'browser_backend',None)=='kernel':
@@ -904,6 +1070,7 @@ def run_submissions(jobs=None, *, run_dir=None, resume_dir=None, config_dir=None
                         except Exception: pass
                 finally:
                     try:
+                        if history:history.finish(run)
                         final_progress=run.export()
                         summary=build_run_summary(final_progress)
                         write_json(directory/'summary.json', summary)

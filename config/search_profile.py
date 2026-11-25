@@ -1,7 +1,7 @@
 """Semantic search intent. Locations and filters belong in config/search.py."""
 
 profile_name = "staff-principal-ai-platform"
-profile_version = "5"
+profile_version = "6"
 dynamic_search_enabled = True
 ai_query_refinement_enabled = True
 
@@ -36,6 +36,34 @@ skills = [
 ]
 
 manual_searches = [
+    # Top 5: confirmed by live LinkedIn tests on 2026-11-23 (Easy Apply, SF Bay Area, all workplace
+    # types, agencies excluded). `rank` pins them to prompts #1-#5 in this order; `verbatim=True` sends
+    # the exact tested text (no "Find ... roles." wrapper and no generic `skills` sentence).
+    {"id": "fde-title",
+     "query": "Forward Deployed Engineer roles",
+     "role_label": "Forward Deployed Engineer",
+     "rank": 1, "verbatim": True, "enabled": True},
+    {"id": "healthcare-ai",
+     "query": "Senior or Staff AI Engineer at a healthcare technology company building LLM agents "
+              "on claims, payer contract or price transparency data",
+     "role_label": "Senior AI Engineer healthcare",
+     "rank": 2, "verbatim": True, "enabled": True},
+    {"id": "staff-ai-platform-evals",
+     "query": "Staff AI Platform Engineer owning LLM infrastructure: evaluation, observability, "
+              "guardrails and cost controls for agents in production",
+     "role_label": "Staff AI Platform Engineer",
+     "rank": 3, "verbatim": True, "enabled": True},
+    {"id": "senior-applied-ai",
+     "query": "Senior Applied AI Engineer building production LLM agents with tool calling, RAG "
+              "and evals in Python and TypeScript",
+     "role_label": "Senior Applied AI Engineer",
+     "rank": 4, "verbatim": True, "enabled": True},
+    {"id": "staff-principal-agent-platform",
+     "query": "Staff or Principal Software Engineer building an AI agent platform: agent runtime, "
+              "tool calling, evals, guardrails and multi-tenant infrastructure",
+     "role_label": "Staff Software Engineer AI agent platform",
+     "rank": 5, "verbatim": True, "enabled": True},
+    # Older prompts below run after the ranked five, in the previous role-priority order.
     {"id": "forward-deployed-engineer",
      "query": "Find Forward Deployed Engineer (FDE), Forward-Deployed Software Engineer, "
               "and Forward Deployed AI Engineer roles focused on customer-facing implementation, "

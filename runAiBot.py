@@ -496,6 +496,14 @@ def check_blacklist(rejected_jobs: set, job_id: str, company: str, blacklisted_c
                 rejected_jobs.add(job_id)
                 blacklisted_companies.add(company)
                 raise ValueError(f'\n"{about_company_org}"\n\nContains "{word}".')
+    if globals().get('exclude_agencies_run', False):
+        from modules.agency_filter import AgencyExcluded, agency_by_about_company
+        agency_reason = agency_by_about_company(about_company_org, company=company,
+                                                allow_names=globals().get('agency_allow_names', ()))
+        if agency_reason:
+            rejected_jobs.add(job_id)
+            blacklisted_companies.add(company)
+            raise AgencyExcluded(agency_reason)
     buffer(click_gap)
     scroll_to_view(driver, jobs_top_card)
     return rejected_jobs, blacklisted_companies, jobs_top_card
@@ -2406,6 +2414,10 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
         search_ready = False
         observed_card_ids = set()
         manifest.begin_query(spec)
+        if spec.company_scope:
+            scope = spec.company_scope
+            print_lg(f"[Company batch {scope['batch_index']}/{scope['batch_count']}] {', '.join(scope['batch_names'])}")
+            print_lg('[Company search prompt] ' + spec.query_text)
         if manifest.has_uncertain_submission(spec):
             print_lg(f'Query {spec.query_id}: held submission IDs stay excluded; continuing other available jobs')
         if not query_has_capacity(spec):
@@ -2503,6 +2515,22 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                                 retain_job(raw_job_id, '', '', '', spec, 'card_pending', str(error), requires_submission_check=False)
                                 print_lg(f'Job card [{raw_job_id}] retained for retry; continuing next available job')
                                 continue
+                        from modules.company_search_scope import employer_allowed
+                        if not employer_allowed(spec, company):
+                            checkpoint_job(job_id, 'skipped', 'Employer missing, ambiguous or outside CLI company list: ' + str(company))
+                            print_lg(f'[Company filter] Skipped {job_id}: {company!r}')
+                            skip_count += 1
+                            continue
+                        if globals().get('exclude_agencies_run', False):
+                            from modules.agency_filter import agency_by_name
+                            agency_reason = agency_by_name(company, extra_names=globals().get('agency_extra_names', ()),
+                                                           allow_names=globals().get('agency_allow_names', ()))
+                            if agency_reason:
+                                blacklisted_companies.add(company)
+                                checkpoint_job(job_id, 'skipped', 'Agency excluded: ' + agency_reason)
+                                print_lg(f'[Agency filter] Skipped {job_id}: {agency_reason}')
+                                skip_count += 1
+                                continue
                         from modules.job_pipeline.careers import location_reasons
                         geography_rejections = location_reasons(
                             [work_location], work_style, spec.filters_snapshot["intent"].get("search_location", ""),
@@ -2549,8 +2577,13 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                         try:
                             rejected_jobs, blacklisted_companies, jobs_top_card = check_blacklist(rejected_jobs,job_id,company,blacklisted_companies)
                         except ValueError as e:
-                            print_lg(e, 'Skipping this job!\n')
-                            failed_job(job_id, job_link, resume, date_listed, "Found Blacklisted words in About Company", e, "Skipped", screenshot_name)
+                            from modules.agency_filter import AgencyExcluded
+                            if isinstance(e, AgencyExcluded):
+                                print_lg(f'[Agency filter] Skipped {job_id}: {e}')
+                                failed_job(job_id, job_link, resume, date_listed, "Agency excluded", str(e), "Skipped", screenshot_name)
+                            else:
+                                print_lg(e, 'Skipping this job!\n')
+                                failed_job(job_id, job_link, resume, date_listed, "Found Blacklisted words in About Company", e, "Skipped", screenshot_name)
                             skip_count += 1
                             continue
                         except Exception as e:
@@ -2606,6 +2639,16 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                             rejected_jobs.add(job_id)
                             skip_count += 1
                             continue
+                        if globals().get('exclude_agencies_run', False):
+                            from modules.agency_filter import agency_by_description
+                            agency_reason = agency_by_description(description, company=company,
+                                                                  allow_names=globals().get('agency_allow_names', ()))
+                            if agency_reason:
+                                print_lg(f'[Agency filter] Skipped {job_id}: {agency_reason}')
+                                failed_job(job_id, job_link, resume, date_listed, "Agency excluded", agency_reason, "Skipped", screenshot_name)
+                                rejected_jobs.add(job_id)
+                                skip_count += 1
+                                continue
 
                         if not role_is_relevant(title, description, spec):
                             checkpoint_job(job_id, 'skipped', 'Role is outside configured engineering family or seniority')
@@ -3061,7 +3104,9 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
         return None
     print_lg('Preparing configured search plan...')
     deterministic = prepared_specs if prepared_specs is not None else build_search_plan(dict(profile, ai_query_refinement_enabled=False), config, warn=print_lg)
-    configuration_id = plan_fingerprint(deterministic, profile)
+    from modules.company_search_scope import expand_specs
+    company_scope = globals().get('company_search_scope')
+    configuration_id = plan_fingerprint(expand_specs(deterministic, company_scope), profile)
     single_search = globals().get('single_search_run')
     if single_search:
         configuration_id += f':single-search:{single_search}:no-query-quota'
@@ -3083,7 +3128,9 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
             if randomize_search_order:
                 from itertools import groupby
                 ordered = []
-                for _, group in groupby(specs, key=lambda spec: spec.pipeline_context.get("priority_tier", 4) if spec.pipeline_context else role_priority(spec.classic_query)):
+                from modules.search_planner import plan_order
+                # Ranked manual searches form singleton groups, so randomization never moves them.
+                for _, group in groupby(specs, key=lambda spec: spec.pipeline_context.get("priority_tier", 4) if spec.pipeline_context else plan_order(spec)):
                     group = list(group)
                     shuffle(group)
                     ordered.extend(group)
@@ -3093,6 +3140,7 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
                 if single_search > len(specs):
                     raise ValueError(f'--single-search {single_search} is out of range; this plan has {len(specs)} prompts')
                 specs = [replace(specs[single_search - 1], quota=None)]
+            specs = expand_specs(specs, company_scope)
             manifest = SearchManifest.create(profile["search_state_dir"], specs, configuration_id)
         active_manifest = manifest
         active_result_sink = result_sink
@@ -3104,6 +3152,8 @@ def apply_to_jobs(legacy_terms: list[str], *, prepared_specs=None, selected_jobs
                 manifest.data["invocation_applied_count"] = application_budget.count
                 manifest.save()
             print_lg(f"Search run: {manifest.data['run_id']} ({manifest.path})")
+            if company_scope:
+                print_lg(f"Company scope: {len(company_scope['companies'])} companies; batch size {company_scope['batch_size']}; strict={company_scope['strict']}")
             if single_search:
                 print_lg(f'Single-search mode: prompt #{single_search} only; no per-search quota. Overall application cap still applies.')
             if selected_jobs is None and result_sink is None and job_limit is None and application_budget is None and not prepare_only:
@@ -3506,6 +3556,13 @@ def cli_main(argv=None):
     add_cli_arguments(parser)
     parser.add_argument("--configured-search-and-apply", action="store_true",
                         help="Search and apply directly from config files; no verified_roles/linkedin_jobs inputs required")
+    parser.add_argument('--companies-file', help='Company JSON catalog or array of names')
+    parser.add_argument('--company', action='append', default=[], help='Company name; repeat and/or combine with --companies-file')
+    parser.add_argument('--company-batch-size', type=_positive, default=None, help='Companies per search (default 10)')
+    parser.add_argument('--strict-company-filter', action='store_true', help='Skip employers outside CLI names and explicit aliases before preparation or Apply')
+    parser.add_argument('--exclude-agencies', action='store_true',
+                        help='With --configured-search-and-apply, skip staffing agencies and job aggregators (company name, '
+                             'LinkedIn "Staffing and Recruiting" industry, third-party JD language) before applying')
     parser.add_argument("--fresh", action="store_true",
                         help="With --configured-search-and-apply, start a new search manifest while preserving application history")
     parser.add_argument('--single-search', nargs='?', const=1, default=None, type=_positive, metavar='N',
@@ -3522,17 +3579,32 @@ def cli_main(argv=None):
     parser.add_argument("--db", dest="db_path", default=config.db_path)
     parser.add_argument("--refresh", action="store_true")
     args = parser.parse_args(argv)
+    has_company_options = args.companies_file is not None or bool(args.company) or args.company_batch_size is not None or args.strict_company_filter
+    company_scope = None
+    if has_company_options:
+        if not args.configured_search_and_apply:
+            parser.error('Company options require --configured-search-and-apply')
+        from modules.company_search_scope import load_scope
+        try:
+            company_scope = load_scope(args.companies_file, args.company,
+                batch_size=args.company_batch_size or 10, strict=args.strict_company_filter)
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
     if args.configured_search_and_apply:
         incompatible = {"--mode", "--input", "--set", "--output", "--db", "--refresh", "--diagnose-search"}
         if not args.prepare_only:
             incompatible.add('--limit')
         if any(argument.partition("=")[0] in incompatible for argument in argv):
-            parser.error("--configured-search-and-apply accepts --fresh, --single-search and --prepare-only [--limit N]; use config/search.py for application limits and filters")
+            parser.error("--configured-search-and-apply accepts --fresh, --single-search, --exclude-agencies and --prepare-only [--limit N]; use config/search.py for application limits and filters")
         previous_resume = search_profile.resume_search_enabled
         previous_preparation = globals().get('prepare_only_run', False), globals().get('preparation_limit', 10)
         previous_single_search = globals().get('single_search_run', False)
+        previous_company_scope = globals().get('company_search_scope')
+        previous_exclude_agencies = globals().get('exclude_agencies_run', False)
         try:
+            globals()['exclude_agencies_run'] = args.exclude_agencies
             globals()['single_search_run'] = args.single_search
+            globals()['company_search_scope'] = company_scope
             globals()['prepare_only_run'] = args.prepare_only
             globals()['preparation_limit'] = args.limit or 10
             if args.fresh:
@@ -3543,7 +3615,11 @@ def cli_main(argv=None):
             search_profile.resume_search_enabled = previous_resume
             globals()['prepare_only_run'], globals()['preparation_limit'] = previous_preparation
             globals()['single_search_run'] = previous_single_search
+            globals()['company_search_scope'] = previous_company_scope
+            globals()['exclude_agencies_run'] = previous_exclude_agencies
         return 0
+    if args.exclude_agencies:
+        parser.error('--exclude-agencies requires --configured-search-and-apply')
     if args.single_search:
         parser.error('--single-search requires --configured-search-and-apply')
     if cli_overrides(args):

@@ -260,12 +260,31 @@ python runAiBot.py --configured-search-and-apply --fresh --single-search 1
 Prompt numbers are one-based in the final ordered search plan, after deduplication,
 AI refinement and any configured randomization. `--single-search` alone selects
 prompt 1 (currently the FDE manual search); `--single-search 3` selects prompt 3.
+Manual searches with `"rank": N` in `config/search_profile.py` run first, in rank order
+(prompts 1-5 are the ranked, live-tested prompts); `"verbatim": True` sends the query text
+exactly, without the "Find ... roles." wrapper or the generic `skills` sentence. Unranked
+searches keep their previous role-priority order after the ranked ones.
 This mode stops at results exhaustion or the overall application cap, rather than
 switching prompts after ten applications. Other safety stops still apply.
 Without `--fresh`, the same numbered mode resumes its saved prompt and progress;
 its manifest is separate from normal multi-search runs. AI refinement can change
 generated prompt wording/order in a fresh plan; the chosen prompt is logged.
 Omitting `--single-search` preserves the normal per-search quotas and switching.
+
+Add `--exclude-agencies` to skip staffing agencies and job aggregators before applying:
+
+```bash
+python runAiBot.py --configured-search-and-apply --fresh --single-search 1 --exclude-agencies
+```
+
+The gate is off unless the flag is given and checks three signals in order:
+the card's company name (a built-in list plus names such as "... Recruiting" or
+"... Search Group", checked before the card is opened), LinkedIn's "Staffing and
+Recruiting" industry in About the company, and third-party language in the job
+description ("on behalf of our client", "our client is", "we are partnering with a").
+Skips are logged as `Agency excluded` with the matching reason. IT consultancies are
+not excluded by default; list them in `agency_extra_names` in `config/search.py`, and
+use `agency_allow_names` for employers that must never be treated as agencies.
 
 Result traversal recognizes LinkedIn's current numbered-page/Next footer and
 reacquires it after each application batch. Lazy loading checks again for a footer
@@ -408,6 +427,51 @@ Preparation saves evidence, prints blockers, and normally closes its browser.
 is supplied. `--grounded-resume` is deprecated and unnecessary: both direct and
 LinkedIn flows read the same saved resume optimizer JSON.
 
+### Validate job URLs before applying
+
+Use `validate` to filter a saved TXT or job JSON without generating resumes,
+filling fields, uploading files or submitting applications:
+
+```bash
+python3 direct_apply.py validate --urls-file /path/to/jobs.json \
+  --check-inputs --workers 8 --browser-workers 2 \
+  --output-dir logs/job-url-validation/phase1
+```
+
+`--workers` limits HTTP/API checks. Public Ashby, Greenhouse and Lever boards
+are fetched once per board, preserving unlisted direct-link postings and avoiding
+role/location preference filters. Requests use per-host pacing and at most two
+simultaneous requests per host. An HTTP 200 alone is insufficient: the validator
+checks posting identity, closed/error messages and application controls.
+
+`--check-inputs` verifies candidate inputs plus a resume/file upload control.
+Pages whose HTTP content is insufficient are inspected by a separate pool of
+`--browser-workers` fresh headless Chrome sessions (default two). These sessions
+do not attach to retained application workers. Their form submission methods
+and submit events are blocked. JavaScript pages can take longer than the HTTP
+pass; login, CAPTCHA, rate limits, timeouts and ambiguous pages stay in review.
+
+Each output directory saves:
+
+- `jobs-open.json`: verified open postings; input readiness may be unverified.
+- `jobs-apply-ready.json`: postings with application controls verified. Use this
+  as the input to `direct_apply.py submit`, retaining the history guard.
+- `validation-report.json`: all results, reasons, timestamps, HTTP/ATS evidence
+  and input counts, including invalid and review outcomes.
+- `progress.json` and `validation.sqlite3`: durable scan progress/checkpoints.
+
+Unique postings preserve job IDs, metadata and source ordering; duplicate URLs
+are checked once. Existing retry/verification
+admission restrictions are carried through validation and cannot be cleared by
+the filter. The source file is unchanged. Validation establishes page/input
+availability at check time, not candidate eligibility or successful submission;
+the submit runner still checks the live posting before preparing a resume.
+
+Repeat the same command with `--resume` after interruption. Verified results are
+reused for up to six hours; review cases and unfinished browser checks are retried.
+Add `--resume --refresh` to recheck everything. Selection and `--check-inputs`
+must match the checkpoint. `--screenshots` saves browser-check screenshots.
+
 ### Manual review or automatic Submit
 
 ```bash
@@ -433,37 +497,102 @@ python3 direct_apply.py submit --input "$roles" --pause-before-submit never --li
 There is no separate review window or required PDF review gate. Keep the process
 running while submitting manually; it observes outcomes across retained tabs.
 Ctrl-C saves progress. A fresh command creates a new run ID and directory and
-can attempt previously submitted URLs again. The status-filtered input is an
-optional way to avoid repeats; cross-run reporting does not block fresh runs.
+can attempt previously submitted URLs again when no history scope is selected.
+Use `--history-root logs/direct_submit` for a programme batch: confirmed postings
+are skipped and unresolved or active attempts are blocked by posting identity,
+even if input IDs differ. Atomic claims prevent two scoped CLI processes from
+starting the same posting concurrently. A crashed claim remains held for an
+explicit resume of its original run; pending and safe failed claims are released
+when a run finishes. History is opt-in; `--independent-run` explicitly selects
+standalone behavior. Neither mode overrides an uncertain retry-file blocker.
 
-Parallel batches are opt-in and use isolated Kernel browser sessions per worker:
+Parallel batches are opt-in and support isolated local Chrome or Kernel sessions:
 
 ```bash
 python3 direct_apply.py submit --input "$roles" --browser kernel \
   --workers 3 --pause-before-submit always
 ```
 
-`--workers` accepts 1–4 and defaults to 1. Values above 1 require `--browser
-kernel`; local Chrome uses one profile and remains sequential. With the default
+`--workers` accepts 1–16 for local Chrome and 1–4 for Kernel, and defaults
+to 1. Local workers use separate fresh
+`<profile>-wN` directories and debugging ports. With the default
 `always` mode, workers prepare jobs concurrently in separate sessions, then
 leave their job tabs open for manual review. Each worker reuses its own session
 for subsequent URLs. `never` explicitly allows concurrent automatic
 submissions. Every job’s worker, tab, and status are checkpointed in the run,
 so `--resume` can reconnect unresolved worker sessions. The configured
-application cap still applies across all workers.
+application cap still applies across all workers. `--limit` selects jobs; it does
+not override that cap (currently 50 in `config/search.py`). To attempt a larger
+batch, raise the configured cap too; `--max-applications` can only lower it.
 
-To run one firm at a time, add `--company "Air Space Intelligence"`. It matches
-the job's `company` field exactly, ignoring case and surrounding whitespace,
-intersects with `--role`, and filters before `--limit`. Jobs without a company
-name are excluded. A blank name or no matches fails before a run starts.
+`--urls-file` accepts newline-delimited TXT or supported job JSON, including
+`{"jobs": [...]}`. One process reads the file once and shares its queue and
+persistent results among workers; the source file is unchanged.
+
+To select firms, add `--company "Air Space Intelligence"` or a list such as
+`--company "OpenRouter" "Stuut" "Sentra"`. Repeated flags work too:
+`--company "OpenRouter" --company "Stuut"`. Names match the JSON job's `company`
+field exactly, ignoring case and surrounding whitespace. Commas are literal,
+so quote each company separately. Duplicate names select each posting once.
+Selection intersects with `--role`, preserves source order, and filters before
+one global `--limit`. All firms share the worker pool, application cap and run
+directory. Every requested firm must match the selected input roles before the
+limit is applied; blank or unmatched names fail before a run starts. Plain TXT
+URL files have no company metadata, so omit `--company` for those inputs.
 `--resume` retains its saved selection and cannot be combined with `--company`.
-Application caps still apply to the selected company.
+Application caps apply across all selected companies.
 
 ```bash
 python3 direct_apply.py submit --urls-file /path/to/jobs-phase1.json \
   --company "Air Space Intelligence" \
   --captcha-solver --pause-before-submit never --workers 1
+
+python3 direct_apply.py submit --urls-file /path/to/jobs-phase1.json \
+  --company "OpenRouter" "Stuut" "Sentra" \
+  --history-root logs/direct_submit \
+  --captcha-solver --pause-before-submit never --workers 4 --limit 29
 ```
+
+```bash
+python3 direct_apply.py submit --urls-file /path/to/jobs-phase1.json \
+  --captcha-solver --pause-before-submit never --limit 2801 --workers 4
+# Bounded four-job trial using the existing Lever list:
+python3 direct_apply.py submit --urls-file jobs-final-lever.txt \
+  --captcha-solver --pause-before-submit never --limit 4 --workers 4
+```
+
+Local resume reattaches retained worker browsers without replaying uncertain
+submissions. Keep those Chrome windows open until their outcomes are resolved.
+Parallel execution and employer-confirmed submission are separate outcomes.
+
+At the end of `direct_apply.py submit`, a readable summary follows the JSON
+output: status counts and percentages, confirmed/uncertain/manual outcomes,
+retry counts, per-company and per-worker totals, run timing, browser settings, application cap,
+and paths to saved results. `summary.json` stores the same totals and run
+metadata. Only `applied` counts as a confirmed submission.
+
+Employer spam and CAPTCHA-verification refusals are checked consistently in
+serial and parallel runs. Visible toast messages are saved in the report.
+Workers inspect their own retained tabs once more before closing their driver;
+recovery only reads outcomes and never clicks Submit again. Generic errors or
+messages present before Submit do not establish an explicit refusal.
+
+The local CAPTCHA bridge enforces six model requests per solver call and
+`--captcha-max-requests 36` per job across access and submission solver calls.
+The job budget is checkpointed and retained on resume. Unknown timeout usage
+consumes its reserved allowance; a failed child launch consumes none. Model
+requests and outcome-reporting POSTs have separate counters. Solver-loop limits
+are separate from request limits; abandoned, blocked and exhausted solves stop
+without starting another automatic solve cycle.
+
+Resume PNG previews render in fresh Python subprocesses, with at most four
+renderers per CLI process and a 180-second execution timeout per PDF pair.
+A preview crash or timeout is recorded in the resume report and does not kill
+other workers. PDF validation and attachment eligibility checks still apply.
+On `--resume`, abandoned preparation checkpoints are requeued only when the
+run ledger and saved state contain no possible-submission or manual-handoff
+evidence. Partial artifacts are preserved; incomplete bindings regenerate
+rather than being silently accepted.
 
 ### Kernel cloud browser and CAPTCHA handling
 
@@ -514,8 +643,8 @@ python3 direct_apply.py submit --resume "$RUN_DIR"
 # Retry only eligible failures proven to have occurred before Submit, in that run.
 python3 direct_apply.py submit --resume "$RUN_DIR" --retry-failed
 
-# Start a fresh run from that run's retry inventory.
-python3 direct_apply.py submit --input "$RUN_DIR/retry.json" --pause-before-submit always
+# Start a fresh run from eligible pre-submit retries and untouched pending jobs.
+python3 direct_apply.py submit --input "$RUN_DIR/retry-ready.json" --pause-before-submit always
 
 # Record an inspected outcome locally; this command never submits a form.
 python3 direct_apply.py reconcile --run "$RUN_DIR" --role 'role:EXACT_ID' \
@@ -531,12 +660,41 @@ adds it to the retry inventory. Reconciliation does not open a browser.
 
 Each run saves `progress.json`, `events.jsonl`, `applications.json`, its own
 ledger/state database, preparation reports, `retry.json`/`retry.txt`,
+`retry-ready.json`, `retry-uncertain.json`, `retry-submission-uncertain.txt`,
 `needs-review.json` and manual-review files. `applied` means confirmed;
 `awaiting_manual_submit` needs your click; `awaiting_correction` needs edits;
 `awaiting_email_verification` retains the original tab for your emailed code;
 `submission_uncertain` needs outcome inspection. Failed pre-submit work is kept
 for retry. `--run-dir` optionally selects a destination; an existing destination
 gets a unique sibling rather than being overwritten.
+
+`retry-ready.json` preserves IDs, company names and provenance, so the next run
+can use `--company` again. It contains untouched pending jobs and failures
+explicitly marked retryable before Submit; it excludes in-progress preparations,
+confirmed, uncertain and manual outcomes. The footer prints a fresh-run retry
+command only when this file contains jobs. The command preserves effective
+workers, pause mode, CAPTCHA opt-in and budget, browser, config, history scope,
+question settings and output settings. A fresh retry uses a fresh browser profile
+so it cannot collide with a retained worker profile.
+Legacy `retry.json` remains a mixed inventory. Its uncertain/manual rows and
+`retry-uncertain.json` preserve metadata and are blocked from automatic replay.
+`retry-submission-uncertain.txt` lists that status for review; the loader recognizes
+its status header and blocks automatic replay too. Reconcile the original run
+after inspecting the employer outcome, then regenerate a ready retry export.
+
+Application records retain company, title, original IDs and retry origins.
+Events distinguish `reservation`, `transition` and `metadata` updates and record
+a unique reservation ID. Report paths are checkpointed before preparation so
+interrupted artifacts remain discoverable. Run options record source hashes,
+the Git revision, dependency versions and a sanitized drafting provider host;
+credentials and provider URL query parameters are omitted. Egress IPs are not
+measured.
+
+Only confirmed-success (`applied`) job tabs close automatically. Other opened
+job tabs retain their current form values and attachments for manual review,
+including after errors in `--pause-before-submit never` mode. Retained forms
+accept your manual edits and Submit clicks; retaining a tab never submits it
+again automatically. Inspect an uncertain outcome before submitting manually.
 
 Email verification is separate from CAPTCHA solving. Automatic mode continues
 other jobs and retains verification tabs without replaying Submit. Explicit
@@ -1328,3 +1486,9 @@ https://discord.gg/fFp7uUzWCY
 ---
 
 [back to the top](#linkedin-ai-auto-job-applier-)
+
+### Company-scoped configured LinkedIn searches
+
+Use `--companies-file data/company_names.json`, repeatable `--company NAME`,
+`--company-batch-size N` (default 10), and optional `--strict-company-filter`
+with `--configured-search-and-apply`. See [commands, matching rules and prepare-only verification](docs/linkedin-company-search.md).

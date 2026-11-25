@@ -65,7 +65,10 @@ const description=document.querySelector('[itemprop=description],.job-sections,.
 return {url:location.href,title:document.title,site_name:document.querySelector('meta[property="og:site_name"]')?.content||'',location:document.querySelector('.job__location,.job-location,[data-testid=job-location],.location')?.innerText||'',fields,buttons,text:text.slice(0,70000),job,file_receipts,frame_count:all('iframe,frame').filter(visible).length,
  forms:forms.filter(visible).map(f=>({method:f.method,action_path:new URL(f.action||location.href,location.href).pathname})),
  parser_busy:all('[aria-busy=true],[role=status]').some(e=>visible(e)&&/pars(?:e|ing)|autofill|processing resume/i.test(e.innerText||e.getAttribute('aria-label')||'')),
- alerts:all('[role=alert],[aria-live=assertive]').filter(visible).map(e=>e.innerText.trim()).filter(Boolean),
+ alerts:[...new Set([
+   ...all('[role=alert],[role=status],[aria-live=assertive],[data-sonner-toast],[data-radix-toast],.ashby-application-form-error-container').filter(visible).map(e=>e.innerText.trim()),
+   ...all('h1,h2,h3,h4,h5,h6').filter(e=>visible(e)&&/^error$/i.test(e.innerText.trim())).map(e=>(e.parentElement?.innerText||'').trim())
+ ])].filter(s=>s&&s.length<=2000),
  description:description?.innerText||'',headings:all('__JOBROBO_CONFIRMATION_SELECTOR__').filter(visible).map(e=>e.innerText.trim()),
  application_success:all('__JOBROBO_APPLICATION_SUCCESS_SELECTOR__').filter(visible).map(e=>e.innerText.trim()).filter(Boolean),
  challenge:all('iframe').some(e=>visible(e)&&e.getBoundingClientRect().height>100&&/captcha|challenge/i.test((e.src||'')+' '+e.title)),

@@ -2,7 +2,7 @@
 """Single-file JobRobo CLI; requires this repository and its installed dependencies.
 
 Creates a new local review directory. Never uploads or submits an application.
-Default execution calls OpenAI; --preflight never loads a key or calls OpenAI.
+Default execution calls the configured resume provider; --preflight never loads a key or calls a model.
 URL inputs perform bounded public GETs and require a single JobPosting JSON-LD.
 """
 from __future__ import annotations
@@ -165,7 +165,15 @@ def extract_title(jd,config,optimizer,execution_kind):
     started=time.monotonic()
     try:
         event['request_attempts']=1
-        response=optimizer.client.with_options(timeout=min(45,config.get('rewrite_request_timeout',45)),max_retries=0).chat.completions.create(
+        if hasattr(optimizer, 'provider_config'):
+            from modules.resume_provider import complete, settings as provider_settings
+            selected = provider_settings(config)
+            event.update(provider=selected['provider'], model=selected['model'])
+            create = lambda **kwargs: complete(optimizer.client, dict(config, rewrite_max_output_tokens=700),
+                timeout=min(45,config.get('rewrite_request_timeout',45)), **kwargs)
+        else:
+            create = optimizer.client.with_options(timeout=min(45,config.get('rewrite_request_timeout',45)),max_retries=0).chat.completions.create
+        response=create(
             **request_options,response_format=TITLE_SCHEMA,
             messages=[{'role':'system','content':TITLE_SYSTEM},{'role':'user','content':json.dumps({'job_description':jd},ensure_ascii=False)}])
         event.update(response_received=True,response_id=getattr(response,'id',None))
@@ -230,21 +238,25 @@ def plan(args,client=None,runtime_config_override=None):
     return source,output,jd,config,details
 
 
-def configured_optimizer():
+def configured_optimizer(config=None):
     """Local process/client only. Never export a loaded key or write credentials."""
-    from dotenv import dotenv_values
     from modules.ai.resume_optimizer import ResumeOptimizer
-    key=os.getenv('OPENAI_API_KEY')
+    from modules.config_loader import load_runtime_config
+    from modules.resume_provider import make_client, settings as provider_settings
+    config = config if config is not None else load_runtime_config()
+    selected = provider_settings(config)
+    key_name = 'VENICE_API_KEY' if selected['provider'] == 'venice' else 'OPENAI_API_KEY'
+    key=os.getenv(key_name)
     if not key:
         path=REPO/'.env'
         if not path.is_file() or path.is_symlink() or stat.S_IMODE(path.stat().st_mode)&0o077:
-            raise ValueError('Set OPENAI_API_KEY privately, or use a private ignored repository .env (0600)')
+            raise ValueError(f'Set {key_name} privately, or use a private ignored repository .env (0600)')
         for command,expected in ((['git','ls-files','--error-unmatch','.env'],False),(['git','check-ignore','--quiet','.env'],True)):
             success=subprocess.run(command,cwd=REPO,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
             if success!=expected:raise ValueError('Repository .env must be ignored and untracked')
-        values=dotenv_values(path,interpolate=False);key=values.get('OPENAI_API_KEY');del values
-    if not isinstance(key,str) or not key.strip():raise ValueError('No securely configured local OpenAI credential')
-    optimizer=ResumeOptimizer(key.strip());del key
+    optimizer=ResumeOptimizer.__new__(ResumeOptimizer)
+    optimizer.client=make_client(config)
+    optimizer.provider_config=config
     return optimizer
 
 
@@ -263,7 +275,7 @@ def execute(args,*,client=None,optimizer_instance=None,runtime_config_override=N
     (output/'input-provenance.json').write_text(json.dumps(details,indent=2),encoding='utf-8')
     cancel=threading.Event();optimizer=optimizer_instance
     try:
-        if optimizer is None:optimizer=configured_optimizer()
+        if optimizer is None:optimizer=configured_optimizer(config)
         if details['title_extraction_needed']:
             try:
                 title,title_event=extract_title(jd,config,optimizer,execution_kind)

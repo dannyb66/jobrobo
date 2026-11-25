@@ -301,6 +301,7 @@ def extract_job(state):
 
 def _public_state(state):
     return {'url': state['url'], 'headings': state.get('headings', []),
+            'alerts': state.get('alerts', []), 'observed_at': stamp(), 'challenge':state.get('challenge'),
             'fields': [{k: f.get(k) for k in ('name', 'type', 'label', 'question', 'required', 'visible', 'valid', 'upload_satisfied')} for f in state['fields']],
             'buttons': [{k: b.get(k) for k in ('text', 'type', 'href')} for b in state['buttons']],
             'guard': state.get('guard'), 'forms': state.get('forms', []), 'application_success':state.get('application_success', [])}
@@ -1362,7 +1363,8 @@ def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_p
                         if len(attempted) == count:
                             break
                 browser.reprepare = _reprepare
-                report['reprepare'] = _reprepare
+                # Runtime callbacks belong on the browser, never in the JSON
+                # report saved after Submit (including uncertain outcomes).
             if upload and not attached:
                 checkpoint('attaching_resume')
                 report['attachment'] = attach_resume(browser, upload, binding, root, candidate=candidate, job=job,form_url=state['url'])
@@ -1445,6 +1447,19 @@ def prepare_url(url, *, driver, output_dir, candidate, question_config, resume_p
             if q['status'] == 'manual_review' and q.get('required') is False))
         report['actions'] = browser.actions if browser else []
         report['finished_at'] = stamp()
+        if browser and browser.submission_enabled and report['status'] != 'applied':
+            # Retained drafts must accept the user's later edits and Submit.
+            # This permits trusted human input only; it never activates a form
+            # or releases the ledger protection on a possibly submitted job.
+            try:
+                config = {'token': report['input_provenance'].get('attempt_id') or uuid.uuid4().hex}
+                for frame_state in browser.contexts():
+                    browser.enter(frame_state['context'])
+                    driver.execute_script('return window.__jobroboPrepare.handoffManual(arguments[0])', config)
+                browser.top()
+                report['manual_continuation_enabled'] = True
+            except Exception:
+                report['manual_continuation_warning'] = 'Could not enable trusted manual continuation on retained tab'
         try:
             final_state = browser.read() if browser else None
             report['final_state'] = _public_state(final_state) if final_state else None

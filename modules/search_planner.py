@@ -101,7 +101,8 @@ def validate_profile(profile):
         raise ValueError("manual_searches must be a list")
     ids = set()
     for item in searches:
-        if not isinstance(item, dict) or set(item) - {"id", "query", "enabled", "quota", "notes", "role_label"}:
+        if not isinstance(item, dict) or set(item) - {"id", "query", "enabled", "quota", "notes", "role_label",
+                                                       "rank", "verbatim"}:
             raise ValueError("Unsupported manual search definition")
         ident = _text(item.get("id"), "manual search id", 100)
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", ident) or ident in ids:
@@ -112,6 +113,10 @@ def validate_profile(profile):
             raise ValueError("Manual search enabled must be True or False")
         if item.get("quota") is not None:
             _quota(item["quota"])
+        if item.get("rank") is not None and (type(item["rank"]) is not int or item["rank"] < 1):
+            raise ValueError("Manual search rank must be a positive integer")
+        if type(item.get("verbatim", False)) is not bool:
+            raise ValueError("Manual search verbatim must be True or False")
         for key in ("notes", "role_label"):
             if key in item:
                 _text(item[key], key)
@@ -130,12 +135,21 @@ class SearchSpec:
     classic_query: str
     pipeline_context: dict = field(default_factory=dict)
     company_scope: dict = field(default_factory=dict)
+    rank: int | None = None  # Manual searches with a rank run first, in rank order.
 
     def to_dict(self):
         data = asdict(self)
         if not self.company_scope:
             data.pop("company_scope")
+        if self.rank is None:
+            data.pop("rank")  # Unranked specs keep their previous fingerprints.
         return data
+
+
+def plan_order(spec):
+    """Ranked manual searches first (by rank), then the role-priority tiers."""
+    rank = getattr(spec, "rank", None)
+    return (0, rank) if rank is not None else (1, role_priority(spec.classic_query))
 
 
 def render_query(role, profile, config):
@@ -202,9 +216,10 @@ def build_search_plan(profile, config, refine=None, warn=lambda message: None):
     snapshot = filters_snapshot(config)
     specs, seen = [], set()
 
-    def add(query, source, ident=None, limit=None, classic=None):
+    def add(query, source, ident=None, limit=None, classic=None, rank=None, verbatim=False):
         original = _text(query, "query", 12000)
-        query = render_query(original, profile, config)
+        # Verbatim searches send the configured text exactly: no "Find ... roles." wrapper, no skills.
+        query = original if verbatim else render_query(original, profile, config)
         normalized = normalize_query(query)
         if normalized in seen:
             return
@@ -213,11 +228,13 @@ def build_search_plan(profile, config, refine=None, warn=lambda message: None):
             ident or stable_id(source, original), query, source, "ai",
             _get(profile, "profile_name"), _get(profile, "profile_version"),
             deepcopy(snapshot), quota if limit is None else _quota(limit), classic or original,
+            rank=rank,
         ))
 
     for item in _get(profile, "manual_searches"):
         if item.get("enabled", True):
-            add(item["query"], "manual", f"manual:{item['id'].strip()}", item.get("quota"), item.get("role_label"))
+            add(item["query"], "manual", f"manual:{item['id'].strip()}", item.get("quota"), item.get("role_label"),
+                rank=item.get("rank"), verbatim=item.get("verbatim", False))
     for term in _get(config, "search_terms", []):
         add(term, "legacy")
     if _get(profile, "dynamic_search_enabled"):
@@ -250,5 +267,5 @@ def build_search_plan(profile, config, refine=None, warn=lambda message: None):
             warn(f"Dynamic generation failed ({type(error).__name__}); continuing manual and legacy searches.")
     if not specs:
         raise ValueError("Configure at least one enabled manual, legacy, or generated search")
-    specs.sort(key=lambda spec: role_priority(spec.classic_query))
+    specs.sort(key=plan_order)
     return specs

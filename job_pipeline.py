@@ -61,7 +61,7 @@ def build_parser():
             command.add_argument('--pause-before-submit', choices=('always','unknown','never'))
             command.add_argument('--role', action='append', default=[])
             command.add_argument('--max-applications', type=_positive)
-            command.add_argument('--workers', type=_positive, help='Parallel isolated browser workers (1-4; >1 requires --browser kernel; default 1)')
+            command.add_argument('--workers', type=_positive, help='Parallel isolated workers (local Chrome 1-16; Kernel 1-4; default 1)')
             command.add_argument('--config-dir')
             command.add_argument('--chrome-profile')
             command.add_argument('--browser',dest='browser_backend',choices=('local','kernel'))

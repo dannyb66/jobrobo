@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import tempfile
+import threading
 from pathlib import Path
 import re
 import time
@@ -829,14 +830,18 @@ class ExternalApplicationLedger:
     """Protect a hosted posting globally, even when LinkedIn exposes another ID."""
     def __init__(self, path):
         self.path = Path(path)
+        # Threads in a submission run share this instance. Serialize them before
+        # the nonblocking process lock so sibling workers do not fail each other.
+        self._lock = threading.RLock()
 
     def _read(self):
-        if not self.path.exists():
-            return {}
-        data = json.loads(self.path.read_text())
-        if not isinstance(data, dict):
-            raise ValueError("External application ledger must be an object")
-        return data
+        with self._lock:
+            if not self.path.exists():
+                return {}
+            data = json.loads(self.path.read_text())
+            if not isinstance(data, dict):
+                raise ValueError("External application ledger must be an object")
+            return data
 
     @staticmethod
     def target_key(url):
@@ -856,7 +861,7 @@ class ExternalApplicationLedger:
         """Record an operator-verified outcome; never contact an employer."""
         from .search_history import file_lock
         from .direct_careers_apply import write_json
-        with file_lock(self.path.with_suffix('.lock')):
+        with self._lock, file_lock(self.path.with_suffix('.lock')):
             data = self._read()
             entry = data.get(self.target_key(url), {})
             aliases = entry.get('posting_aliases') or [url]
@@ -884,7 +889,7 @@ class ExternalApplicationLedger:
         if not keys or None in keys:
             raise ValueError('Invalid posting alias')
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with file_lock(self.path.with_suffix('.lock')):
+        with self._lock, file_lock(self.path.with_suffix('.lock')):
             data = self._read()
             for key in keys:
                 prior = data.get(key, {})
@@ -901,7 +906,7 @@ class ExternalApplicationLedger:
         if proof != {'disarmed': True, 'activated': False}:
             raise ValueError('A live disarmed guard with no activation is required')
         keys = list(dict.fromkeys(self.target_key(url) for url in urls))
-        with file_lock(self.path.with_suffix('.lock')):
+        with self._lock, file_lock(self.path.with_suffix('.lock')):
             data = self._read()
             for key in keys:
                 prior = data.get(key, {})
@@ -922,7 +927,7 @@ class ExternalApplicationLedger:
         if key is None:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with file_lock(self.path.with_suffix(".lock")):
+        with self._lock, file_lock(self.path.with_suffix(".lock")):
             data = self._read()
             previous = data.get(key, {})
             if outcome.status in {"submitting", "applied"} and previous.get("status") in {"submitting", "applied"}:

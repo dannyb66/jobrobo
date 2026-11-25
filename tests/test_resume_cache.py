@@ -33,6 +33,7 @@ class ResumeCacheTest(unittest.TestCase):
         original = self.fingerprint()
         self.assertNotEqual(original, self.fingerprint(jd="JD two"))
         self.assertNotEqual(original, self.fingerprint(config={**self.config, "content_policy": "grounded"}))
+        self.assertNotEqual(original, self.fingerprint(config={**self.config, "replace_job_title_count": 1}))
         self.source.write_bytes(b"source resume v2")
         self.assertNotEqual(original, self.fingerprint())
 

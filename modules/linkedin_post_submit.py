@@ -170,7 +170,8 @@ def clear_post_submit_ui(driver, job_id, *, timeout=5, quiet_seconds=.5, log=lam
             controls=_visible(dialog.find_elements('css selector',BUTTONS))
             labels={' '.join((value or '').lower().split()) for control in controls
                     for value in (control.text,control.get_attribute('aria-label'))}
-            profile_promotion=bool(re.search(r'turn your resume into a profile|update profile',text,re.I))
+            # Receipts upsell profile edits (resume-to-profile; since 2026-11-18 Open to Work).
+            profile_promotion=bool(re.search(r'turn your resume into a profile|update profile|open to work',text,re.I))
             standalone_promotion=(bool(re.search(r'turn your resume into a profile',text,re.I))
                                   and {'not now','update profile'}.issubset(labels))
             receipt=bool(re.search(r'\b(?:your\s+)?application\s+(?:(?:has been|was)\s+)?(?:sent|submitted)\b',text,re.I))

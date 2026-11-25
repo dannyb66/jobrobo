@@ -55,6 +55,41 @@ class CompanyFilterTests(TestCase):
         with self.assertRaisesRegex(ValueError, 'url string'):
             load_jobs([self.source], company='Air Space Intelligence')
 
+    def test_multi_company_union_preserves_source_order_and_global_limit(self):
+        jobs = load_jobs([self.source], company=[' AIR SPACE INTELLIGENCE ', 'Other', 'other'])
+        self.assertEqual([j['id'] for j in jobs], ['other', 'a', 'b'])
+        self.assertEqual([j['id'] for j in load_jobs([self.source],
+            company=('Air Space Intelligence', 'Other'), limit=2)], ['other', 'a'])
+
+    def test_every_company_must_match_before_limit_and_within_roles(self):
+        for companies, roles in [(['Other', 'Absent'], []),
+                                 (['Other', 'Air Space Intelligence'], ['other'])]:
+            with self.subTest(companies=companies, roles=roles), self.assertRaisesRegex(ValueError, 'No jobs match company'):
+                load_jobs([self.source], company=companies, selected_roles=roles, limit=1)
+        for companies in [[], ['Other', ' '], [1], 1, {'Other'}]:
+            with self.subTest(companies=companies), self.assertRaisesRegex(ValueError, 'nonempty'):
+                load_jobs([self.source], company=companies)
+
+    def test_commas_are_literal_and_txt_requires_company_metadata(self):
+        self.source.write_text(json.dumps({'jobs': [
+            {'url': 'https://example.test/comma', 'company': 'Acme, Inc.'}]}))
+        self.assertEqual(len(load_jobs([self.source], company=['Acme, Inc.'])), 1)
+        source = self.source.with_suffix('.txt')
+        source.write_text('https://example.test/comma\n')
+        with self.assertRaisesRegex(ValueError, 'company metadata'):
+            load_jobs([source], company=['Acme, Inc.'])
+
+    def test_cli_accepts_multi_value_and_repeated_company_flags(self):
+        for flags in [['--company', 'Air Space Intelligence', 'Other'],
+                      ['--company', 'Air Space Intelligence', '--company', 'Other']]:
+            with self.subTest(flags=flags), patch('modules.submit_runner.run_submissions',
+                    return_value={'jobs': [{'status': 'applied'}]}) as runner, redirect_stdout(StringIO()):
+                code = direct_apply.main(['submit', '--urls-file', str(self.source), *flags,
+                                          '--workers', '4', '--limit', '2'])
+            self.assertEqual(code, 0)
+            self.assertEqual([j['id'] for j in runner.call_args.args[0]], ['other', 'a'])
+            self.assertEqual(runner.call_args.kwargs['workers'], 4)
+
     def test_cli_routes_only_selected_company(self):
         with patch('modules.submit_runner.run_submissions', return_value={'jobs': [{'status': 'applied'}]}) as runner, redirect_stdout(StringIO()):
             code = direct_apply.main(['submit', '--urls-file', str(self.source),

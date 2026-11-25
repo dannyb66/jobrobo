@@ -38,6 +38,7 @@ DEFAULTS = dict(rewrite_all_bullets=False, rewrite_experience_concurrency=2,
                 rewrite_bullet_min_fill_ratio=.90, rewrite_bullet_target_fill_ratio=.97,
                 rewrite_bullet_hard_min_fill_ratio=.80,
                 rewrite_source_fallback_enabled=False,
+                replace_job_title_count=2,
                 source_checks_enabled=True,
                 rewrite_bullets_per_request=12,
                 rewrite_token_estimation='byte_upper_bound',
@@ -65,6 +66,9 @@ def validate_options(config, mode):
         raise ValueError('source_checks_enabled must be a boolean')
     if type(options['rewrite_source_fallback_enabled']) is not bool:
         raise ValueError('rewrite_source_fallback_enabled must be a boolean')
+    if options['replace_job_title_count'] is not None and (
+            type(options['replace_job_title_count']) is not int or options['replace_job_title_count'] < 1):
+        raise ValueError('replace_job_title_count must be a positive integer or None')
     if type(options['rewrite_experience_concurrency']) is not int or not 1 <= options['rewrite_experience_concurrency'] <= 4:
         raise ValueError('rewrite_experience_concurrency must be an integer from 1 to 4')
     if type(options['rewrite_bullets_per_request']) is not int or not 1 <= options['rewrite_bullets_per_request'] <= 12:
@@ -74,7 +78,7 @@ def validate_options(config, mode):
     if not options['source_checks_enabled'] and not options['rewrite_all_bullets']:
         raise ValueError('source_checks_enabled=False requires rewrite_all_bullets=True')
     for key, value in options.items():
-        if key in {'rewrite_all_bullets', 'source_checks_enabled', 'rewrite_source_fallback_enabled', 'rewrite_model', 'rewrite_reasoning_effort', 'rewrite_token_estimation', 'rewrite_experience_concurrency'}:
+        if key in {'rewrite_all_bullets', 'source_checks_enabled', 'rewrite_source_fallback_enabled', 'rewrite_model', 'rewrite_reasoning_effort', 'rewrite_token_estimation', 'rewrite_experience_concurrency', 'replace_job_title_count'}:
             continue
         if type(value) not in {int, float} or not math.isfinite(value) or value <= 0:
             raise ValueError(key + ' must be a positive finite number')
@@ -506,13 +510,25 @@ def source_scope_issue(source,text):
     return None
 
 
+def source_technologies(technology_context):
+    """Skill-bank terms this experience's own text already supports."""
+    from modules.resume_scoring import score_keywords
+    return sorted(set(score_keywords(technology_context or '',list(_technical_terms()))["matched"]))
+
+
+def unsupported_source_terms(text, technology_context):
+    from modules.resume_scoring import score_keywords
+    terms=list(_technical_terms())
+    source_mentions=set(score_keywords(technology_context,terms)["matched"])
+    return sorted(set(score_keywords(text,terms)["matched"])-source_mentions)
+
+
 def source_claim_issue(source, text, *, technology_context=None,allow_paraphrase=False):
     from modules.resume_scoring import score_keywords
     terms=list(_technical_terms())
-    source_mentions=set(score_keywords(technology_context if technology_context is not None else source,terms)["matched"])
-    new_mentions=set(score_keywords(text,terms)["matched"])-source_mentions
+    new_mentions=unsupported_source_terms(text,technology_context if technology_context is not None else source)
     if new_mentions:
-        return "unsupported source technology/concept: "+", ".join(sorted(new_mentions))
+        return "unsupported source technology/concept: "+", ".join(new_mentions)
     if allow_paraphrase:
         lost=set(score_keywords(source,terms)['matched'])-set(score_keywords(text,terms)['matched'])
         if lost:return 'source technology/concept omitted: '+', '.join(sorted(lost))
@@ -629,6 +645,11 @@ def validate_response(response, group, requested, *, fit_check=None, ranking_key
                     reason = 'source fact anchor omitted'
                 if not reason and (not item.get('change_reason') or not isinstance(item.get('matched_jd_spans'), list)):
                     reason = 'missing change evidence'
+            if not reason and synthetic and isinstance(text, str):
+                # Synthetic rewrites may restructure freely, but a technology still
+                # has to appear somewhere in this experience's own source text.
+                added=unsupported_source_terms(text,technology_context)
+                if added:reason='unsupported source technology/concept: '+', '.join(added)
             if not reason and isinstance(text, str):
                 late=[item['technology'] for item in late_technologies(text, role_period(group))]
                 if late:
@@ -896,8 +917,17 @@ def _fit_guided_payload(payload, retry_reasons, minimum=.90, target=.97):
 def compact_payload(inv,jd,role,policy,group,pending,retry_reasons=None,previous_candidates=None,*,alignment=None, minimum_fill=.90, target_fill=.97, forbidden_technologies=None):
     """Keep every original fact/context; omit duplicated rendered-glyph bookkeeping."""
     if jd_experiment.is_jd_only(policy):
-        payload=jd_experiment.payload(inv,jd,role,group,pending,retry_reasons,previous_candidates,
-            alignment if alignment is not None else jd_experiment.alignment(jd,[]),policy)
+        targets=alignment if alignment is not None else jd_experiment.alignment(jd,[])
+        # The source-term guard rejects technologies this experience never used,
+        # so only offer JD terms the experience's own text supports.
+        allowed=source_technologies(' '.join([*group.get('context',[]),*(b['source_text'] for b in group['bullets'])]))
+        targets={**targets,'supported_jd_targets':[target for target in targets['supported_jd_targets']
+            if source_keyword_support(' '.join(allowed),target['keyword'])]}
+        payload=jd_experiment.payload(inv,jd,role,group,pending,retry_reasons,previous_candidates,targets,policy)
+        payload['allowed_source_technologies']=allowed
+        payload.setdefault('acceptance_criteria',{})['source_technologies']=(
+            'Name only technologies, tools, frameworks and platforms listed in allowed_source_technologies '
+            'for this experience; any other catalogued technology term is rejected and the source bullet is kept.')
         period=role_period(group)
         payload['technology_period']={'start':period[0].isoformat(),'end':period[1].isoformat()} if period else None
         payload['role_late_technologies']=[item['technology'] for item in late_technologies(jd,period)]
@@ -1537,11 +1567,13 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
                     record['rewritten_text']=record['source_text']
             if titles:
                 before_titles=[p.text for p in doc.paragraphs]
-                optimizer.replace_job_titles(doc,role)
+                optimizer.replace_job_titles(doc,role,max_titles=options['replace_job_title_count'])
                 report['title_changes']=[{'paragraph_index':i,'source':before_titles[i],'output':p.text}
                     for i,p in enumerate(doc.paragraphs) if before_titles[i]!=p.text]
+                report['title_guard']=deepcopy(getattr(optimizer,'last_title_guard',[]))
+                report['title_limit']=deepcopy(getattr(optimizer,'last_title_limit',[]))
             else:
-                report['title_changes']=[]
+                report['title_changes']=[];report['title_guard']=[];report['title_limit']=[]
             for record in records:
                 if record['status'] in {'candidate','accepted'}:
                     optimizer._replace_paragraph_text(doc.paragraphs[record['paragraph_index']],record['rewritten_text'])
@@ -1682,11 +1714,14 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
         _write_json(root/'match-report.json',report)
         _write_json(root/'optimized.match_report.json',report)
         try:
-            _render_page_images(root)
+            notify('preview_rendering')
+            report['page_images'] = _render_page_images(root)
+            report['page_images_unavailable'] = bool(report['page_images'] and report['page_images']['status'] != 'complete')
         except (ImportError, RuntimeError, OSError):
             report['page_images_unavailable']=True
-            _write_json(root/'match-report.json',report)
-            _write_json(root/'optimized.match_report.json',report)
+        notify('finalizing')
+        _write_json(root/'match-report.json',report)
+        _write_json(root/'optimized.match_report.json',report)
         _comparison(root,report,records)
         files={p.name:dict(path=str(p.resolve()),sha256=sha(p.read_bytes())) for p in root.iterdir() if p.is_file() and p.name!='artifact-manifest.json'}
         manifest=dict(run_id=run_id,created_at=datetime.now(timezone.utc).isoformat(),
@@ -1702,17 +1737,14 @@ def run_all_bullets(jd, source, job_id, role, config, policy=None, title_overrid
         notify('finished', status=report['status'], accepted=report.get('coverage',{}).get('accepted',0),
                source_fallback=report.get('coverage',{}).get('source_fallback',0),
                total=report.get('coverage',{}).get('inventoried',0), eligible=report['strict_attachment_eligible'])
+    if owns_provider and hasattr(optimizer, 'client'):
+        optimizer.client.close()
     return report.get('attachment_path',str(optimized_pdf)) if report['strict_attachment_eligible'] else None
 
 
 def _render_page_images(root):
-    import pdfplumber
-    for name in ('original','optimized'):
-        path=root/(name+'.pdf')
-        if path.exists():
-            with pdfplumber.open(path) as document:
-                for number,page in enumerate(document.pages,1):
-                    page.to_image(resolution=120).save(root/f'{name}-page-{number}.png')
+    from modules.pdf_render import render_page_images
+    return render_page_images(root)
 
 
 def verify_binding(root):
@@ -1774,6 +1806,8 @@ def _comparison(root,report,records):
         value+='</table>'
     value+='<div class="panes"><section><h2>Original</h2><a href="original.docx">DOCX</a><iframe title="Original resume" src="original.pdf"></iframe></section><section><h2>Optimized draft</h2><a href="optimized.docx">DOCX</a><iframe title="Optimized draft" src="optimized.pdf"></iframe></section><section><h2>Full exact JD</h2><pre>'+esc(jd)+'</pre></section></div>'
     value+='<p>'+ ' · '.join('<a href="'+esc(p.name)+'">'+esc(p.stem)+'</a>' for p in sorted(root.glob('*-page-*.png')))+'</p>'
+    if report.get('page_images_unavailable'):
+        value+='<p>PNG previews are unavailable. The original and optimized PDFs above remain available; attachment eligibility still depends on the saved validation checks.</p>'
     value+='<h2>Coverage by stable source identity</h2><table><tr><th>ID</th><th>Before</th><th>After</th><th>Status</th><th>Reason</th><th>JD spans</th><th>Added JD keywords</th></tr>'+body+'</table><p>Run '+esc(report['run_id'])+' · <a href="artifact-manifest.json">Artifact hashes</a> · <a href="match-report.json">Report</a> · <a href="rewrite-coverage.json">Coverage</a></p>'
     value+="""<p id="binding" role="status">Artifact binding unverified in this browser. Run verify_binding before review.</p><script>
 (async()=>{const label=document.getElementById('binding');try{

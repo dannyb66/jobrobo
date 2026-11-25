@@ -148,7 +148,7 @@ class PlanningTests(unittest.TestCase):
     def test_configured_broad_ai_lane_is_second_without_reordering_existing_lanes(self):
         from config import search, search_profile
 
-        specs = build_search_plan(search_profile, search)
+        specs = [spec for spec in build_search_plan(search_profile, search) if spec.rank is None]
         self.assertEqual([spec.classic_query for spec in specs[:7]], [
             "Forward Deployed Engineer", "AI Engineer", "Senior Software Engineer",
             "Staff Software Engineer", "Principal Software Engineer",
@@ -164,7 +164,7 @@ class PlanningTests(unittest.TestCase):
         settings = dict(vars(search_profile))
         settings["manual_searches"] = [item for item in search_profile.manual_searches
                                       if item["id"] not in {"ai-engineer", "senior-engineer"}]
-        previous = build_search_plan(settings, search)
+        previous = [spec for spec in build_search_plan(settings, search) if spec.rank is None]
         added = {broad.query_id, "manual:senior-engineer"}
         self.assertEqual([s.query_id for s in specs if s.query_id not in added],
                          [s.query_id for s in previous])
@@ -195,7 +195,7 @@ class PlanningTests(unittest.TestCase):
     def test_configured_senior_lane_carries_variants_and_inherits_quota(self):
         from config import search, search_profile
 
-        specs = build_search_plan(search_profile, search)
+        specs = [spec for spec in build_search_plan(search_profile, search) if spec.rank is None]
         senior = specs[2]
         self.assertEqual(senior.query_id, "manual:senior-engineer")
         self.assertEqual(senior.quota, search.switch_number)
@@ -426,3 +426,45 @@ class RefinementTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RankedVerbatimSearchTests(unittest.TestCase):
+    def test_configured_top_five_are_the_ranked_verbatim_prompts(self):
+        from config import search, search_profile
+        specs = build_search_plan(search_profile, search)
+        self.assertEqual([spec.query_id for spec in specs[:5]], [
+            "manual:fde-title", "manual:healthcare-ai", "manual:staff-ai-platform-evals",
+            "manual:senior-applied-ai", "manual:staff-principal-agent-platform"])
+        self.assertEqual(specs[0].query_text, "Forward Deployed Engineer roles")
+        self.assertTrue(all(spec.rank is None for spec in specs[5:]))
+        self.assertEqual(specs[5].query_id, "manual:forward-deployed-engineer")
+
+    def test_ranked_manual_searches_lead_the_plan_verbatim_and_others_keep_priority_order(self):
+        from modules.search_planner import build_search_plan
+        settings = profile(dynamic_search_enabled=False, manual_searches=[
+            {"id": "old-fde", "query": "Find Forward Deployed Engineer roles focused on AI", "role_label": "Forward Deployed Engineer"},
+            {"id": "old-ai", "query": "Find AI Engineer roles", "role_label": "AI Engineer"},
+            {"id": "second", "query": "Staff AI Platform Engineer owning LLM infrastructure", "role_label": "Staff AI Platform Engineer",
+             "rank": 2, "verbatim": True},
+            {"id": "first", "query": "Forward Deployed Engineer roles", "role_label": "Forward Deployed Engineer",
+             "rank": 1, "verbatim": True},
+        ])
+        specs = build_search_plan(settings, search_config(search_terms=["Staff Software Engineer"]))
+        self.assertEqual([s.query_id for s in specs][:4], ["manual:first", "manual:second", "manual:old-fde", "manual:old-ai"])
+        self.assertEqual(specs[0].query_text, "Forward Deployed Engineer roles")
+        self.assertEqual(specs[1].query_text, "Staff AI Platform Engineer owning LLM infrastructure")
+        self.assertIn("Focus on Python", specs[2].query_text)  # unranked prompts still get the skills sentence
+        self.assertEqual(specs[-1].source, "legacy")
+
+    def test_rank_is_omitted_from_unranked_spec_dicts(self):
+        from modules.search_planner import build_search_plan
+        specs = build_search_plan(profile(dynamic_search_enabled=False, manual_searches=[
+            {"id": "a", "query": "Find AI Engineer roles"},
+            {"id": "b", "query": "Forward Deployed Engineer roles", "rank": 1, "verbatim": True}]), search_config())
+        self.assertEqual(specs[0].to_dict()["rank"], 1)
+        self.assertNotIn("rank", specs[1].to_dict())
+
+    def test_rank_and_verbatim_are_validated(self):
+        for item in ({"rank": 0}, {"rank": "1"}, {"rank": True}, {"verbatim": "yes"}, {"append_skills": False}):
+            with self.subTest(item=item), self.assertRaises(ValueError):
+                validate_profile(profile(manual_searches=[{"id": "x", "query": "Find AI Engineer roles", **item}]))

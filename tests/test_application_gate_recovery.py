@@ -93,7 +93,7 @@ class DetailRecoveryTests(unittest.TestCase):
         from modules.linkedin_job_details import wait_for_modern_details
         from test_linkedin_job_details import DetailBrowser
         browser=DetailBrowser('123')
-        browser.label.children['ancestor::a[1]'][0].attrs['componentkey']='old-binding-999'
+        browser.label.children['ancestor-or-self::a[1]'][0].attrs['componentkey']='old-binding-999'
         count=[]
         def wait_factory(driver,timeout):
             def until(predicate):
@@ -102,7 +102,7 @@ class DetailRecoveryTests(unittest.TestCase):
                 if not value:raise TimeoutException()
                 return value
             return SimpleNamespace(until=until)
-        def reselect():browser.label.children['ancestor::a[1]'][0].attrs['componentkey']='fresh-binding-123'
+        def reselect():browser.label.children['ancestor-or-self::a[1]'][0].attrs['componentkey']='fresh-binding-123'
         value=wait_for_modern_details(browser,'123',reselect=reselect,wait_factory=wait_factory)
         self.assertEqual(value['id'],'123')
         self.assertEqual(len(count),2)

@@ -97,6 +97,58 @@ class IndependentRunsTests(TestCase):
         second=self.execute(jobs,run_dir=self.root/'run')
         self.assertEqual(second['counts'],first['counts']);self.assertEqual(len(self.visited),4)
 
+    def test_post_submit_exception_retains_draft_and_continues_in_same_browser(self):
+        jobs=load_jobs(url='https://example.test/job/uncertain')+load_jobs(url='https://example.test/job/success')
+        driver=Mock(browser_backend='local',capabilities={})
+        handles=[]
+        def new_tab(_kind):
+            driver.current_window_handle='tab-'+str(len(handles)+1)
+            handles.append(driver.current_window_handle)
+        driver.switch_to.new_window.side_effect=new_tab
+        factory=Mock(return_value=driver)
+        def prepare(url,**kwargs):
+            report=self.prepared(url,**kwargs)
+            if 'uncertain' in url:
+                raise TypeError('Synthetic failure after possible Submit')
+            return report
+        with patch('modules.submit_runner.recover_verification_tabs'), \
+             patch('direct_apply.browser_factory',return_value=factory), \
+             patch('modules.submit_runner.close_browser_tab',return_value=True) as close_tab:
+            result=run_submissions(jobs,run_dir=self.root/'retained-run',config_dir=self.config,
+                output_dir=self.cache,services=self.services,
+                preparer=prepare,pause='never')
+        self.assertEqual(result['counts'],{'submission_uncertain':1,'applied':1})
+        self.assertEqual(factory.call_count,1,'An uncertain draft must keep its browser session')
+        driver.quit.assert_not_called()
+        driver.service.stop.assert_called_once()
+        close_tab.assert_called_once_with(driver,handles[1])
+        self.assertEqual(result['jobs'][0]['tab_handle'],handles[0])
+
+    def test_non_success_terminal_tabs_are_retained_in_serial_and_parallel_runs(self):
+        for workers in (1,2):
+            for status in ('duplicate','blocked','failed'):
+                with self.subTest(workers=workers,status=status):
+                    drivers=[]
+                    def factory():
+                        driver=Mock(browser_backend='local',capabilities={})
+                        driver.current_window_handle='draft-'+str(len(drivers))
+                        drivers.append(driver)
+                        return driver
+                    def prepare(url,**kwargs):
+                        return {'status':status,'blockers':['Synthetic terminal outcome'],
+                            'output_dir':str(self.root/'reports'),'resume':{}}
+                    with patch('modules.submit_runner.recover_verification_tabs'), \
+                         patch('modules.submit_runner.close_browser_tab') as close_tab:
+                        result=run_submissions(load_jobs(url='https://example.test/job/draft'),
+                            run_dir=self.root/f'retain-{workers}-{status}',config_dir=self.config,
+                            output_dir=self.cache,services=self.services,driver_factory=factory,
+                            preparer=prepare,pause='never',workers=workers)
+                    self.assertEqual(result['jobs'][0]['status'],
+                        'failed_before_submit' if status=='failed' else status)
+                    self.assertTrue(drivers)
+                    for driver in drivers:driver.quit.assert_not_called()
+                    close_tab.assert_not_called()
+
     def test_retry_execution_preserves_parent_files(self):
         jobs=load_jobs(url='https://example.test/job/1')
         parent=SubmitRun(self.root/'parent',jobs=jobs)

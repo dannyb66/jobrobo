@@ -8,6 +8,7 @@ import time
 from .generic_prepare import PreparationBrowser, GUARD_JS, FINAL, NEXT, canonical_url, fingerprint, _resume_field, extract_job, email_verification_required, _accepted_upload_response
 from .external_apply import missing_required, identify_ats, confirmation_identity, _confirmed, ExternalApplicationResult
 from .submit_state import now
+from .portal_outcomes import explicit_portal_rejection, portal_messages
 
 
 class SubmissionBrowser(PreparationBrowser):
@@ -146,7 +147,7 @@ def complete_email_verification(browser, *, timeout=120, wait=time.sleep):
     return code
 
 
-SOLVE_ATTEMPT_LIMIT = 3
+SOLVE_ATTEMPT_LIMIT = 6
 
 
 def _refresh_submit(browser, report, run, job):
@@ -408,7 +409,8 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
             if getattr(browser.driver,'browser_backend',None)=='kernel':
                 state['challenge']=state.get('challenge') or browser.driver.challenges.page_active(browser.driver.page)
             current_url = browser.driver.current_url
-            fresh = {**state, 'headings': [h for h in state.get('headings', []) if h not in baseline]}
+            fresh = {**state, **{field:[h for h in state.get(field, []) if h not in baseline]
+                                for field in ('headings','alerts')}}
             scoped = (_identity_ok(current_url, report['resolved_url'], allow_local=browser.allow_local) and
                       any(_identity_ok(state['url'], u, allow_local=browser.allow_local) for u in expected_urls))
             guard = browser.driver.execute_script('return window.__jobroboPrepare?{activated:window.__jobroboPrepare.finalActivated,document:window.__jobroboPrepare.documentId}:null')
@@ -420,16 +422,18 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                 run.update(job,status='submission_uncertain',stage='external_submission_pending',retryable=False,
                            external_submission_pending=True,reason=reason)
                 return {'status':'submission_uncertain','external_submission_pending':True,'blockers':[reason]}
-            if (claimed and possible_activation and scoped and not state.get('challenge')
-                    and any(re.search(r'error verifying your application', m, re.I) for m in fresh_messages)):
+            rejection = explicit_portal_rejection(fresh)
+            if claimed and possible_activation and scoped and rejection:
                 # Lever refused its own server-side verification. Nothing was
                 # accepted, so fail fast and retryable instead of waiting out
                 # the confirmation window as an uncertain outcome.
-                reason = 'Employer could not verify the submitted application'
+                reason = rejection
                 ledger.reconcile(job['url'], attempt_id, applied=False, reason=reason)
                 run.update(job, status='failed_before_submit', stage='portal_rejected_verification', retryable=True,
                            reason=reason, reconciliation={'source': 'retained_portal_message', 'at': now()})
-                return {'status': 'failed_before_submit', 'blockers': [reason], 'pre_submit_retryable': True}
+                return {'status': 'failed_before_submit', 'blockers': [reason], 'pre_submit_retryable': True,
+                        'portal_rejection':reason,
+                        'rejection_evidence':{'messages':portal_messages(fresh),'observed_at':now()}}
             if claimed and possible_activation and scoped and not state.get('challenge') and portal_duplicate:
                 outcome.status='duplicate';outcome.reason='Portal reports an existing application'
                 ledger.record_aliases(outcome,aliases,job['id'])
@@ -449,14 +453,12 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                 # let the loop re-judge, rather than timing out on the prompt.
                 from . import captcha_solver
                 if captcha_solver.enabled():
-                    # One bounded solve cycle per Submit, including its single
-                    # rejected-board retry. Never restart it on every poll.
+                    # All solve cycles and rejected-board retries share the
+                    # same bounded attempt budget for this job.
                     solver_attempted_after_submit = True
                     run.update(job, status='submitting', stage='captcha_after_submit')
                     solved_from = time.monotonic()
-                    # Two independent attempts: a vendor rejection is often a bad
-                    # board, and a second fresh solve re-deals it far more cheaply
-                    # than five rounds inside one exhausted window.
+                    # A fresh solve can re-deal a rejected board within that budget.
                     outcome_record = captcha_solver.solve(browser.driver)
                     solve_attempts += 1
                     # Hard ceiling per job. The confirmation loop re-enters this
@@ -488,6 +490,10 @@ def submit_ready(browser, report, root, *, job, run, ledger, attempt_id, pause='
                         # when the job ends.
                         run.update(job, captcha_debug=outcome_record['debug'])
                     run.update(job, captcha_event=captcha_solver.describe(outcome_record))
+                    if outcome_record.get('terminal') or outcome_record.get('status') in {'budget_exhausted','abandoned','blocked'}:
+                        return {'status':'submission_uncertain',
+                                'blockers':['CAPTCHA stopped: '+outcome_record.get('status','terminal_failure')],
+                                'challenge':outcome_record}
                     # A frame that leaves before the solver can confirm reports
                     # no_challenge, and a "cleared" verdict can be false: hCaptcha
                     # sometimes closes the widget without ever issuing a token.

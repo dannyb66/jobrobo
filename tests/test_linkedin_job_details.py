@@ -63,7 +63,7 @@ class DetailBrowser:
         self.job = Node(attrs={"id": "JobDetails_AboutTheJob_" + job_id}, children={"[data-testid='expandable-text-box']": [self.box]})
         self.company = Node("About the company\nExample", attrs={"textContent": "About the company Example Staffing and Recruiting. Full employer description."})
         anchor = Node("Example", attrs={"href": "https://www.linkedin.com/company/example/life/", "componentkey": "auto-binding-fixture-" + job_id})
-        self.label = Node(attrs={"aria-label": "Company, Example."}, children={"ancestor::a[1]": [anchor]})
+        self.label = Node(attrs={"aria-label": "Company, Example."}, children={"ancestor-or-self::a[1]": [anchor]})
         self.apply = Node("Easy Apply")
         self.root = Node(children={
             "[id^='JobDetails_AboutTheJob_']": [self.job],
@@ -156,7 +156,7 @@ class ModernDetailReaderTests(unittest.TestCase):
         self.browser.apply.click.assert_not_called()
 
     def test_company_identity_requires_linkedin_company_url(self):
-        self.browser.label.children["ancestor::a[1]"][0].attrs["href"] = "https://example.com/company/example"
+        self.browser.label.children["ancestor-or-self::a[1]"][0].attrs["href"] = "https://example.com/company/example"
         with self.assertRaises(ValueError):
             read_modern_details(self.browser)
 
@@ -172,7 +172,7 @@ class ModernDetailReaderTests(unittest.TestCase):
             read_modern_details(self.browser, '123')
 
     def test_header_for_another_job_cannot_pass_with_a_retained_description_section(self):
-        self.browser.label.children["ancestor::a[1]"][0].attrs["componentkey"] = "auto-binding-fixture-999"
+        self.browser.label.children["ancestor-or-self::a[1]"][0].attrs["componentkey"] = "auto-binding-fixture-999"
         self.assertFalse(modern_details_ready(self.browser, "123"))
         with self.assertRaises(ValueError):
             read_modern_details(self.browser, "123")
@@ -339,6 +339,19 @@ class ModernDetailRunnerTests(unittest.TestCase):
         self.namespace["about_company_good_words"] = ["Example"]
         self.namespace["check_blacklist"](set(), "123", "Example", set())
 
+    def test_agency_industry_gate_runs_only_when_flag_enabled(self):
+        from modules.agency_filter import AgencyExcluded
+        self.namespace.update(about_company_bad_words=[], about_company_good_words=[])
+        extract_functions(self.namespace, "check_blacklist")
+        self.namespace["check_blacklist"](set(), "123", "Example", set())
+        self.namespace["exclude_agencies_run"] = True
+        rejected, companies = set(), set()
+        with self.assertRaises(AgencyExcluded):
+            self.namespace["check_blacklist"](rejected, "123", "Example", companies)
+        self.assertEqual((rejected, companies), ({"123"}, {"Example"}))
+        self.namespace["agency_allow_names"] = ["Example"]
+        self.namespace["check_blacklist"](set(), "123", "Example", set())
+
 
 class DetailDOMElement(DOMElement):
     def get_attribute(self, name):
@@ -408,6 +421,23 @@ class ObservedModernDetailDOMTests(unittest.TestCase):
             anchor.set("href", browser.current_url)
         details = read_modern_details(browser, "123")
         self.assertEqual((details["workplace_type"], details["employment_type"]), ("Hybrid", "Full-time"))
+        self.assertEqual(browser.clicks, [])
+
+    def test_company_label_on_the_anchor_itself_binds_to_the_selected_job(self):
+        # Observed 2026-11-18: "Company, <name>." now sits on the company <a>
+        # (componentkey auto-binding-...-<job id>) instead of a child div.
+        browser = DetailDOMBrowser()
+        company_anchor = browser.root.xpath("//a[starts-with(@componentkey,'auto-binding-')]")[0]
+        labelled = company_anchor.xpath(".//*[starts-with(@aria-label,'Company,')]")[0]
+        company_anchor.set("aria-label", labelled.get("aria-label"))
+        del labelled.attrib["aria-label"]
+        self.assertEqual(browser.root.xpath("//a[starts-with(@componentkey,'auto-binding-')]//*[@aria-label]"), [])
+        details = read_modern_details(browser, "123")
+        self.assertEqual((details["id"], details["company"], details["title"]), ("123", "Example", "Staff Platform Engineer"))
+        self.assertTrue(modern_details_ready(browser, "123"))
+        company_anchor.set("componentkey", "auto-binding-fixture-999")
+        with self.assertRaisesRegex(ValueError, "does not match the selected LinkedIn job ID"):
+            read_modern_details(browser, "123")
         self.assertEqual(browser.clicks, [])
 
     def test_stripping_all_view_markers_keeps_semantic_detail_readers_scoped(self):

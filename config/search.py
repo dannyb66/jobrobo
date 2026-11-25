@@ -55,7 +55,7 @@ easy_apply_only = True             # Legacy fallback when application_mode is ab
 
 experience_level = []              # (multiple select) "Internship", "Entry level", "Associate", "Mid-Senior level", "Director", "Executive"
 job_type = ["Full-time"]           # (multiple select) "Full-time", "Part-time", "Contract", "Temporary", "Volunteer", "Internship", "Other"
-on_site = ["Remote", "Hybrid"]     # (multiple select) "On-site", "Remote", "Hybrid"
+on_site = ["Remote", "Hybrid", "On-site"]  # (multiple select) "On-site", "Remote", "Hybrid"
 
 companies = []                     # (dynamic multiple select) make sure the name you type in list exactly matches with the company name you're looking for, including capitals. 
                                    # Eg: "7-eleven", "Google","X, the moonshot factory","YouTube","CapitalG","Adometry (acquired by Google)","Meta","Apple","Byte Dance","Netflix", "Snowflake","Mineral.ai","Microsoft","JP Morgan","Barclays","Visa","American Express", "Snap Inc", "JPMorgan Chase & Co.", "Tata Consultancy Services", "Recruiting from Scratch", "Epic", and so on...
@@ -88,6 +88,14 @@ about_company_bad_words = ["Crossover", "Recruiting Agency", "Contract-to-hire"]
 
 # Skip checking for `about_company_bad_words` for these companies if they have these good words in their 'About Company' section... [Exceptions, For example, I want to apply to "Robert Half" although it's a staffing company]
 about_company_good_words = []      # (dynamic multiple search) or leave empty as []. Ex: ["Robert Half", "Dice"]
+
+# Used only with `--exclude-agencies` on `runAiBot.py --configured-search-and-apply`.
+# Built-in detection skips staffing agencies and job aggregators by company name, LinkedIn's
+# "Staffing and Recruiting" industry, and third-party JD language ("on behalf of our client").
+# IT consultancies/outsourcers are NOT excluded by default; list any you want skipped here.
+agency_extra_names = []            # Ex: ["Cognizant", "Fractal"] (exact company names, case-insensitive)
+# Never treat these employers as agencies, even if a signal matches.
+agency_allow_names = []            # Ex: ["Paraform"]
 
 # Avoid applying to these companies if they have these bad words in their 'Job Description' section...  (In development)
 bad_words = ["US Citizen","USA Citizen","No C2C", "No Corp2Corp"]                     # (dynamic multiple search) or leave empty as []. Case Insensitive. Ex: ["word_1", "phrase 1", "word word", "polygraph", "US Citizenship", "Security Clearance", ".NET", "Embedded Programming", "PHP", "Ruby", "CNC"]

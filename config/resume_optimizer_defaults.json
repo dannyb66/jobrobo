@@ -18,6 +18,7 @@
     "rewrite_bullet_hard_min_fill_ratio": 0.8,
     "rewrite_bullet_target_fill_ratio": 0.97,
     "replace_job_title": true,
+    "replace_job_title_count": 2,
     "rewrite_bullets": true,
     "optimization_mode": "full",
     "content_policy": "grounded",

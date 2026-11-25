@@ -158,3 +158,92 @@ class TechnologyDatesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LLMEraGuardTest(unittest.TestCase):
+    """Observed 2026-11-18: LLM-era vocabulary and titles landed in 2016-2022 roles."""
+
+    def group(self, period):
+        inventory = fixtures.inv(1, 1)
+        group = inventory["groups"][0]
+        group["historical_title_dates"] = [f"Engineer\t{period}"]
+        return inventory, group
+
+    def test_llm_era_vocabulary_is_blocked_before_it_existed(self):
+        _, old = self.group("January 2016 - January 2018")
+        for text in ("Shipped an LLM exception-triage workflow into relay operations",
+                     "Deployed AI agents to draft automated tests and release notes",
+                     "Built a RAG pipeline over CDC streams on GCP Vertex AI",
+                     "Profiled the multi-agent orchestration layer in Python",
+                     "Fine-tuned large language models for triage"):
+            with self.subTest(text=text):
+                self.assertIsNotNone(dates.claim_issue(text, old))
+        _, mid = self.group("January 2020 - January 2022")
+        self.assertIn("Claude Code", dates.claim_issue("Rebuilt services using Claude Code and Cowork", mid))
+        self.assertIsNotNone(dates.claim_issue("Used ChatGPT and GPT-4 for triage", mid))
+
+    def test_established_terms_and_titles_remain_allowed(self):
+        _, old = self.group("January 2016 - January 2018")
+        for text in ("Used Kubernetes, Docker, embeddings and transformers",
+                     "Served as Forward Deployed Engineer embedded with customers",
+                     "Built agent-based simulations with multi-agent systems research",
+                     "Trained a language model with Python"):
+            with self.subTest(text=text):
+                self.assertIsNone(dates.claim_issue(text, old))
+
+    def test_catalogue_patterns_match_phrases(self):
+        rows = [(("Example",), (r"multi-agent\s+orchestration",), date(2023, 1, 1), "")]
+        period = (date(2016, 1, 1), date(2018, 1, 31))
+        self.assertEqual([item["technology"] for item in dates.late_technologies(
+            "Profiled multi-agent orchestration", period, rows)], ["Example"])
+        self.assertEqual(dates.late_technologies("multi-agent systems", period, rows), [])
+
+    def test_title_guard_keeps_historical_title_when_jd_title_postdates_role(self):
+        from modules.ai.resume_optimizer import ResumeOptimizer
+        optimizer = object.__new__(ResumeOptimizer)
+        doc = Document()
+        doc.add_heading("PROFESSIONAL EXPERIENCE", 1)
+        doc.add_paragraph("RIVIGO\tGurgaon")
+        doc.add_paragraph("Senior Software Engineer\tJanuary 2016 - January 2018")
+        doc.add_paragraph("ACME\tSan Francisco")
+        doc.add_paragraph("Engineer\tJune 2024 - Present")
+        doc.add_paragraph("OLDER COMPANY\tRemote")
+        doc.add_paragraph("Software Engineer\tJanuary 2020 - January 2021")
+        optimizer.replace_job_titles(doc, "Lead AI Engineer, LLM Systems")
+        texts = [p.text for p in doc.paragraphs]
+        self.assertIn("Senior Software Engineer\tJanuary 2016 - January 2018", texts)
+        self.assertTrue(any(t.startswith("Lead AI Engineer, LLM Systems\tJune 2024") for t in texts))
+        self.assertIn("Software Engineer\tJanuary 2020 - January 2021", texts)
+        kept = optimizer.last_title_guard
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0]["source_title"], "Senior Software Engineer")
+        self.assertEqual([item["technology"] for item in kept[0]["late"]], ["LLM"])
+        self.assertEqual(len(optimizer.last_title_limit), 1)
+        self.assertEqual(optimizer.last_title_limit[0]["source_title"], "Software Engineer")
+
+    def test_synthetic_policy_blocks_terms_absent_from_experience_source(self):
+        inventory, group = self.group("January 2022 - May 2023")
+        requested = inventory["bullets"]
+        response = fixtures.response({"experience_id": "0", "requested_bullets": requested})
+        response["results"][0]["rewritten_text"] = (
+            "Built Kubernetes services with Python through customer workflow development")
+        result = bullets.validate_response(response, group, requested,
+                                           content_policy="synthetic_jd_test")["0"]
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("unsupported source technology/concept: Kubernetes", result["reason"])
+        group["context"] = ["Platform team running Kubernetes clusters"]
+        result = bullets.validate_response(response, group, requested,
+                                           content_policy="synthetic_jd_test")["0"]
+        self.assertEqual(result["status"], "candidate")
+
+    def test_synthetic_payload_restricts_vocabulary_to_experience_source(self):
+        inventory, group = self.group("January 2022 - May 2023")
+        requested = inventory["bullets"]
+        alignment = bullets.jd_experiment.alignment("Python Kubernetes LLM", ["Python", "Kubernetes", "LLM"])
+        payload = bullets.compact_payload(inventory, "Python Kubernetes LLM", "Engineer",
+                                          "synthetic_jd_test", group, requested, alignment=alignment)
+        self.assertEqual(payload["allowed_source_technologies"], ["Python"])
+        row = payload["requested_bullets"][0]
+        self.assertEqual(row["jd_keyword_opportunities"], ["Python"])
+        self.assertTrue(set(row["assigned_jd_focus"]) <= {"Python"})
+        self.assertIn("source_technologies", payload["acceptance_criteria"])

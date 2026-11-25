@@ -1,4 +1,5 @@
 import unittest
+import re
 from pathlib import Path
 from docx import Document
 from docx.shared import Pt, Inches
@@ -347,11 +348,36 @@ class ResumeRewritingRegressionTest(unittest.TestCase):
         self.assertEqual(paragraph.text, "New sentence")
         self.assertNotIn("old linked words", paragraph._p.xml)
 
-    def test_full_title_replacement_stops_before_projects(self):
+    def test_default_title_replacement_changes_first_two_work_entries_only(self):
         doc = synthetic_resume(include_projects=True)
         self.optimizer.replace_job_titles(doc, "Principal Engineer")
-        self.assertTrue(any(p.text.startswith("Principal Engineer\t") for p in doc.paragraphs))
+        experience = False
+        titles = []
+        for paragraph in doc.paragraphs:
+            text = paragraph.text.strip()
+            if text.upper() in {"PROFESSIONAL EXPERIENCE", "WORK EXPERIENCE", "EXPERIENCE"}:
+                experience = True
+                continue
+            if self.optimizer._is_resume_section(paragraph):
+                experience = False
+            if experience and re.match(r".*\t[A-Za-z]+ \d{4}", text):
+                titles.append(text)
+        self.assertEqual(sum(title.startswith("Principal Engineer\t") for title in titles), 2)
+        self.assertEqual(titles[2], "Software Engineer\tJanuary 2020 - Present")
         self.assertEqual(sum(p.text.startswith("Founder\t") for p in doc.paragraphs), 4)
+        self.assertEqual(len(self.optimizer.last_title_limit), 1)
+
+    def test_explicit_unlimited_title_replacement_stops_before_projects(self):
+        doc = synthetic_resume(include_projects=True)
+        self.optimizer.replace_job_titles(doc, "Principal Engineer", max_titles=None)
+        experience_titles = [p.text for p in doc.paragraphs if p.text.startswith("Principal Engineer\t")]
+        self.assertEqual(len(experience_titles), 3)
+        self.assertEqual(sum(p.text.startswith("Founder\t") for p in doc.paragraphs), 4)
+
+    def test_title_replacement_limit_must_be_positive_integer_or_none(self):
+        for value in (0, -1, True, 1.5, "2"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.optimizer.replace_job_titles(synthetic_resume(), "Principal Engineer", max_titles=value)
 
     def test_title_replacement_supports_each_recognized_experience_heading(self):
         for heading in ("PROFESSIONAL EXPERIENCE", "WORK EXPERIENCE", "EXPERIENCE"):
