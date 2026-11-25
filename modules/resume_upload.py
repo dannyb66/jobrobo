@@ -3,6 +3,10 @@
 from pathlib import Path
 from copy import deepcopy
 from contextlib import nullcontext
+import hashlib
+import re
+import shutil
+import unicodedata
 
 
 class ResumeUploadError(RuntimeError):
@@ -25,12 +29,57 @@ def verify_source_resume(source_path, pdf_path):
     return bool(report["passed"])
 
 
+def optimized_upload_filename(first_name, last_name, job_title, company_name):
+    """Build a filesystem-safe LinkedIn attachment name from job context."""
+    def component(value, maximum):
+        value = unicodedata.normalize("NFKC", str(value or ""))
+        value = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]', " ", value)
+        value = re.sub(r"\s+", " ", value).strip(" .-")
+        return value[:maximum].rstrip(" .-")
+
+    first = component(first_name, 40)
+    last = component(last_name, 40)
+    full_name = component(f"{first} {last}" if first and last else "", 80)
+    role = component(job_title, 80)
+    company = component(company_name, 60)
+    if not all((full_name, role, company)):
+        return ""
+    return f"{full_name} - {role} - {company}.pdf"
+
+
+def named_optimized_upload_copy(path, first_name, last_name, job_title, company_name, job_id):
+    """Copy a verified optimized PDF to its descriptive LinkedIn upload name."""
+    source = Path(path).resolve()
+    filename = optimized_upload_filename(first_name, last_name, job_title, company_name)
+    if not filename:
+        return source
+    target = source.with_name(filename)
+    if target == source:
+        return source
+
+    source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    if target.exists():
+        if target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() == source_digest:
+            return target
+        job_tag = re.sub(r"[^A-Za-z0-9-]+", "", str(job_id or ""))[:32]
+        suffix = f" - {job_tag}" if job_tag else ""
+        target = source.with_name(f"{Path(filename).stem}{suffix} - {source_digest[:8]}.pdf")
+        if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() == source_digest:
+            return target
+
+    shutil.copy2(source, target)
+    if hashlib.sha256(target.read_bytes()).hexdigest() != source_digest:
+        target.unlink(missing_ok=True)
+        raise ResumeUploadError("Named optimized resume copy failed integrity verification")
+    return target
+
+
 def upload_verified_resume(modal, resume_path, job_description, job_id,
                            job_title="job", first_name="first", last_name="last",
                            *, optimize, verify_source=verify_source_resume, log=None,
                            rewrite_all_bullets=None, rewrite_experience_concurrency=None,
                            source_checks_enabled=None, runtime_config_override=None,
-                           on_attached=None):
+                           on_attached=None, company_name=""):
     """Return success only after Selenium attaches a verified PDF.
 
     The optimizer's returned path has passed its verifier. If optimization or
@@ -44,7 +93,11 @@ def upload_verified_resume(modal, resume_path, job_description, job_id,
             except Exception:
                 pass
 
-    def attach(path):
+    def attach(path, *, optimized=False):
+        if optimized:
+            path = named_optimized_upload_copy(path, first_name, last_name, job_title,
+                                               company_name, job_id)
+            report(f'[Resume {job_id}] LinkedIn attachment filename: {path.name}')
         report(f'[Resume {job_id}] Uploading verified PDF to LinkedIn')
         modal.find_element("name", "file").send_keys(str(path.resolve()))
         if on_attached is not None:
@@ -117,7 +170,7 @@ def upload_verified_resume(modal, resume_path, job_description, job_id,
                             return False, "Strict rewrite incomplete"
                         if cache and store_cached_resume(cache, fingerprint, path):
                             report(f'[Resume {job_id}] Saved verified optimized resume for reuse on this exact job and configuration')
-                    return attach(path)
+                    return attach(path, optimized=True)
         report(f"Optimized resume unavailable for Job ID {job_id}." +
                (" See the optimization failure above." if strict else " Checking the source PDF."))
     except Exception as exc:

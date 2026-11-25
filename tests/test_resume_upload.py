@@ -4,7 +4,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from modules.resume_upload import ResumeUploadError, upload_verified_resume, verify_source_resume
+from modules.resume_upload import (ResumeUploadError, named_optimized_upload_copy,
+                                   optimized_upload_filename, upload_verified_resume,
+                                   verify_source_resume)
 
 
 class VerifiedResumeUploadTest(unittest.TestCase):
@@ -38,6 +40,30 @@ class VerifiedResumeUploadTest(unittest.TestCase):
         self.file_input.send_keys.assert_called_once_with(str(self.optimized.resolve()))
         self.assertEqual(optimize.call_args.kwargs["job_title"], "Staff Engineer")
         self.verify.assert_not_called()
+
+    def test_optimized_upload_uses_named_copy_with_name_role_and_company(self):
+        optimize = Mock(return_value=str(self.optimized))
+        result = upload_verified_resume(
+            self.modal, str(self.source), "JD", "123", "Staff Engineer",
+            "Test", "Candidate", optimize=optimize, verify_source=self.verify,
+            company_name="Acme / Labs",
+        )
+        expected = self.optimized.with_name("Test Candidate - Staff Engineer - Acme Labs.pdf")
+        self.assertEqual(result, (True, expected.name))
+        self.file_input.send_keys.assert_called_once_with(str(expected.resolve()))
+        self.assertEqual(expected.read_bytes(), self.optimized.read_bytes())
+        self.assertEqual(self.optimized.read_bytes(), b"verified output pdf")
+
+    def test_upload_filename_is_safe_and_requires_all_context(self):
+        self.assertEqual(
+            optimized_upload_filename("Test", "Candidate", "Staff/Principal Engineer", "Acme: Labs"),
+            "Test Candidate - Staff Principal Engineer - Acme Labs.pdf",
+        )
+        self.assertEqual(optimized_upload_filename("Test", "", "Engineer", "Acme"), "")
+        copied = named_optimized_upload_copy(
+            self.optimized, "Test", "Candidate", "Staff Engineer", "Acme", "123")
+        self.assertEqual(copied.name, "Test Candidate - Staff Engineer - Acme.pdf")
+        self.assertEqual(copied.read_bytes(), self.optimized.read_bytes())
 
     def test_upload_phase_failure_is_preserved_for_job_diagnostics(self):
         reason = 'Resume upload timed out while waiting for the exact uploaded PDF; uploading observed: True'
@@ -135,6 +161,7 @@ class VerifiedResumeUploadTest(unittest.TestCase):
         call=namespace['upload_optimized_resume'].call_args
         self.assertEqual(call.args,(modal,str(self.source),'JD','123','Staff Engineer','Test','Candidate'))
         self.assertTrue(callable(call.kwargs['on_attached']))
+        self.assertEqual(call.kwargs['company_name'], '')
 
     def test_later_job_reattaches_configured_pdf_before_ai_prose(self):
         namespace = self.bot_preparation(True)

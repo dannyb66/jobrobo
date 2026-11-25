@@ -603,7 +603,7 @@ def upload_resume(modal: WebElement, resume: str) -> tuple[bool, str]:
     except: return False, "Previous resume"
 
 # Function to upload optimized resume using run_resume_optimization function from resume_optimizer.py similar logic to upload_resume function
-def upload_optimized_resume(modal: WebElement, resume_path: str, job_description: str, job_id: str, job_title: str = "job", first_name: str = "first", last_name: str = "last", *, on_attached=None) -> tuple[bool, str]:
+def upload_optimized_resume(modal: WebElement, resume_path: str, job_description: str, job_id: str, job_title: str = "job", first_name: str = "first", last_name: str = "last", *, company_name="", on_attached=None) -> tuple[bool, str]:
     from modules.linkedin_job_details import _url_job_id
     def current_upload_modal():
         if _url_job_id(driver.current_url)!=str(job_id):
@@ -620,7 +620,7 @@ def upload_optimized_resume(modal: WebElement, resume_path: str, job_description
     return upload_verified_resume(
         target, resume_path, job_description, job_id, job_title, first_name, last_name,
         optimize=run_resume_optimization, log=lambda message: print_lg(message, flush=True),
-        on_attached=on_attached,
+        company_name=company_name, on_attached=on_attached,
     )
 
 # Function to answer common questions for Easy Apply
@@ -2173,7 +2173,8 @@ def prepare_easy_apply(job_id, title, description, work_location, *, allow_manua
         if use_AI_for_resume and not uploaded and upload_target is not None:
             options = {'on_attached': attached}
             uploaded, resume = upload_optimized_resume(
-                upload_target, default_resume_docx_path, description, job_id, title, first_name, last_name, **options)
+                upload_target, default_resume_docx_path, description, job_id, title, first_name, last_name,
+                company_name=company, **options)
             if not uploaded:
                 raise ResumeUploadError(resume or "No verified resume was attached; discarding application.")
         elif not use_AI_for_resume and (useNewResume or draft_enabled) and not uploaded:
@@ -2699,8 +2700,7 @@ def execute_search_plan(manifest, *, selected_jobs=None, result_sink=None, job_l
                                 retain_job(job_id, title, company, description, spec, 'started')
                             try:
                                 preparation_options = {'allow_manual_correction': False} if prepare_only else {}
-                                if globals().get('ai_cover_letter_enabled', False) or globals().get('ai_descriptive_answers_enabled', False):
-                                    preparation_options['company'] = company
+                                preparation_options['company'] = company
                                 modal, questions_list, uploaded, resume = prepare_easy_apply(
                                     job_id, title, description, work_location, **preparation_options)
                                 if preparation_report is not None:

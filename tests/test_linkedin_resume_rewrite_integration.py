@@ -235,7 +235,9 @@ class LinkedInRewriteIntegrationTests(TestCase):
         self.assertLess(harness.events.index('Submit application'), harness.events.index('receipt'))
         harness.namespace['wait_for_submission_confirmation'].assert_called_once_with(
             harness.browser, '123', baseline=set())
-        self.assertEqual(harness.namespace['resume_artifact_paths']['123']['pdf'], str(pdf.resolve()))
+        attached_pdf = pdf.with_name('Test Candidate - Engineer - Example.pdf')
+        self.assertEqual(harness.namespace['resume_artifact_paths']['123']['pdf'], str(attached_pdf.resolve()))
+        self.assertEqual(attached_pdf.read_bytes(), pdf.read_bytes())
         self.assertEqual(harness.visited, ['123'])
         self.assertEqual(manifest.query(search.query_id)['applied_count'], 1)
         self.assertEqual(manifest.query(search.query_id)['jobs']['123']['status'], 'applied')
@@ -265,7 +267,9 @@ class LinkedInRewriteIntegrationTests(TestCase):
         self.assertEqual(harness.namespace['resume_artifact_paths']['123']['content_policy'], 'synthetic_jd_test')
         harness.namespace['wait_for_submission_confirmation'].assert_called_once_with(
             harness.browser, '123', baseline=set())
-        self.assertEqual(harness.namespace['resume_artifact_paths']['123']['pdf'], str(pdf.resolve()))
+        attached_pdf = pdf.with_name('Test Candidate - Engineer - Example.pdf')
+        self.assertEqual(harness.namespace['resume_artifact_paths']['123']['pdf'], str(attached_pdf.resolve()))
+        self.assertEqual(attached_pdf.read_bytes(), pdf.read_bytes())
         self.assertEqual(harness.visited, ['123'])
         self.assertEqual(manifest.query(search.query_id)['applied_count'], 1)
         self.assertEqual(manifest.query(search.query_id)['jobs']['123']['status'], 'applied')
